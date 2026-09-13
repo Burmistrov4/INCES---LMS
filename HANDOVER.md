@@ -6,19 +6,27 @@
 
 ---
 
-## ⚠️ LEA ESTO PRIMERO: hay trabajo sin commitear
+## ✅ Estado del repositorio: limpio y sincronizado
 
-El último commit es `364d32b`. Desde entonces hay **29 archivos modificados y 23
-rutas sin seguimiento** en la rama `main`. Eso incluye **todo el Módulo 1**
-(invitación de docentes + auditoría de accesos) y el overhaul visual.
+**Todo el trabajo está resguardado.** El working tree está limpio y `main`
+coincide con `origin/main`.
 
 ```
-git status --short    # ver el alcance exacto antes de tocar nada
+commit 004923a85bab0c372f7b63956dccee5ad792d9db
+Autor:  Burmistrov4 <lorenzoroca333@gmail.com>
+Fecha:  2026-09-13 17:11:17 -0400
+Asunto: feat(modulo1): flujo de invitaciones docente, auditoria de accesos auth_logs y overhaul de UI
+
+55 archivos · +8.511 / −1.158
 ```
 
-**No hagas `git checkout .`, `git stash` ni `git reset --hard` sin hablarlo con
-Lorenzo.** Un solo comando destruiría semanas de trabajo. Si vas a hacer cambios
-grandes, commitea primero el estado actual como punto de restauración.
+Commiteado y subido **después** de verificar en verde: backend 171/171 + typecheck
++ lint, Flutter 110/110 + `analyze`. Puedes trabajar con tranquilidad: ya no hay
+nada sin commitear que un `git checkout` pueda destruir.
+
+Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
+`.gitignore`, así que **ninguna credencial entró al commit**. `backend/.env.example`
+sí se versiona a propósito (es la plantilla documentada, sin valores reales).
 
 ---
 
@@ -228,12 +236,13 @@ ESTADO ACTUAL
 -------------
 - Backend: 171/171 tests, typecheck y eslint limpios.
 - Flutter: 110/110 tests, `flutter analyze` sin incidencias.
+- HEAD en `main` = `004923a`, idéntico a `origin/main`. Working tree limpio.
 - Módulo 1 completo (invitación de docentes + auditoría de accesos).
 - Módulos 2-8: sólo diseño.
 - Deudas abiertas: D9 (URL prefirmada de PUT sin límite de tamaño) y
   D10 (conexión directa sólo IPv6 -> usar supabase/apply-migrations.mjs).
-- OJO: hay ~52 archivos entre modificados y sin seguimiento en la rama main.
-  NO hagas git checkout/reset sin confirmar con Lorenzo.
+- Todo resguardado en el commit 004923a; `main` está limpio y sincronizado con
+  `origin/main`. No hay trabajo pendiente de commitear.
 
 TAREA INMEDIATA
 ---------------
