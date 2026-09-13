@@ -47,6 +47,7 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
   Object? errorAlRegistrar;
   Object? errorAlPrecheck;
   Object? errorAlVincular;
+  Object? errorAlActualizarPassword;
 
   // --- AspiranteGateway ----------------------------------------------------
 
@@ -110,6 +111,12 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
   @override
   Future<void> enviarRecuperacion(String email) async {
     llamadas.add('enviarRecuperacion');
+  }
+
+  @override
+  Future<void> actualizarPassword(String password) async {
+    llamadas.add('actualizarPassword');
+    _lanzarSi(errorAlActualizarPassword);
   }
 
   @override

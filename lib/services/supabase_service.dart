@@ -97,6 +97,11 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
   }
 
   @override
+  Future<void> actualizarPassword(String password) async {
+    await auth.updateUser(UserAttributes(password: password));
+  }
+
+  @override
   Future<String?> emailPorCedula(String cedula) async {
     final respuesta = await client
         .from(_tablaPerfiles)

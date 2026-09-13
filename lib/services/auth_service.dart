@@ -100,6 +100,45 @@ class AuthService {
     });
   }
 
+  /// Define una contraseña nueva para el usuario con sesión activa.
+  ///
+  /// Cubre los dos caminos del restablecimiento:
+  ///
+  ///  - El **enlace del correo de recuperación**. Supabase redirige con el token
+  ///    en el fragmento de la URL; el SDK lo detecta al inicializarse y deja una
+  ///    sesión temporal. Si el enlace caducó, no hay sesión y esta llamada
+  ///    falla con un mensaje que lo explica, en lugar de fingir que funcionó.
+  ///  - El **cambio voluntario** desde dentro de la app.
+  ///
+  /// La validación de longitud vive aquí y no en el widget: la regla es del
+  /// dominio, y así los tests la cubren sin montar la interfaz.
+  Future<Result<bool>> restablecerPassword(String password) {
+    return Result.guard(() async {
+      if (!_gateway.tieneSesion) {
+        throw const AppException(
+          type: AppErrorType.credenciales,
+          message: 'El enlace ya no es válido. Solicita uno nuevo desde la '
+              'pantalla de inicio de sesión.',
+        );
+      }
+
+      if (password.length < _largoMinimoPassword) {
+        throw const AppException.validacion(
+          'La contraseña debe tener al menos 8 caracteres.',
+        );
+      }
+
+      if (password.trim().isEmpty) {
+        throw const AppException.validacion(
+          'La contraseña no puede estar vacía.',
+        );
+      }
+
+      await _gateway.actualizarPassword(password);
+      return true;
+    });
+  }
+
   /// Nunca interrumpe el login: si falla, se ignora.
   Future<bool> vincularFichaPendiente() async {
     try {

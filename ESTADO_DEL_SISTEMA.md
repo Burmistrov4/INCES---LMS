@@ -60,14 +60,96 @@ verificando la firma contra el proyecto. 24 comprobaciones, incluidas las que
 importan (el 401 sin sesión, el 409 de auto-degradación y el 400 de un id que no
 es UUID).
 
-**El primer administrador existe.** `lorenzoroca11@hotmail.com` está en
-`auth.users` con rol `admin` y `active = true`. Se creó con `supabase/crear-admin.mjs`,
-que lo invitó por la Auth Admin API (el trigger `handle_new_user` creó el perfil)
-y luego subió el rol.
+**Hay una sola cuenta de administrador**, y es la real de Lorenzo:
 
-> **Pendiente de su parte:** ese correo tiene una invitación sin confirmar
-> (`email_confirmed_at` es `null`). Debe entrar por el enlace del correo de
-> invitación para establecer su contraseña antes de poder iniciar sesión.
+| Correo | Estado | Nota |
+| --- | --- | --- |
+| `lorenzo-roca11@hotmail.com` | Confirmada, en uso | **La cuenta real de Lorenzo** (con guion), rol `admin`, `active = true` |
+
+Esta cuenta nació de un error de diagnóstico que conviene tener presente: en una
+captura apareció `lorenzo- roca11@hotmail.com` y se interpretó como error de dedo
+cuando **era la dirección correcta**. La cuenta original se había creado sin
+guion, y por eso Supabase no encontraba al usuario real al solicitar la
+recuperación.
+
+La cuenta sin guion (`lorenzoroca11@hotmail.com`) fue **eliminada** el
+2026-09-13 con `supabase/eliminar-cuenta.mjs`, tras comprobar que ninguna tabla
+la referenciaba. El script hace ese inventario antes de borrar y **se niega a
+proceder** si encuentra referencias: `profiles.id` es el `auth.uid()` de todas
+las políticas RLS, y borrarlo con filas apuntando a él dejaría registros colgando
+de un usuario inexistente. También verifica D8 antes de intentarlo, para no
+chocar con `proteger_ultimo_admin` y recibir un error de Postgres que no explica
+nada.
+
+> **Regla para el futuro:** un script que borra datos de producción se escribe
+> primero en modo simulación, y no escribe hasta que se le pasa `--confirmar`.
+> Borrar una cuenta no tiene papelera.
+
+**Cómo se inicia sesión:** en el campo «Cédula o Correo» se escribe el **correo
+completo**. `AuthService.iniciarSesion` detecta el `@` y salta la búsqueda por
+cédula; si no hay `@`, busca la cédula y, al no encontrarla, responde con un
+mensaje genérico a propósito (no revela si la cédula existe).
+
+## Correo transaccional: resuelto con SMTP propio (Resend)
+
+**Hallazgo con impacto directo en el TEG, y su resolución.** El proveedor de
+correo por defecto de Supabase imponía tres limitaciones a la vez: los mensajes
+salían de `no-reply@mail.app.supabase.io` (dominio genérico, marcado como spam
+con frecuencia), el límite era de **2 correos por hora**, y las plantillas
+**no se podían editar** — al intentarlo, la API respondía HTTP 400:
+
+> *«Email template modification is not available for free tier projects using
+> the default email provider. Please upgrade your plan or configure a custom
+> SMTP provider.»*
+
+Los tres síntomas parecían tres problemas («no llega», «sale en inglés», «sólo
+llegan dos»). Eran **uno solo**: el proveedor por defecto. Haberlos atacado por
+separado habría sido trabajo perdido.
+
+**Estado actual: SMTP propio activo** vía Resend, aplicado con
+`supabase/configurar-smtp.mjs` (relee la configuración tras escribirla; un `PATCH`
+puede responder 200 sin aplicar nada). Las cinco plantillas están en español con
+identidad institucional, aplicadas con `supabase/personalizar-plantillas.mjs`.
+
+| Ajuste | Valor |
+| --- | --- |
+| `smtp_host` | `smtp.resend.com:465` |
+| `smtp_user` | `resend` (la contraseña es la propia API key) |
+| `smtp_admin_email` | `lorenzoroca333@gmail.com` — **el dueño de la cuenta de Resend** |
+| `rate_limit_email_sent` | 30 (era 2) |
+
+### Límite que sigue vigente, y que conviene no confundir con un fallo
+
+**Sin un dominio verificado, Resend sólo entrega a la dirección del dueño de la
+cuenta.** Cualquier envío a otro destinatario se rechaza:
+
+```
+403 validation_error — "You can only send testing emails to your own email
+address (lorenzoroca333@gmail.com). To send emails to other recipients,
+please verify a domain at resend.com/domains"
+```
+
+Esto afecta a **todo** el sistema mientras no exista dominio: un aspirante que se
+inscriba con su correo no recibirá la confirmación, y un docente invitado tampoco.
+No es un error de configuración — la configuración es correcta y el canal funciona
+(probado contra la API de Resend: `200` con id de mensaje). Es un límite de la
+cuenta.
+
+**Consecuencia práctica:** todo el flujo de correo se puede probar hoy usando
+`lorenzoroca333@gmail.com` como destinatario. Verificar un dominio es el paso
+siguiente y desbloquea el uso real.
+
+> **Lección de verificación, anotada en el TEG.** Configurar bien un canal no es
+> lo mismo que el canal funcione. El `PATCH` de configuración respondió 200 y los
+> cinco campos se releyeron correctos, y el primer correo dio 500 igual. Un 200 de
+> escritura no es una prueba: hay que enviar algo de verdad y comprobar que llega.
+
+También se descartó configurar el SMTP a mano en el panel: un cambio manual no
+queda en el historial ni se puede revisar en un diff.
+
+> No hay credenciales por defecto ni usuario semilla en el repositorio. La
+> contraseña la fijó el propio Lorenzo y sólo él la conoce: no está escrita en
+> ningún archivo del proyecto, ni debe estarlo.
 
 ### Cómo se aplicó, y por qué no con `supabase db push`
 
@@ -77,7 +159,7 @@ y luego subió el rol.
 | Clave publicable verificada contra la nube | ✅ Válida |
 | Credenciales inyectadas en `backend/.env` y `.env.json` | ✅ Hecho |
 | Migraciones aplicadas y verificadas | ✅ **Las 4** |
-| Primer administrador creado | ✅ `lorenzoroca11@hotmail.com` |
+| Primer administrador creado | ✅ `lorenzo-roca11@hotmail.com` (rol `admin`) |
 | API probada contra la nube real | ✅ 24 / 24 comprobaciones |
 | API publicada | ❌ Pendiente (falta elegir host) |
 | Frontend publicado | ❌ Pendiente (falta dominio propio) |
@@ -373,8 +455,9 @@ curl -s http://localhost:3000/openapi.json | head # el mismo documento, en vivo
 
 | Ruta | Estado | Notas |
 | --- | --- | --- |
-| `lib/main.dart` | ✅ | `AuthGate` con `home:` y sin ruta `'/'` (la aserción de Flutter lo exige) |
-| `lib/screens/login_screen.dart` | ✅ | Consume `Result`, con enlace a inscripción |
+| `lib/main.dart` | ✅ | `AuthGate` con `home:` y sin ruta `'/'` (la aserción de Flutter lo exige). Intercepta `passwordRecovery` |
+| `lib/screens/login_screen.dart` | ✅ | Consume `Result`, con enlace a inscripción y **enlace de recuperación** |
+| `lib/screens/restablecer_password_screen.dart` | ✅ | Define la contraseña nueva; explica el enlace caducado |
 | `lib/screens/aspirante_form_screen.dart` | ✅ | Formulario con contraseña, estados de envío y validación |
 | `lib/screens/registro_exitoso_screen.dart` | ✅ | Cubre los dos desenlaces (sesión / confirmar correo) |
 | `lib/screens/admin_dashboard.dart` | ✅ | Menú lateral adaptativo (cajón por debajo de 900 px) |
@@ -546,6 +629,16 @@ URL de Supabase inexistente, no leyendo el código:
    regresión. La prueba de humo se reforzó también: antes de este arreglo
    afirmaba «el estado no es 200», que pasaba con el 500 dentro.
 
+9. **CORS sin el puerto del frontend.** `CORS_ORIGINS` listaba
+   `localhost:3000` y `localhost:8080`, pero `flutter run` **sin `--web-port`**
+   toma un puerto libre distinto en cada arranque (10443, 53211…). El frontend
+   habla directo con Supabase —que tiene su propia CORS y sí lo aceptaba— así
+   que la pantalla de login cargaba bien; el fallo aparecía después, en cada
+   llamada a la API propia, con un error de CORS en la consola del navegador.
+   Corregido por dos vías: el README fija `--web-port=8080` como obligatorio en
+   desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
+   navegador es un origen **distinto** de `localhost`).
+
 > El fallo 8 es el motivo por el que existe la prueba de humo. Las 138 pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
@@ -632,19 +725,23 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 | Elemento | Estado |
 | --- | --- |
 | Base de datos en la nube | ✅ Migrada y verificada (30/30) |
-| Primer administrador | ✅ `lorenzoroca11@hotmail.com` con rol `admin` |
+| Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | API contra la base real | ✅ 24/24 comprobaciones |
 | Contrato OpenAPI 3.1 | ✅ Generado desde Zod, con 9 pruebas de coherencia |
-| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` |
+| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `428b837`, verificado con `git ls-remote` |
 
 **Lo que queda en su tejado, en orden:**
 
-1. **Confirmar la invitación** de `lorenzoroca11@hotmail.com` (revise el correo y
-   establezca la contraseña). Sin ese paso la cuenta existe pero no puede entrar.
-2. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
+1. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
-3. **Verificar el primer arranque del frontend** contra la nube:
-   `flutter run -d chrome --dart-define-from-file=.env.json`.
+2. **Arrancar el frontend con puerto fijo** contra la nube:
+
+   ```bash
+   flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
+   ```
+
+   El `--web-port=8080` no es opcional: sin él Flutter toma un puerto libre
+   distinto en cada arranque y `CORS_ORIGINS` lo rechaza. Ver «CORS» más abajo.
 
 ### Luego: Fase 4 — M2 Currículo y M3 Cuadrante
 

@@ -48,6 +48,12 @@ abstract interface class AuthGateway {
 
   Future<void> enviarRecuperacion(String email);
 
+  /// Cambia la contraseña del usuario con sesión activa.
+  ///
+  /// Sirve para los dos caminos de restablecimiento: el enlace del correo (que
+  /// deja una sesión temporal) y el cambio voluntario desde dentro de la app.
+  Future<void> actualizarPassword(String password);
+
   /// Enlaza una ficha de aspirante huérfana (creada por el bug anterior) con la
   /// cuenta que acaba de autenticarse. `true` si reparó algo.
   Future<bool> vincularFichaPendiente();

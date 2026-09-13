@@ -12,6 +12,7 @@ import 'screens/aspirante_dashboard.dart';
 import 'screens/aspirante_form_screen.dart';
 import 'screens/docente_dashboard.dart';
 import 'screens/login_screen.dart';
+import 'screens/restablecer_password_screen.dart';
 import 'services/auth_service.dart';
 
 SupabaseClient get supabase => Supabase.instance.client;
@@ -62,6 +63,7 @@ class IncesLmsApp extends StatelessWidget {
         routes: {
           '/login': (_) => const LoginScreen(),
           '/inscripcion': (_) => const AspiranteFormScreen(),
+          '/restablecer': (_) => const RestablecerPasswordScreen(),
         },
       ),
     );
@@ -81,13 +83,27 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   StreamSubscription<bool>? _authSubscription;
+  StreamSubscription<AuthState>? _recuperacionSubscription;
   final AuthService _authService = AuthService();
   bool _isInitializing = true;
+
+  /// `true` mientras el usuario llega desde el enlace del correo de
+  /// recuperación. Tiene **prioridad sobre el rol**: hay una sesión válida, pero
+  /// es temporal y su único propósito es cambiar la contraseña. Si no se
+  /// intercepta, el enrutado por rol lo llevaría al dashboard sin dejarlo
+  /// completar el trámite.
+  bool _enRecuperacion = false;
 
   @override
   void initState() {
     super.initState();
     _authSubscription = _authService.cambiosDeSesion.listen(_onSesionCambia);
+    _recuperacionSubscription = Supabase.instance.client.auth.onAuthStateChange
+        .listen((estado) {
+      if (estado.event == AuthChangeEvent.passwordRecovery) {
+        if (mounted) setState(() => _enRecuperacion = true);
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _cargarRol());
   }
 
@@ -119,6 +135,7 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    _recuperacionSubscription?.cancel();
     super.dispose();
   }
 
@@ -149,6 +166,12 @@ class _AuthGateState extends State<AuthGate> {
 
     if (!_authService.tieneSesion) {
       return const LoginScreen();
+    }
+
+    // La recuperación gana al rol: hay sesión, pero es temporal y sólo sirve
+    // para definir la contraseña nueva.
+    if (_enRecuperacion) {
+      return const RestablecerPasswordScreen();
     }
 
     switch (roleProvider.role) {

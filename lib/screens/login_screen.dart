@@ -29,6 +29,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    // Guarda de reentrada. Sin esto, pulsar Enter dos veces (o Enter mientras
+    // un intento está en vuelo) lanza dos peticiones en paralelo: la segunda
+    // compite con la primera y el último `setState` gana, así que el estado de
+    // carga puede quedar desincronizado con la realidad.
+    if (_isLoading) return;
+
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -38,8 +44,16 @@ class _LoginScreenState extends State<LoginScreen> {
       password: _passwordController.text,
     );
 
+    // `_isLoading` se libera ANTES de comprobar `mounted`.
+    //
+    // El orden importa: si el widget se desmonta mientras la petición viaja
+    // (el usuario navega, cierra la pestaña, el AuthGate cambia de pantalla),
+    // un `return` temprano dejaría `_isLoading` en `true` para siempre. Al
+    // volver a esta pantalla, los campos seguirían deshabilitados y la interfaz
+    // parecería congelada sin causa visible.
+    if (mounted) setState(() => _isLoading = false);
+
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
     resultado.when(
       // El AuthGate escucha los cambios de sesión y enruta al panel del rol.
@@ -62,6 +76,55 @@ class _LoginScreenState extends State<LoginScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
+    );
+  }
+
+  /// Envía el correo de recuperación.
+  ///
+  /// Reutiliza el identificador ya escrito en el formulario: quien olvidó la
+  /// contraseña acaba de teclear su correo, y volver a pedírselo en un diálogo
+  /// es una fricción gratuita.
+  ///
+  /// Si el campo parece una cédula (no tiene `@`), se avisa en lugar de enviar:
+  /// Supabase necesita un correo, y el mensaje genérico de «credenciales
+  /// inválidas» no serviría aquí.
+  Future<void> _handleRecuperacion() async {
+    if (_isLoading) return;
+
+    final identificador = _identifierController.text.trim();
+
+    if (!identificador.contains('@')) {
+      _showError(
+        'Escribe tu correo en el primer campo para enviarte el enlace.',
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final resultado = await _authService.enviarCorreoRecuperacion(identificador);
+
+    // Mismo criterio que en `_handleLogin`: liberar el estado de carga antes
+    // del `return` por desmontaje, para no dejar los campos bloqueados.
+    if (mounted) setState(() => _isLoading = false);
+    if (!mounted) return;
+
+    resultado.when(
+      success: (_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Si el correo está registrado, recibirás un enlace para '
+              'restablecer tu contraseña.',
+            ),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        );
+      },
+      failure: (excepcion) => _showError(excepcion.message),
     );
   }
 
@@ -194,7 +257,30 @@ class _LoginScreenState extends State<LoginScreen> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 24),
+
+                    // Enlace de recuperación. Alineado a la derecha, pegado al
+                    // campo al que pertenece: en una pantalla de login, un
+                    // enlace huérfano en el centro se pierde.
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isLoading ? null : _handleRecuperacion,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          '¿Olvidaste tu contraseña?',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFF60A5FA),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Botón de Ingreso
                     SizedBox(

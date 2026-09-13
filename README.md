@@ -103,11 +103,20 @@ Configura `backend/.env` a partir de `backend/.env.example`. La clave **secreta*
 
 ```bash
 flutter pub get
-flutter run --dart-define-from-file=.env.json
+flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
 ```
 
 Flutter **no lee `.env` en tiempo de ejecución**: `String.fromEnvironment()` se
 resuelve al compilar, por eso la configuración viaja con `--dart-define-from-file`.
+
+`--web-port=8080` **no es opcional en desarrollo**. Sin él, `flutter run` toma un
+puerto libre cualquiera (10443, 53211…) distinto en cada arranque, y el backend lo
+rechaza porque `CORS_ORIGINS` sólo lista orígenes concretos. El síntoma es
+confuso: la pantalla carga, pero cada llamada a la API falla con un error de CORS
+en la consola del navegador. Fijando el puerto, el origen es siempre el mismo.
+
+> El login del frontend habla **directo con Supabase**, no con la API propia. Si
+> Supabase acepta la petición pero la API la rechaza, el problema es CORS.
 
 ---
 
