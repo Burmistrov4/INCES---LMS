@@ -1,0 +1,83 @@
+# ============================================================================
+#  INCES LMS — Arquitectura dual
+# ============================================================================
+#
+#  La misma imagen sirve para los dos escenarios:
+#
+#   · NUBE (contenedor gestionado: Fly.io, Railway, Render, VPS con Docker).
+#     `docker compose up -d api`
+#     Stateless: no guarda estado en disco. La sesión vive en el JWT, los datos
+#     en Supabase y los archivos en Cloudflare R2. Se puede escalar a N réplicas
+#     sin sesiones pegajosas.
+#
+#   · LOCAL (desarrollo).
+#     `docker compose --profile dev up`
+#     Levanta la API con recarga en caliente montando `src/`. Para la base de
+#     datos local se usa el CLI de Supabase (`supabase start`), que publica su
+#     API en http://localhost:54321; apunta SUPABASE_URL ahí.
+#
+#  Requisitos: Docker Compose v2.24+ (por `env_file.required`).
+# ============================================================================
+
+name: inces-lms
+
+services:
+  # --- API en modo producción (imagen final, sin código fuente) --------------
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: inces-lms-api:local
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0
+    ports:
+      - "${API_PORT:-3000}:3000"
+    restart: unless-stopped
+    # Sin volúmenes a propósito: si algo necesita disco, está mal diseñado.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/salud').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # --- API en modo desarrollo (recarga en caliente) --------------------------
+  api-dev:
+    profiles: ["dev"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: build
+    image: inces-lms-api:dev
+    command: ["npm", "run", "dev"]
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      HOST: 0.0.0.0
+      # El contenedor no puede ver el `localhost` del anfitrión: para llegar a
+      # un Supabase local hay que usar el nombre especial de Docker.
+      SUPABASE_URL: ${SUPABASE_URL_LOCAL:-http://host.docker.internal:54321}
+    ports:
+      - "${API_DEV_PORT:-3001}:3000"
+    volumes:
+      # Sólo el código: `node_modules` y `dist` se quedan dentro de la imagen.
+      - ./backend/src:/app/src:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

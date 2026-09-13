@@ -1,0 +1,13 @@
+{
+  "name": "inces-lms-supabase-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Valida las migraciones SQL del INCES LMS contra un PostgreSQL real (PGlite), sin necesidad de Docker ni de Supabase en la nube.",
+  "scripts": {
+    "test": "node validate.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

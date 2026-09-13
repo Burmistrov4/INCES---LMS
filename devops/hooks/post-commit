@@ -1,0 +1,12 @@
+#!/bin/sh
+# >>> INCES-LMS context sync >>>
+# Sincroniza contexto_proyecto.md con Google Drive tras cada commit / merge.
+# Generado por devops/install-git-hook.ps1 - no editar a mano.
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -z "$ROOT" ] && exit 0
+SYNC="$ROOT/devops/sync-to-drive.ps1"
+[ -f "$SYNC" ] || exit 0
+# Se lanza en segundo plano para no bloquear el commit.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$SYNC" -Trigger "git-hook" >/dev/null 2>&1 &
+exit 0
+# <<< INCES-LMS context sync <<<

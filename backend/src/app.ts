@@ -1,0 +1,130 @@
+import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { origenesCors, type Env } from './config/env.js';
+import type { Repositorios } from './dominio/puertos.js';
+import type { DependenciasRutas } from './http/dependencias.js';
+import { registrarAutenticacion } from './http/plugins/autenticacion.js';
+import { registrarManejadorDeErrores } from './http/plugins/errores.js';
+import { comprobarMantenimiento } from './http/plugins/modulos.js';
+import { rutasAdmin } from './http/rutas/admin.js';
+import { rutasSalud } from './http/rutas/salud.js';
+import { rutasYo } from './http/rutas/yo.js';
+import { CacheModulos, CacheParametros } from './infra/cache.js';
+
+export const VERSION_API = '0.1.0';
+
+export interface DependenciasApp {
+  /** Verifica un token de Supabase. Inyectable para poder testear sin red. */
+  verificarToken: (token: string) => Promise<{ id: string; email: string | null } | null>;
+
+  /**
+   * Repositorios con la service_role key. Se usan sólo para alimentar las
+   * cachés de módulos y parámetros, que son configuración del sistema y no
+   * datos de nadie.
+   */
+  reposAdmin: Repositorios;
+
+  /** Repositorios atados al token del llamante, para que RLS siga aplicando. */
+  reposDePeticion: (token: string | null) => Repositorios;
+
+  version?: string;
+}
+
+/**
+ * Construye la aplicación.
+ *
+ * Recibe **todo** por parámetro: entorno y dependencias. No lee `process.env`,
+ * no importa singletons y no abre conexiones. Por eso los tests pueden montar la
+ * API completa en memoria y ejercitar rutas, guardias y traducción de errores
+ * sin credenciales ni red.
+ */
+export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
+  const version = deps.version ?? VERSION_API;
+
+  const app = Fastify({
+    // En tests no se registra nada: además de ensuciar la salida, el logger
+    // desactiva el registro de peticiones por sí solo, sin necesidad de la
+    // opción `disableRequestLogging` (deprecada en Fastify 5 y eliminada en 6).
+    logger: env.NODE_ENV === 'test' ? false : { level: env.LOG_LEVEL },
+    trustProxy: true,
+    // La API no sube archivos: eso va directo a R2 con URLs firmadas.
+    bodyLimit: 1_048_576,
+  });
+
+  const caches = {
+    modulos: new CacheModulos(deps.reposAdmin.modulos, env.MODULE_CACHE_TTL_MS),
+    parametros: new CacheParametros(
+      deps.reposAdmin.parametros,
+      env.SETTINGS_CACHE_TTL_MS,
+    ),
+  };
+
+  const depsRutas: DependenciasRutas = {
+    version,
+    caches,
+    revisarBase: async () => {
+      try {
+        await deps.reposAdmin.modulos.todos();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+
+  registrarManejadorDeErrores(app);
+
+  // CORS, helmet y rate limit se registran primero para que envuelvan a todo.
+  void app.register(cors, {
+    origin: origenesCors(env),
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false,
+    maxAge: 86_400,
+  });
+
+  void app.register(helmet, {
+    // La API no sirve HTML; la CSP se aplica en el frontend.
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  });
+
+  void app.register(rateLimit, {
+    max: env.RATE_LIMIT_MAX,
+    timeWindow: env.RATE_LIMIT_WINDOW,
+    // Los errores 5xx no cuentan: un fallo de la base de datos no debe consumir
+    // la cuota del usuario y dejarlo bloqueado cuando el servicio se recupere.
+    skipOnError: true,
+  });
+
+  // Resuelve `request.usuario` y `request.repos` antes que cualquier handler.
+  registrarAutenticacion(app, {
+    verificarToken: deps.verificarToken,
+    reposDePeticion: deps.reposDePeticion,
+  });
+
+  // Modo mantenimiento, global.
+  //
+  // Va en `preValidation` y NO en `onRequest` a propósito: `onRequest` se
+  // ejecuta ANTES del enrutado, así que una ruta inexistente dispararía una
+  // consulta a la base de datos y devolvería un error de configuración en vez
+  // del 404 que corresponde. `preValidation` corre después de resolver la ruta,
+  // y los 404 se resuelven antes de llegar aquí.
+  //
+  // Las sondas de salud quedan exentas: el orquestador necesita poder preguntar
+  // si el proceso sigue vivo precisamente cuando algo va mal.
+  app.addHook('preValidation', async (request) => {
+    if (request.method === 'OPTIONS') return;
+    if (request.url.startsWith('/salud')) return;
+
+    await comprobarMantenimiento(caches.parametros, request.usuario?.rol ?? null);
+  });
+
+  rutasSalud(app, depsRutas);
+  rutasYo(app, depsRutas);
+  rutasAdmin(app, depsRutas);
+
+  return app;
+}

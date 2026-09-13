@@ -1,0 +1,1151 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "INCES LMS API",
+    "version": "0.1.0",
+    "description": "API del LMS del CFS Nacional de Soldadura \"Rafael Urdaneta\" (INCES, La Isabelica).\n\nEste documento se **genera** a partir de los esquemas Zod en `src/http/esquemas.ts`.\nNo se edita a mano: cualquier cambio manual se perderá en la siguiente generación.\nLos esquemas Zod son el único contrato; esto es una proyección suya.\n\nTodas las rutas exigen un token de Supabase Auth, salvo las sondas de salud.",
+    "license": {
+      "name": "Uso académico — TEG IUTEPI"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Desarrollo local"
+    },
+    {
+      "url": "https://api.example.com",
+      "description": "Producción (pendiente de dominio)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Salud",
+      "description": "Sondas para el orquestador."
+    },
+    {
+      "name": "Sesión",
+      "description": "Identidad y módulos visibles del llamante."
+    },
+    {
+      "name": "Administrador Maestro",
+      "description": "Interruptores de módulos, parámetros del sistema y auditoría. Requiere rol admin."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token de acceso de Supabase Auth. El backend lo verifica contra GoTrue en cada petición."
+      }
+    },
+    "schemas": {
+      "Sonda": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "hora": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "hora"
+        ]
+      },
+      "SondaProfunda": {
+        "type": "object",
+        "properties": {
+          "estado": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degradado"
+            ]
+          },
+          "baseDeDatos": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "inalcanzable"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "hora": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "baseDeDatos",
+          "version",
+          "hora"
+        ]
+      },
+      "Perfil": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "cedula": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombres": {
+            "type": "string"
+          },
+          "apellidos": {
+            "type": "string"
+          },
+          "rol": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "docente",
+              "estudiante"
+            ]
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "cedula",
+          "nombres",
+          "apellidos",
+          "rol",
+          "activo"
+        ]
+      },
+      "ModuloSistema": {
+        "type": "object",
+        "properties": {
+          "clave": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "habilitado": {
+            "type": "boolean"
+          },
+          "orden": {
+            "type": "integer"
+          },
+          "icono": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rolesPermitidos": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "docente",
+                "estudiante"
+              ]
+            }
+          },
+          "categoria": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "clave",
+          "nombre",
+          "descripcion",
+          "habilitado",
+          "orden",
+          "icono",
+          "rolesPermitidos",
+          "categoria",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaYo": {
+        "type": "object",
+        "properties": {
+          "perfil": {
+            "$ref": "#/components/schemas/Perfil"
+          },
+          "rol": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "docente",
+              "estudiante"
+            ]
+          },
+          "modulos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuloSistema"
+            }
+          }
+        },
+        "required": [
+          "perfil",
+          "rol",
+          "modulos"
+        ]
+      },
+      "CuerpoError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "codigo": {
+                "type": "string"
+              },
+              "mensaje": {
+                "type": "string"
+              },
+              "detalles": {}
+            },
+            "required": [
+              "codigo",
+              "mensaje"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "RespuestaModulos": {
+        "type": "object",
+        "properties": {
+          "modulos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuloSistema"
+            }
+          }
+        },
+        "required": [
+          "modulos"
+        ]
+      },
+      "RespuestaModulo": {
+        "type": "object",
+        "properties": {
+          "modulo": {
+            "$ref": "#/components/schemas/ModuloSistema"
+          }
+        },
+        "required": [
+          "modulo"
+        ]
+      },
+      "CuerpoCambiosModulo": {
+        "type": "object",
+        "properties": {
+          "habilitado": {
+            "type": "boolean",
+            "description": "Interruptor maestro del módulo."
+          },
+          "orden": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9999,
+            "description": "Posición en el menú. Menor primero."
+          },
+          "rolesPermitidos": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "docente",
+                "estudiante"
+              ]
+            },
+            "maxItems": 3,
+            "description": "Lista vacía significa visible para todos los roles."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ParametroSistema": {
+        "type": "object",
+        "properties": {
+          "clave": {
+            "type": "string"
+          },
+          "valor": {},
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "number",
+              "boolean",
+              "string",
+              "json"
+            ]
+          },
+          "descripcion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoria": {
+            "type": "string"
+          },
+          "esPublico": {
+            "type": "boolean"
+          },
+          "actualizadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "clave",
+          "tipo",
+          "descripcion",
+          "categoria",
+          "esPublico",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaParametros": {
+        "type": "object",
+        "properties": {
+          "parametros": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParametroSistema"
+            }
+          }
+        },
+        "required": [
+          "parametros"
+        ]
+      },
+      "RespuestaParametro": {
+        "type": "object",
+        "properties": {
+          "parametro": {
+            "$ref": "#/components/schemas/ParametroSistema"
+          }
+        },
+        "required": [
+          "parametro"
+        ]
+      },
+      "CuerpoValorParametro": {
+        "type": "object",
+        "properties": {
+          "valor": {
+            "description": "Debe encajar con el `tipo` declarado del parámetro; si no, la API responde 400."
+          }
+        },
+        "additionalProperties": false
+      },
+      "EntradaAuditoria": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tabla": {
+            "type": "string"
+          },
+          "clave": {
+            "type": "string"
+          },
+          "valorAnterior": {},
+          "valorNuevo": {},
+          "usuarioEmail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tabla",
+          "clave",
+          "usuarioEmail",
+          "creadoEn"
+        ]
+      },
+      "RespuestaAuditoria": {
+        "type": "object",
+        "properties": {
+          "entradas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntradaAuditoria"
+            }
+          }
+        },
+        "required": [
+          "entradas"
+        ]
+      },
+      "RespuestaPerfil": {
+        "type": "object",
+        "properties": {
+          "perfil": {
+            "$ref": "#/components/schemas/Perfil"
+          }
+        },
+        "required": [
+          "perfil"
+        ]
+      },
+      "CuerpoCambioRol": {
+        "type": "object",
+        "properties": {
+          "rol": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "docente",
+              "estudiante"
+            ]
+          }
+        },
+        "required": [
+          "rol"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/salud": {
+      "get": {
+        "tags": [
+          "Salud"
+        ],
+        "summary": "Sonda de vida (liveness)",
+        "description": "No toca la base de datos. Si falla, el proceso está muerto y el orquestador debe reiniciarlo.",
+        "responses": {
+          "200": {
+            "description": "El proceso responde.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sonda"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/salud/profundo": {
+      "get": {
+        "tags": [
+          "Salud"
+        ],
+        "summary": "Sonda de preparación (readiness)",
+        "description": "Comprueba la base de datos. Si falla, el proceso vive pero no debe recibir tráfico.",
+        "responses": {
+          "200": {
+            "description": "La base de datos responde.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SondaProfunda"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "La base de datos no responde.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SondaProfunda"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": [
+          "Salud"
+        ],
+        "summary": "Este mismo documento",
+        "description": "Se genera en cada petición a partir de los esquemas Zod, así que lo servido y lo que valida la API no pueden separarse. Público: los generadores de cliente lo necesitan sin credenciales.",
+        "responses": {
+          "200": {
+            "description": "Documento OpenAPI 3.1.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/yo": {
+      "get": {
+        "tags": [
+          "Sesión"
+        ],
+        "summary": "Identidad y módulos visibles del llamante",
+        "description": "Es la llamada que hace el frontend al arrancar: devuelve quién es, con qué rol, y sólo los módulos que puede ver. Con esto la UI se construye sin conocer la lista de módulos.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil resuelto.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaYo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/modulos": {
+      "get": {
+        "tags": [
+          "Sesión"
+        ],
+        "summary": "Módulos visibles para el rol del llamante",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista filtrada por rol y por estado de habilitación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaModulos"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/modulos": {
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Todos los módulos, incluidos los apagados",
+        "description": "A diferencia de `/api/v1/modulos`, no filtra por rol ni por habilitación: es la vista del panel.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Los nueve módulos del sistema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaModulos"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/modulos/{clave}": {
+      "patch": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Enciende, apaga o reordena un módulo",
+        "description": "Apagar `m0_cpanel` devuelve 409 MODULO_CRITICO: dejaría al administrador fuera del sistema. La base de datos tiene un trigger que impone la misma regla, para que no se pueda eludir desde el editor SQL.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Clave del módulo o del parámetro.",
+              "example": "m0_cpanel"
+            },
+            "required": true,
+            "name": "clave",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCambiosModulo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Módulo actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaModulo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El recurso no existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Se intentó apagar un módulo crítico.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/parametros": {
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Todos los parámetros, públicos y privados",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado completo de parámetros.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaParametros"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/parametros/{clave}": {
+      "patch": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Cambia el valor de un parámetro",
+        "description": "El valor debe encajar con el `tipo` declarado del parámetro. Sin esa comprobación, `max_faltas_consecutivas` podría quedar guardado como \"tres\" y el módulo de asistencia empezaría a comportarse de forma impredecible lejos del sitio donde se cometió el error.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Clave del módulo o del parámetro.",
+              "example": "m0_cpanel"
+            },
+            "required": true,
+            "name": "clave",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoValorParametro"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parámetro actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaParametro"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El recurso no existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/auditoria": {
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Últimas entradas del registro de auditoría",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de entradas a devolver. Por defecto 50."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entradas más recientes primero.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAuditoria"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios/{id}/rol": {
+      "patch": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Cambia el rol de un usuario",
+        "description": "No se puede degradar al propio administrador (409 AUTO_DEGRADACION) ni al último administrador activo (409 ULTIMO_ADMIN). La regla vive en la base de datos, no sólo aquí: la API no ve el camino de `active = false`, el borrado, ni la carrera entre dos degradaciones simultáneas.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del perfil. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCambioRol"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rol actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPerfil"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sólo el Administrador Maestro puede cambiar roles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El perfil no existe (PERFIL_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "AUTO_DEGRADACION o ULTIMO_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

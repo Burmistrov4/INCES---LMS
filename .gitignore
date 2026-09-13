@@ -1,0 +1,79 @@
+# ============================================================================
+#  INCES LMS — .gitignore del monorepo (Flutter + backend Node/TS)
+# ============================================================================
+
+# --- Entorno y configuración local -------------------------------------------
+# Ninguna credencial entra al repositorio. El backend trae la clave secreta de
+# Supabase (saltaría RLS por completo) y Flutter trae la URL del proyecto:
+# ninguna de las dos debe quedar en el historial, porque borrarla después no la
+# saca del historial de Git.
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Contexto descartado del proyecto ----------------------------------------
+# Material de trabajo del TEG que NO forma parte del código ni del producto:
+# PDFs del chat, plantillas de inscripción, reglas del TEG, recursos varios.
+# Pedido explícitamente; además pesa 24 MB y no aporta nada al build.
+No subir esta carpeta Github - Contexto - Archivos/
+
+# --- Memoria de trabajo del agente -------------------------------------------
+# Notas internas del asistente. No es código del proyecto y cambia por sesión.
+.workbuddy-ai/
+.autoclaw/
+
+# --- Miscellaneous -----------------------------------------------------------
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# --- IntelliJ related --------------------------------------------------------
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# --- Flutter/Dart/Pub related ------------------------------------------------
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# --- Símbolos y ofuscación ---------------------------------------------------
+app.*.symbols
+app.*.map.json
+
+# --- Android Studio ----------------------------------------------------------
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# --- Widget Preview ----------------------------------------------------------
+.widget_preview/
+
+# --- DevOps: salida del pipeline de contexto (se genera localmente) ----------
+/devops/out/
+
+# --- Node (backend y arnés de tests SQL) -------------------------------------
+node_modules/
+npm-debug.log*
+*.tsbuildinfo
+
+# --- Artefactos de build del backend -----------------------------------------
+# `openapi.json` NO se ignora a propósito: es el contrato publicado y su `diff`
+# es justo lo que hace visible un cambio de API en la revisión.
+backend/dist/

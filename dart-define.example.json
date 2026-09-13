@@ -1,0 +1,9 @@
+{
+  "_comentario": "PLANTILLA de la configuración del frontend Flutter. Copia este archivo como '.env.json' y rellena los valores. NO se lee en tiempo de ejecución: Flutter resuelve String.fromEnvironment() al COMPILAR, así que se consume con --dart-define-from-file=.env.json",
+  "_uso": "flutter run --dart-define-from-file=.env.json   |   flutter build web --release --dart-define-from-file=.env.json",
+  "_nota": "La clave publicable NO es un secreto: viaja al cliente por diseño. Su seguridad depende por completo de las políticas RLS. NUNCA pongas aquí la clave secreta ni credenciales de R2.",
+
+  "SUPABASE_URL": "https://<project-ref>.supabase.co",
+  "SUPABASE_ANON_KEY": "<clave-publicable>",
+  "API_BASE_URL": "http://localhost:3000"
+}
