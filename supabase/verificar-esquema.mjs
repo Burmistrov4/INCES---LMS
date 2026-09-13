@@ -55,6 +55,7 @@ const tablas = await consultar(
 );
 const esperadas = [
   'aspirantes',
+  'auth_logs',
   'config_audit_log',
   'cursos',
   'enrollments',
@@ -62,6 +63,7 @@ const esperadas = [
   'sections',
   'system_modules',
   'system_settings',
+  'teacher_invitations',
 ];
 const presentes = tablas.map((t) => t.tablename);
 
