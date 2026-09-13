@@ -89,18 +89,39 @@ pasó de 4 a los 3 valores reales de Postgres. Ver sección 5.
 
 ## 2. Pendientes Críticos Inmediatos (Next Steps)
 
-### 2.1 Aplicar la migración a la base real — BLOQUEANTE
+### 2.1 Migración de la base real — ✅ YA APLICADA
 
-`supabase/migrations/202609130001_invitaciones_docente.sql` **existe pero NO está
-aplicada**. Hasta que lo esté, el canal de invitación de docentes no funciona en
-la nube y la auditoría devolverá páginas vacías (no es un bug del panel).
+`202609130001_invitaciones_docente.sql` **ya está aplicada** en
+`twdppwnxlnmxkiejbrei`. Se crearon `teacher_invitations` y `auth_logs`, ambas con
+**RLS activo**, y sus columnas coinciden exactamente con el contrato del backend:
+
+```
+auth_logs            : id, user_id, email, ip_address, estado, created_at
+teacher_invitations  : id, email, token_hash, is_used, created_at, expires_at
+```
+
+`node supabase/verificar-esquema.mjs` → **32/32 sin fallos**.
+
+#### ⚠️ Footgun: `apply-migrations.mjs` NO rastrea estado
+
+Léelo antes de usarlo otra vez. El script **reaplica las 5 migraciones en orden,
+siempre**, y se detiene al primer error. No lleva registro de cuáles ya están
+aplicadas: confía en que el SQL sea idempotente. Cuatro de los cinco archivos
+tienen `create policy` / `create trigger` **sin guarda**, así que relanzarlo sobre
+una base ya migrada puede fallar a medio camino y dejar la migración nueva sin
+aplicar.
+
+Para esta sesión apliqué **solo** el archivo pendiente por la API de administración
+y lo verifiqué después. Si tienes que aplicar otra migración suelta, haz lo mismo
+o añade control de estado al script. `--check` sólo lista los archivos: **no
+comprueba qué está aplicado**, no te fíes de él como diagnóstico.
 
 ```bash
-# 1) simulación, no escribe nada
+# simulación (sólo lista archivos, NO detecta estado)
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs --check
 
-# 2) aplicar de verdad
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs
+# verificación real del estado
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
 ```
 
 - El token se crea en `supabase.com/dashboard/account/tokens`.
@@ -157,7 +178,7 @@ error explícito en lugar de fallar en silencio.
 
 ### 2.4 Humo real pendiente (lo ejecuta Lorenzo)
 
-1. Aplicar la migración (2.1).
+1. ~~Aplicar la migración (2.1).~~ **HECHO** — ya no es necesario.
 2. Invitar a `lorenzoroca333@gmail.com` desde el cPanel.
 3. Copiar `enlaceActivacion` de la respuesta.
 4. Abrir `http://localhost:8080/#/auth/activate?token=...`.
