@@ -83,7 +83,13 @@ describe('documento OpenAPI generado (D6)', () => {
       ).not.toBe(404);
 
       if (publica) {
-        expect(respuesta.statusCode, `${metodo} ${ruta} debería ser pública`).toBe(200);
+        // Una ruta pública no exige sesión (no 401) y sí existe (no 404). El
+        // cuerpo de una ruta pública que requiere datos (p.ej. POST sin cuerpo)
+        // puede ser 400, y eso basta para probar que es pública y existe.
+        expect(
+          respuesta.statusCode,
+          `${metodo} ${ruta} debería ser pública (sin sesión)`,
+        ).not.toBe(401);
       } else {
         expect(
           respuesta.statusCode,
@@ -107,9 +113,11 @@ describe('documento OpenAPI generado (D6)', () => {
     );
     expect(rutas.sort()).toEqual(
       [
+        'GET /api/v1/admin/acceso',
         'GET /api/v1/admin/auditoria',
         'GET /api/v1/admin/modulos',
         'GET /api/v1/admin/parametros',
+        'GET /api/v1/admin/usuarios',
         'GET /api/v1/modulos',
         'GET /api/v1/yo',
         'GET /openapi.json',
@@ -118,6 +126,8 @@ describe('documento OpenAPI generado (D6)', () => {
         'PATCH /api/v1/admin/modulos/{clave}',
         'PATCH /api/v1/admin/parametros/{clave}',
         'PATCH /api/v1/admin/usuarios/{id}/rol',
+        'POST /api/v1/admin/usuarios/invitaciones',
+        'POST /api/v1/auth/activar',
       ].sort(),
     );
   });
@@ -149,7 +159,7 @@ describe('documento OpenAPI generado (D6)', () => {
       }
     }
     expect(publicas.sort()).toEqual(
-      ['get /openapi.json', 'get /salud', 'get /salud/profundo'].sort(),
+      ['get /openapi.json', 'get /salud', 'get /salud/profundo', 'post /api/v1/auth/activar'].sort(),
     );
   });
 

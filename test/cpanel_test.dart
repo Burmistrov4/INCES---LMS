@@ -8,6 +8,8 @@ import 'package:inces_lms_app/repositories/modulo_repository.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_auditoria_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_modulos_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_parametros_panel.dart';
+import 'package:inces_lms_app/theme/inces_theme.dart';
+import 'package:inces_lms_app/widgets/comunes.dart';
 
 import 'support/fake_gateway.dart';
 
@@ -16,8 +18,29 @@ import 'support/fake_gateway.dart';
 /// No se usa `pumpAndSettle` para el arranque: mientras carga hay un
 /// `CircularProgressIndicator`, cuya animación es infinita y haría que
 /// `pumpAndSettle` agotara el tiempo de espera.
+///
+/// El `MaterialApp` lleva el tema institucional a propósito. Los colores de la
+/// tarjeta de módulo se resuelven contra `Theme.of(context)`; sin el tema, el
+/// test mediría un `ThemeData` por defecto que la aplicación nunca usa.
+///
+/// **No se envuelve el panel en un scrollable.** Los dos paneles tienen
+/// contratos de layout distintos y ambos son correctos:
+///   * `CpanelAuditoriaPanel` gestiona su propio scroll con un `Expanded`
+///     interno, así que exige altura **acotada**.
+///   * `CpanelModulosPanel` devuelve una columna que crece con su contenido.
+///
+/// Por eso la prueba los monta en el `body` acotado del `Scaffold`, igual que
+/// hace `ContenidoSeccion` en producción con el `ConstrainedBox`. Envolverlos
+/// en un `SingleChildScrollView` daría altura infinita al primero y rompería su
+/// `Expanded`; y montar el segundo en el `Scaffold` sin más lo haría medir el
+/// hueco sobrante, que no es lo que ocurre en la aplicación.
 Future<void> montarPanel(WidgetTester tester, Widget panel) async {
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: panel)));
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: IncesTheme.claro(),
+      home: Scaffold(body: panel),
+    ),
+  );
   await tester.pump();
   await tester.pump();
 }
@@ -30,6 +53,30 @@ Future<void> cerrarAvisos(WidgetTester tester) async {
   await tester.pump(const Duration(seconds: 8));
   await tester.pumpAndSettle();
 }
+
+/// Interruptor de la tarjeta de un módulo concreto.
+///
+/// Antes se localizaba por posición (`find.byType(Switch).at(1)`), lo que ataba
+/// el test al orden de la lista y se rompía con sólo reordenar los módulos. Se
+/// busca por nombre: la relación «módulo → su interruptor» es la que el usuario
+/// ve, y es la que interesa comprobar.
+Finder interruptorDe(String nombreModulo) => find.descendant(
+      of: find.ancestor(
+        of: find.text(nombreModulo),
+        matching: find.byType(TarjetaModulo),
+      ),
+      matching: find.byType(Switch),
+    );
+
+/// Tarjeta de métrica del Command Center, localizada por su etiqueta.
+///
+/// Se sube del texto a la tarjeta y no se usa `find.byType(TarjetaMetrica).at(n)`:
+/// el orden de las métricas es una decisión de diseño que puede cambiar, y un
+/// test que se rompa al reordenarlas no está probando nada útil.
+Finder tarjetaDeMetrica(String etiqueta) => find.ancestor(
+      of: find.text(etiqueta),
+      matching: find.byType(TarjetaMetrica),
+    );
 
 List<SystemModule> modulosDePrueba() => const [
       SystemModule(
@@ -82,15 +129,33 @@ void main() {
         CpanelModulosPanel(repositorio: ModuloRepository(gateway: fake)),
       );
 
+      // `TituloSeccion` pinta el rótulo en mayúsculas desde el rediseño: el
+      // dato guardado sigue siendo «nucleo», lo que cambia es cómo se muestra.
       expect(find.text('NÚCLEO'), findsOneWidget);
       expect(find.text('ACADÉMICO'), findsOneWidget);
       expect(find.text('Administrador Maestro'), findsOneWidget);
       expect(find.text('Inscripciones'), findsOneWidget);
-      // Resumen del estado: 2 de 3 activos.
-      expect(find.textContaining('2 de 3 módulos activos'), findsOneWidget);
+
+      // El resumen cambió de forma: antes era una frase («2 de 3 módulos
+      // activos»), ahora son tarjetas de métrica. Se comprueba la relación
+      // entre ellas, que es lo que importa: 2 activos de 3 totales ⇒ 1 apagado.
+      expect(
+        tester.widget<TarjetaMetrica>(tarjetaDeMetrica('Módulos totales')).valor,
+        '3',
+      );
+      expect(
+        tester.widget<TarjetaMetrica>(tarjetaDeMetrica('Activos')).valor,
+        '2',
+      );
+      expect(
+        tester.widget<TarjetaMetrica>(tarjetaDeMetrica('Apagados')).valor,
+        '1',
+      );
     });
 
-    testWidgets('el interruptor del cPanel está deshabilitado', (tester) async {
+    testWidgets('el cPanel no ofrece interruptor: muestra un candado', (
+      tester,
+    ) async {
       final fake = FakeGateway()..listaModulos = modulosDePrueba();
 
       await montarPanel(
@@ -98,11 +163,39 @@ void main() {
         CpanelModulosPanel(repositorio: ModuloRepository(gateway: fake)),
       );
 
-      final primero = tester.widget<Switch>(find.byType(Switch).at(0));
+      // El rediseño fue más lejos que «interruptor deshabilitado»: un control
+      // gris apagado sigue invitando a pulsarlo y a preguntarse por qué no
+      // responde. Aquí directamente **no hay interruptor**; hay un candado con
+      // el motivo. Este test sustituye al anterior, que comprobaba
+      // `Switch.onChanged == null` —ese `Switch` ya no existe—, y es más
+      // estricto: verifica las dos mitades de la decisión.
       expect(
-        primero.onChanged,
-        isNull,
+        interruptorDe('Administrador Maestro'),
+        findsNothing,
         reason: 'm0_cpanel da acceso al propio panel: no puede apagarse.',
+      );
+
+      // El candado se identifica por su tamaño, no sólo por el icono: la
+      // insignia de estado «Crítico» también es un escudo, y contar por icono
+      // daría dos coincidencias sin que ninguna esté mal. El control real es el
+      // icono grande (20 px); el de la insignia mide 11 px.
+      final candadoGrande = tester.widgetList<Icon>(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Administrador Maestro'),
+            matching: find.byType(TarjetaModulo),
+          ),
+          matching: find.byIcon(Icons.lock_outline),
+        ),
+      ).where((icono) => icono.size == 20);
+      expect(candadoGrande, hasLength(1));
+
+      // Y el porqué es accesible, no un icono mudo.
+      expect(
+        find.byTooltip(
+          'Módulo crítico: da acceso a este panel. No puede desactivarse.',
+        ),
+        findsOneWidget,
       );
     });
 
@@ -116,14 +209,13 @@ void main() {
         CpanelModulosPanel(repositorio: ModuloRepository(gateway: fake)),
       );
 
-      // El interruptor 0 es m0_cpanel (deshabilitado); el 1 es m1_onboarding.
-      await tester.tap(find.byType(Switch).at(1));
+      await tester.tap(interruptorDe('Autenticación'));
       await tester.pump();
       await tester.pump();
 
       expect(fake.llamadas, contains('actualizarModulo:m1_onboarding'));
 
-      final actualizado = tester.widget<Switch>(find.byType(Switch).at(1));
+      final actualizado = tester.widget<Switch>(interruptorDe('Autenticación'));
       expect(actualizado.value, isFalse);
 
       await cerrarAvisos(tester);
@@ -139,12 +231,12 @@ void main() {
         CpanelModulosPanel(repositorio: ModuloRepository(gateway: fake)),
       );
 
-      await tester.tap(find.byType(Switch).at(1));
+      await tester.tap(interruptorDe('Autenticación'));
       await tester.pump();
       await tester.pump();
 
       // El interruptor sigue mostrando la verdad, no la intención.
-      final sinCambios = tester.widget<Switch>(find.byType(Switch).at(1));
+      final sinCambios = tester.widget<Switch>(interruptorDe('Autenticación'));
       expect(sinCambios.value, isTrue);
 
       await tester.pump(const Duration(milliseconds: 300));
@@ -175,6 +267,42 @@ void main() {
       await tester.pump();
 
       expect(find.text('Administrador Maestro'), findsOneWidget);
+    });
+
+    testWidgets('la tarjeta dice qué roles ven el módulo', (tester) async {
+      final fake = FakeGateway()..listaModulos = modulosDePrueba();
+
+      await montarPanel(
+        tester,
+        CpanelModulosPanel(repositorio: ModuloRepository(gateway: fake)),
+      );
+
+      // Antes, esto sólo se descubría abriendo el diálogo de roles. Si la
+      // tarjeta no lo muestra, el administrador tiene que abrir y cerrar un
+      // diálogo por módulo para saber quién ve qué.
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Administrador Maestro'),
+            matching: find.byType(TarjetaModulo),
+          ),
+          matching: find.text('Administrador'),
+        ),
+        findsOneWidget,
+      );
+
+      // Un módulo sin roles restringidos lo dice explícitamente; dejarlo en
+      // blanco se leería como «no hay información», no como «lo ven todos».
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Inscripciones'),
+            matching: find.byType(TarjetaModulo),
+          ),
+          matching: find.text('Todos los roles'),
+        ),
+        findsOneWidget,
+      );
     });
   });
 

@@ -128,7 +128,20 @@ try {
     'select count(*)::int as modulos from public.system_modules;',
   );
   const modulos = Array.isArray(filas) ? filas[0]?.modulos : undefined;
-  console.log(`\n  ✓ Verificado: ${modulos} módulos en system_modules.\n`);
+  console.log(`\n  ✓ Verificado: ${modulos} módulos en system_modules.`);
+
+  const tablas = await consultar(
+    "select count(*)::int as n from information_schema.tables " +
+      "where table_schema = 'public' and table_name in " +
+      "('teacher_invitations', 'auth_logs');",
+  );
+  const nTablas = Array.isArray(tablas) ? tablas[0]?.n : undefined;
+  if (nTablas !== 2) {
+    throw new Error(
+      `se esperaban 2 tablas nuevas (teacher_invitations, auth_logs) pero hay ${nTablas}.`,
+    );
+  }
+  console.log('  ✓ Verificado: teacher_invitations y auth_logs existen.\n');
 } catch (error) {
   console.error(
     `\n  ✗ Las migraciones se aplicaron pero la verificación falló: ${error.message}\n`,

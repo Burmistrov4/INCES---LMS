@@ -425,6 +425,112 @@
           "entradas"
         ]
       },
+      "EntradaAcceso": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "UUID de auth del usuario, o null en un intento fallido sin cuenta."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Dirección IP de origen del intento."
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILED"
+            ],
+            "description": "Resultado del intento de acceso."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Instante ISO del intento. Orden descendente en la respuesta."
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "email",
+          "ip",
+          "estado",
+          "createdAt"
+        ]
+      },
+      "RespuestaAcceso": {
+        "type": "object",
+        "properties": {
+          "entradas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntradaAcceso"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Cuántas filas cumplen el filtro en total, no cuántas se devolvieron."
+          },
+          "limite": {
+            "type": "integer",
+            "description": "Tamaño de página aplicado."
+          },
+          "desplazamiento": {
+            "type": "integer",
+            "description": "Filas saltadas antes de esta página."
+          }
+        },
+        "required": [
+          "entradas",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
+      "RespuestaUsuarios": {
+        "type": "object",
+        "properties": {
+          "usuarios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Perfil"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Cuántas filas cumplen el filtro en total, no cuántas se devolvieron."
+          },
+          "limite": {
+            "type": "integer",
+            "description": "Tamaño de página aplicado."
+          },
+          "desplazamiento": {
+            "type": "integer",
+            "description": "Filas saltadas antes de esta página."
+          }
+        },
+        "required": [
+          "usuarios",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
       "RespuestaPerfil": {
         "type": "object",
         "properties": {
@@ -450,6 +556,82 @@
         },
         "required": [
           "rol"
+        ],
+        "additionalProperties": false
+      },
+      "RespuestaInvitacion": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "expiraEn": {
+            "type": "string",
+            "description": "Instante ISO tras el cual la invitación ya no sirve (48 h)."
+          },
+          "enlaceActivacion": {
+            "type": "string",
+            "description": "Enlace que el profesor debe abrir. Se devuelve aquí para que el flujo sea probable aunque el correo no llegue (sin dominio verificado en Resend)."
+          },
+          "correoEnviado": {
+            "type": "boolean",
+            "description": "Si Resend aceptó el envío. Si es false, usar enlaceActivacion."
+          }
+        },
+        "required": [
+          "email",
+          "expiraEn",
+          "enlaceActivacion",
+          "correoEnviado"
+        ]
+      },
+      "CuerpoCorreoInvitacion": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "additionalProperties": false
+      },
+      "RespuestaActivacion": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "perfil": {
+            "$ref": "#/components/schemas/Perfil"
+          }
+        },
+        "required": [
+          "email",
+          "perfil"
+        ]
+      },
+      "CuerpoActivarCuenta": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "description": "Token de un solo uso del enlace de invitación."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Contraseña que el docente quiere fijar (mínimo 8 caracteres)."
+          }
+        },
+        "required": [
+          "token",
+          "password"
         ],
         "additionalProperties": false
       }
@@ -1037,6 +1219,258 @@
         }
       }
     },
+    "/api/v1/admin/acceso": {
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Traza de accesos (logins y fallos de autenticación) con filtros",
+        "description": "Lee `auth_logs` para que el administrador audite inicios de sesión, IPs y fallos de autenticación. Soporta filtro por resultado, correo o usuario, y paginación. El filtro y el recorte se aplican en la base de datos; `total` es el número de filas que cumplen el filtro, no las devueltas.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SUCCESS",
+                "FAILED"
+              ],
+              "description": "Filtra por resultado del intento. Sin él, ambos."
+            },
+            "required": false,
+            "name": "estado",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Filtra por correo exacto (no parcial)."
+            },
+            "required": false,
+            "name": "email",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Filtra por UUID de usuario de auth. Un valor no UUID se rechaza con 400."
+            },
+            "required": false,
+            "name": "userId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de accesos, del más reciente al más antiguo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAcceso"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios": {
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Listado paginado de usuarios, con filtros",
+        "description": "El filtro y el recorte se aplican en la base de datos. `total` es el número de filas que cumplen el filtro, no las devueltas: sin él la pantalla no puede saber cuántas páginas quedan. La búsqueda es un `ilike` sin índices trigram; suficiente para un centro de formación y anotado por si la tabla crece.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "docente",
+                "estudiante"
+              ],
+              "description": "Filtra por rol. Sin este parámetro, todos los roles."
+            },
+            "required": false,
+            "name": "rol",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filtra por estado de la cuenta. Un valor distinto de `true` o `false` se rechaza con 400."
+            },
+            "required": false,
+            "name": "activo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Texto libre sobre nombres, apellidos, correo y cédula. Insensible a mayúsculas."
+            },
+            "required": false,
+            "name": "busqueda",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de usuarios, ordenados por apellido y nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaUsuarios"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/usuarios/{id}/rol": {
       "patch": {
         "tags": [
@@ -1135,6 +1569,163 @@
           },
           "503": {
             "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios/invitaciones": {
+      "post": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Invita a un docente por correo (token de un solo uso)",
+        "description": "El administrador aporta el correo. El servidor genera un token, guarda SOLO su huella en la base y envía el enlace de activación. El enlace también se devuelve en la respuesta para poder probar el flujo aunque el correo no llegue.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCorreoInvitacion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invitación creada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaInvitacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/activar": {
+      "post": {
+        "tags": [
+          "Sesión"
+        ],
+        "summary": "Activa una invitación de docente y fija la contraseña",
+        "description": "Ruta PÚBLICA: el profesor aún no tiene sesión. La barrera es el token de un solo uso, no un JWT. Si el token es válido, crea la cuenta ya confirmada, la promueve a DOCENTE y marca la invitación como usada.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActivarCuenta"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cuenta activada y promovida a docente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaActivacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El token no corresponde a ninguna invitación válida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "INVITACION_YA_USADA: el token ya fue consumido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "La invitación caducó (48 h).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Fallo interno.",
             "content": {
               "application/json": {
                 "schema": {

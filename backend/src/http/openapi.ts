@@ -118,6 +118,25 @@ const EntradaAuditoria = z
   })
   .openapi('EntradaAuditoria');
 
+const EntradaAcceso = z
+  .object({
+    id: z.string(),
+    userId: z.string().nullable().openapi({
+      description: 'UUID de auth del usuario, o null en un intento fallido sin cuenta.',
+    }),
+    email: z.string().nullable(),
+    ip: z.string().nullable().openapi({
+      description: 'Dirección IP de origen del intento.',
+    }),
+    estado: z.enum(['SUCCESS', 'FAILED']).openapi({
+      description: 'Resultado del intento de acceso.',
+    }),
+    createdAt: z.string().openapi({
+      description: 'Instante ISO del intento. Orden descendente en la respuesta.',
+    }),
+  })
+  .openapi('EntradaAcceso');
+
 const RespuestaYo = z
   .object({
     perfil: Perfil,
@@ -146,7 +165,34 @@ const RespuestaAuditoria = z
   .object({ entradas: z.array(EntradaAuditoria) })
   .openapi('RespuestaAuditoria');
 
+const RespuestaAcceso = z
+  .object({
+    entradas: z.array(EntradaAcceso),
+    total: z.number().int().openapi({
+      description: 'Cuántas filas cumplen el filtro en total, no cuántas se devolvieron.',
+    }),
+    limite: z.number().int().openapi({ description: 'Tamaño de página aplicado.' }),
+    desplazamiento: z.number().int().openapi({
+      description: 'Filas saltadas antes de esta página.',
+    }),
+  })
+  .openapi('RespuestaAcceso');
+
 const RespuestaPerfil = z.object({ perfil: Perfil }).openapi('RespuestaPerfil');
+
+const RespuestaUsuarios = z
+  .object({
+    usuarios: z.array(Perfil),
+    total: z.number().int().openapi({
+      description:
+        'Cuántas filas cumplen el filtro en total, no cuántas se devolvieron.',
+    }),
+    limite: z.number().int().openapi({ description: 'Tamaño de página aplicado.' }),
+    desplazamiento: z.number().int().openapi({
+      description: 'Filas saltadas antes de esta página.',
+    }),
+  })
+  .openapi('RespuestaUsuarios');
 
 const CuerpoCambiosModulo = z
   .object({
@@ -178,6 +224,47 @@ const CuerpoCambioRol = z
   .strict()
   .openapi('CuerpoCambioRol');
 
+const CuerpoCorreoInvitacion = z
+  .object({ email: z.string().email() })
+  .strict()
+  .openapi('CuerpoCorreoInvitacion');
+
+const CuerpoActivarCuenta = z
+  .object({
+    token: z.string().min(20).openapi({
+      description: 'Token de un solo uso del enlace de invitación.',
+    }),
+    password: z.string().min(8).openapi({
+      description: 'Contraseña que el docente quiere fijar (mínimo 8 caracteres).',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoActivarCuenta');
+
+const RespuestaInvitacion = z
+  .object({
+    email: z.string().email(),
+    expiraEn: z.string().openapi({
+      description: 'Instante ISO tras el cual la invitación ya no sirve (48 h).',
+    }),
+    enlaceActivacion: z.string().openapi({
+      description:
+        'Enlace que el profesor debe abrir. Se devuelve aquí para que el flujo sea ' +
+        'probable aunque el correo no llegue (sin dominio verificado en Resend).',
+    }),
+    correoEnviado: z.boolean().openapi({
+      description: 'Si Resend aceptó el envío. Si es false, usar enlaceActivacion.',
+    }),
+  })
+  .openapi('RespuestaInvitacion');
+
+const RespuestaActivacion = z
+  .object({
+    email: z.string().email(),
+    perfil: Perfil,
+  })
+  .openapi('RespuestaActivacion');
+
 const ParametroClave = z.object({
   clave: z.string().openapi({
     param: { name: 'clave', in: 'path' },
@@ -202,6 +289,54 @@ const parametroLimiteAuditoria = z.object({
   }),
 });
 
+const parametrosListadoUsuarios = z.object({
+  rol: rolSchema.optional().openapi({
+    param: { name: 'rol', in: 'query' },
+    description: 'Filtra por rol. Sin este parámetro, todos los roles.',
+  }),
+  activo: z.enum(['true', 'false']).optional().openapi({
+    param: { name: 'activo', in: 'query' },
+    description:
+      'Filtra por estado de la cuenta. Un valor distinto de `true` o `false` se rechaza con 400.',
+  }),
+  busqueda: z.string().optional().openapi({
+    param: { name: 'busqueda', in: 'query' },
+    description:
+      'Texto libre sobre nombres, apellidos, correo y cédula. Insensible a mayúsculas.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
+const parametrosListadoAcceso = z.object({
+  estado: z.enum(['SUCCESS', 'FAILED']).optional().openapi({
+    param: { name: 'estado', in: 'query' },
+    description: 'Filtra por resultado del intento. Sin él, ambos.',
+  }),
+  email: z.string().optional().openapi({
+    param: { name: 'email', in: 'query' },
+    description: 'Filtra por correo exacto (no parcial).',
+  }),
+  userId: z.string().uuid().optional().openapi({
+    param: { name: 'userId', in: 'query' },
+    description: 'Filtra por UUID de usuario de auth. Un valor no UUID se rechaza con 400.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
   return {
@@ -216,6 +351,7 @@ const RESPUESTAS_ERROR = {
   403: error('La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.'),
   404: error('El recurso no existe.'),
   409: error('La regla de negocio impide la operación.'),
+  410: error('El recurso solicitado ha caducado.'),
   500: error('Fallo interno.'),
   503: error('El servicio o la base de datos no están disponibles.'),
 };
@@ -441,6 +577,51 @@ export function construirRegistro(): OpenAPIRegistry {
 
   registro.registerPath({
     ...admin,
+    method: 'get',
+    path: '/api/v1/admin/acceso',
+    summary: 'Traza de accesos (logins y fallos de autenticación) con filtros',
+    description:
+      'Lee `auth_logs` para que el administrador audite inicios de sesión, IPs y ' +
+      'fallos de autenticación. Soporta filtro por resultado, correo o usuario, y ' +
+      'paginación. El filtro y el recorte se aplican en la base de datos; `total` ' +
+      'es el número de filas que cumplen el filtro, no las devueltas.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoAcceso },
+    responses: {
+      200: {
+        description: 'Una página de accesos, del más reciente al más antiguo.',
+        content: { 'application/json': { schema: RespuestaAcceso } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
+    method: 'get',
+    path: '/api/v1/admin/usuarios',
+    summary: 'Listado paginado de usuarios, con filtros',
+    description:
+      'El filtro y el recorte se aplican en la base de datos. `total` es el número de filas que cumplen el filtro, no las devueltas: sin él la pantalla no puede saber cuántas páginas quedan. La búsqueda es un `ilike` sin índices trigram; suficiente para un centro de formación y anotado por si la tabla crece.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoUsuarios },
+    responses: {
+      200: {
+        description: 'Una página de usuarios, ordenados por apellido y nombre.',
+        content: { 'application/json': { schema: RespuestaUsuarios } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
     method: 'patch',
     path: '/api/v1/admin/usuarios/{id}/rol',
     summary: 'Cambia el rol de un usuario',
@@ -465,6 +646,62 @@ export function construirRegistro(): OpenAPIRegistry {
       404: error('El perfil no existe (PERFIL_INEXISTENTE).'),
       409: error('AUTO_DEGRADACION o ULTIMO_ADMIN.'),
       503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
+    method: 'post',
+    path: '/api/v1/admin/usuarios/invitaciones',
+    summary: 'Invita a un docente por correo (token de un solo uso)',
+    description:
+      'El administrador aporta el correo. El servidor genera un token, guarda SOLO su ' +
+      'huella en la base y envía el enlace de activación. El enlace también se devuelve ' +
+      'en la respuesta para poder probar el flujo aunque el correo no llegue.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCorreoInvitacion } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Invitación creada.',
+        content: { 'application/json': { schema: RespuestaInvitacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/activar',
+    tags: ['Sesión'],
+    summary: 'Activa una invitación de docente y fija la contraseña',
+    description:
+      'Ruta PÚBLICA: el profesor aún no tiene sesión. La barrera es el token de un ' +
+      'solo uso, no un JWT. Si el token es válido, crea la cuenta ya confirmada, la ' +
+      'promueve a DOCENTE y marca la invitación como usada.',
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoActivarCuenta } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Cuenta activada y promovida a docente.',
+        content: { 'application/json': { schema: RespuestaActivacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      404: error('El token no corresponde a ninguna invitación válida.'),
+      409: error('INVITACION_YA_USADA: el token ya fue consumido.'),
+      410: error('La invitación caducó (48 h).'),
+      500: RESPUESTAS_ERROR[500],
     },
   });
 

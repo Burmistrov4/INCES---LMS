@@ -9,9 +9,11 @@ import { registrarAutenticacion } from './http/plugins/autenticacion.js';
 import { registrarManejadorDeErrores } from './http/plugins/errores.js';
 import { comprobarMantenimiento } from './http/plugins/modulos.js';
 import { rutasAdmin } from './http/rutas/admin.js';
+import { rutasAuth } from './http/rutas/auth.js';
 import { rutasSalud } from './http/rutas/salud.js';
 import { rutasYo } from './http/rutas/yo.js';
 import { CacheModulos, CacheParametros } from './infra/cache.js';
+import type { EnvioCorreo } from './infra/correo.js';
 
 export const VERSION_API = '0.1.0';
 
@@ -28,6 +30,9 @@ export interface DependenciasApp {
 
   /** Repositorios atados al token del llamante, para que RLS siga aplicando. */
   reposDePeticion: (token: string | null) => Repositorios;
+
+  /** Enviador de correo transaccional (Resend) para invitaciones y avisos. */
+  enviarCorreo: EnvioCorreo;
 
   version?: string;
 }
@@ -72,6 +77,12 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
         return false;
       }
     },
+    // La ruta de activación de invitaciones es pública y necesita saltarse RLS:
+    // usa estos repositorios con service_role para leer por el hash del token y
+    // crear el usuario. Jamás se exponen al cliente; sólo los usa el servidor.
+    reposAdmin: deps.reposAdmin,
+    enviarCorreo: deps.enviarCorreo,
+    urlFrente: env.FRONTEND_URL ?? 'http://localhost:3000',
   };
 
   registrarManejadorDeErrores(app);
@@ -125,6 +136,7 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   rutasSalud(app, depsRutas);
   rutasYo(app, depsRutas);
   rutasAdmin(app, depsRutas);
+  rutasAuth(app, depsRutas);
 
   return app;
 }

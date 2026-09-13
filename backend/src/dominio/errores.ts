@@ -36,6 +36,10 @@ export class ErrorApi extends Error {
     return new ErrorApi(404, codigo, mensaje);
   }
 
+  static caducado(mensaje = 'El recurso solicitado ha caducado.') {
+    return new ErrorApi(410, 'RECURSO_CADUCADO', mensaje);
+  }
+
   static conflicto(codigo: string, mensaje: string, detalles?: unknown) {
     return new ErrorApi(409, codigo, mensaje, detalles);
   }

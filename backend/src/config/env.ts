@@ -82,6 +82,22 @@ const esquema = z.object({
     .positive()
     .max(604_800)
     .default(TTL_DESCARGA_SEGUNDOS),
+
+  /**
+   * Resend (correo transaccional). La API key es opcional: sin ella el envío se
+   * considera "no entregado" y el flujo sigue funcionando porque el enlace de
+   * activación se devuelve en la respuesta de la invitación.
+   */
+  RESEND_API_KEY: textoOpcional,
+
+  /** Remitente de Resend. Sin dominio verificado, Resend exige `onboarding@resend.dev`. */
+  RESEND_FROM: textoOpcional,
+
+  /**
+   * Origen del frontend (Flutter web). Se usa para construir el enlace de
+   * activación que se envía por correo y se devuelve en la respuesta.
+   */
+  FRONTEND_URL: textoOpcional,
 });
 
 export type Env = z.infer<typeof esquema>;

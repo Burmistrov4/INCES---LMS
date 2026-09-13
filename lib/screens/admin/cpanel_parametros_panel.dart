@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/result.dart';
 import '../../models/system_setting.dart';
 import '../../repositories/modulo_repository.dart';
-import 'cpanel_estado.dart';
+import '../../widgets/comunes.dart';
 
 /// Editor de parámetros del sistema.
 ///
@@ -102,7 +102,7 @@ class _CpanelParametrosPanelState extends State<CpanelParametrosPanel> {
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const Aviso(
+        const AvisoEnLinea(
           texto:
               'Estos valores se leen en caliente: el cambio surte efecto sin '
               'reiniciar nada. Los marcados como públicos también los ve el '

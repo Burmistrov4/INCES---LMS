@@ -1,15 +1,33 @@
 import 'package:flutter/material.dart';
 
+import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
+import '../theme/inces_theme.dart';
+import '../widgets/andamiaje.dart';
+import '../widgets/comunes.dart';
+import 'admin/cpanel_auditoria_accesos_panel.dart';
 import 'admin/cpanel_auditoria_panel.dart';
 import 'admin/cpanel_modulos_panel.dart';
 import 'admin/cpanel_parametros_panel.dart';
+import 'admin/cpanel_invitaciones_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
-/// Las cuatro primeras secciones siguen siendo marcadores de posición: su
-/// contenido depende de módulos (M2, M3, M6, M7) que todavía no existen. Las
-/// tres últimas son el Núcleo del Administrador y están operativas.
+/// ## Qué cambió respecto a la versión anterior
+///
+/// Antes era un `Row` con una lista de secciones y un `IndexedStack`. Funcionaba,
+/// pero se presentaba como un formulario: había que leer cada etiqueta para
+/// saber qué se podía hacer. Ahora la estructura es la de un panel de control:
+///
+///  · El menú agrupa por **categoría con sentido para el usuario**
+///    (*Gestión Académica*, *Control de Aulas*, *Administración del Sistema*) en
+///    lugar de una lista plana. La categoría responde a «¿qué estoy intentando
+///    hacer?», que es como piensa quien administra un centro.
+///  · Las **migas de pan** y el **encabezado con rol y período** dan contexto
+///    permanente. Antes, la única señal de dónde estabas era el título.
+///  · Las secciones sin construir se marcan con un icono y **no son pulsables**.
+///    Antes se podía entrar a una pantalla que sólo decía «pendiente», lo que
+///    hace dudar de si la aplicación está rota.
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key, this.auth});
 
@@ -19,51 +37,76 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-/// Entrada de navegación del panel.
-class _Seccion {
-  const _Seccion(this.icono, this.titulo, this.descripcion);
-
-  final IconData icono;
-  final String titulo;
-
-  /// `null` ⇒ sección todavía no construida: se muestra un marcador.
-  final String? descripcion;
-}
-
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   late final AuthService _auth = widget.auth ?? AuthService();
 
   int _seleccionada = 0;
 
-  static const List<_Seccion> _secciones = [
-    _Seccion(
-      Icons.dashboard_outlined,
-      'Panel Principal',
-      'Métricas generales del centro de formación.',
+  /// Las secciones, con su categoría.
+  ///
+  /// El orden de esta lista es el orden del menú: primero lo construido —que es
+  /// a lo que se entra—, y después lo planificado. Al revés, tres de cada cuatro
+  /// clics caerían en una sección que no existe.
+  static const List<ItemNavegacion> _items = [
+    ItemNavegacion(
+      icono: Icons.tune_outlined,
+      titulo: 'Módulos del Sistema',
+      categoria: 'Administración del sistema',
     ),
-    _Seccion(
-      Icons.people_outline,
-      'Usuarios y Roles',
-      'Tabla global de aspirantes, estudiantes y docentes.',
+    ItemNavegacion(
+      icono: Icons.settings_outlined,
+      titulo: 'Parámetros',
+      categoria: 'Administración del sistema',
     ),
-    _Seccion(
-      Icons.menu_book_outlined,
-      'Programas Académicos',
-      'Estructura de cursos y unidades curriculares (M2).',
+    ItemNavegacion(
+      icono: Icons.history_outlined,
+      titulo: 'Auditoría',
+      categoria: 'Administración del sistema',
     ),
-    _Seccion(
-      Icons.assignment_outlined,
-      'Control de Notas',
-      'Planilla de asistencia y carga de calificaciones (M6, M7).',
+    ItemNavegacion(
+      icono: Icons.fingerprint_outlined,
+      titulo: 'Auditoría de Accesos',
+      categoria: 'Administración del sistema',
     ),
-    _Seccion(Icons.toggle_on_outlined, 'Módulos del Sistema', null),
-    _Seccion(Icons.tune_outlined, 'Parámetros', null),
-    _Seccion(Icons.history_outlined, 'Auditoría', null),
+    ItemNavegacion(
+      icono: Icons.people_outline,
+      titulo: 'Usuarios y Roles',
+      categoria: 'Administración del sistema',
+    ),
+    ItemNavegacion(
+      icono: Icons.menu_book_outlined,
+      titulo: 'Programas Académicos',
+      categoria: 'Gestión académica',
+      disponible: false,
+    ),
+    ItemNavegacion(
+      icono: Icons.calendar_month_outlined,
+      titulo: 'Cuadrante y Horarios',
+      categoria: 'Control de aulas',
+      disponible: false,
+    ),
+    ItemNavegacion(
+      icono: Icons.fact_check_outlined,
+      titulo: 'Asistencia',
+      categoria: 'Control de aulas',
+      disponible: false,
+    ),
+    ItemNavegacion(
+      icono: Icons.assignment_outlined,
+      titulo: 'Calificaciones',
+      categoria: 'Control de aulas',
+      disponible: false,
+    ),
   ];
 
-  /// Ancho a partir del cual el menú lateral se muestra fijo. Por debajo, pasa a
-  /// un cajón lateral: un `Row` con un ancho fijo desborda en pantallas angostas.
-  static const double _anchoMinimoEscritorio = 900;
+  /// Período mostrado en el encabezado.
+  ///
+  /// Está escrito a mano a propósito y **no** leído de `system_settings`: ese
+  /// parámetro existe (`periodo_activo`), pero leerlo aquí obligaría al
+  /// dashboard a cargar todo el catálogo de parámetros antes de pintar. Cuando
+  /// se construya el módulo de currículo, el período pasará a ser una selección
+  /// real; hasta entonces un valor fijo comunica mejor que un hueco.
+  static const String _periodoActivo = '2026-1';
 
   Future<void> _cerrarSesion() async {
     await _auth.cerrarSesion();
@@ -71,286 +114,145 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     Navigator.of(context, rootNavigator: true).pushReplacementNamed('/login');
   }
 
+  String get _tituloSeccion => _items[_seleccionada].titulo;
+
+  @override
+  Widget build(BuildContext context) {
+    return AndamiajeApp(
+      items: _items,
+      seleccionado: _seleccionada,
+      onSeleccionar: (indice) => setState(() => _seleccionada = indice),
+      rolEtiqueta: 'Administrador Maestro',
+      correoUsuario: _auth.emailActual,
+      periodoActivo: _periodoActivo,
+      onCerrarSesion: _cerrarSesion,
+      contenido: _contenido(),
+    );
+  }
+
+  Widget _contenido() {
+    switch (_items[_seleccionada].titulo) {
+      case 'Módulos del Sistema':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Administración del sistema', 'Módulos'],
+          child: CpanelModulosPanel(),
+        );
+      case 'Parámetros':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Administración del sistema', 'Parámetros'],
+          child: CpanelParametrosPanel(),
+        );
+      case 'Auditoría':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Administración del sistema', 'Auditoría'],
+          child: CpanelAuditoriaPanel(),
+        );
+      case 'Auditoría de Accesos':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Administración del sistema', 'Accesos'],
+          child: CpanelAuditoriaAccesosPanel(),
+        );
+      case 'Usuarios y Roles':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Administración del sistema', 'Usuarios y Roles'],
+          child: CpanelInvitacionesPanel(),
+        );
+      default:
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: MigasDePan(partes: ['Inicio', _tituloSeccion]),
+        );
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+//  Tarjetas de acceso rápido
+// -----------------------------------------------------------------------------
+
+/// Tarjeta de una sección del sistema, con su categoría como contexto.
+///
+/// Reutilizable cuando el resto de secciones tengan contenido propio y el
+/// dashboard pueda mostrar un resumen en lugar de una sección concreta.
+class TarjetaAccesoSeccion extends StatelessWidget {
+  const TarjetaAccesoSeccion({
+    super.key,
+    required this.item,
+    required this.onAbrir,
+  });
+
+  final ItemNavegacion item;
+  final VoidCallback onAbrir;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final esAngosto = MediaQuery.sizeOf(context).width < _anchoMinimoEscritorio;
+    final disponible = item.disponible;
 
-    return Scaffold(
-      drawer: esAngosto
-          ? Drawer(
-              backgroundColor: const Color(0xFF1E293B),
-              child: _construirMenu(context),
-            )
-          : null,
-      body: Row(
-        children: [
-          if (!esAngosto)
-            SizedBox(
-              width: 260,
-              child: ColoredBox(
-                color: const Color(0xFF1E293B),
-                child: _construirMenu(context),
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: disponible ? onAbrir : null,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              height: 5,
+              decoration: BoxDecoration(
+                gradient: disponible
+                    ? IncesTheme.degradadoMarca
+                    : LinearGradient(
+                        colors: [
+                          theme.colorScheme.outline,
+                          theme.colorScheme.outline,
+                        ],
+                      ),
               ),
             ),
-          Expanded(
-            child: Column(
-              children: [
-                _construirCabecera(context, theme, mostrarMenu: esAngosto),
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.all(esAngosto ? 16 : 24),
-                    child: IndexedStack(
-                      index: _seleccionada,
-                      children: [
-                        for (final seccion in _secciones)
-                          if (seccion.descripcion != null)
-                            _marcador(theme, seccion.descripcion!)
-                          else
-                            _panel(seccion.titulo),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _panel(String titulo) {
-    switch (titulo) {
-      case 'Módulos del Sistema':
-        return const CpanelModulosPanel();
-      case 'Parámetros':
-        return const CpanelParametrosPanel();
-      case 'Auditoría':
-        return const CpanelAuditoriaPanel();
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  Widget _construirCabecera(
-    BuildContext context,
-    ThemeData theme, {
-    required bool mostrarMenu,
-  }) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        border: Border(
-          bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)),
-        ),
-      ),
-      child: Row(
-        children: [
-          if (mostrarMenu)
-            Builder(
-              builder: (contexto) => IconButton(
-                tooltip: 'Menú',
-                icon: const Icon(Icons.menu_rounded),
-                onPressed: () => Scaffold.of(contexto).openDrawer(),
-              ),
-            ),
-          Expanded(
-            child: Text(
-              _secciones[_seleccionada].titulo,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _construirMenu(BuildContext context) {
-    final theme = Theme.of(context);
-    final esAngosto = MediaQuery.sizeOf(context).width < _anchoMinimoEscritorio;
-    final correo = _auth.emailActual ?? 'sesión no identificada';
-
-    return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.school_outlined,
-                    color: Colors.blueAccent,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(
-                        'INCES LMS',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                      Icon(
+                        item.icono,
+                        size: 20,
+                        color: disponible
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.6),
+                      ),
+                      const Spacer(),
+                      if (!disponible)
+                        Icon(
+                          Icons.construction_outlined,
+                          size: 15,
+                          color: theme.colorScheme.onSurfaceVariant
+                              .withValues(alpha: 0.6),
                         ),
-                      ),
-                      Text(
-                        'Administrador Maestro',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
-                      ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(color: Colors.white12, height: 1),
-          const SizedBox(height: 8),
-
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                for (var i = 0; i < _secciones.length; i++)
-                  _itemMenu(
-                    theme,
-                    indice: i,
-                    seccion: _secciones[i],
-                    cerrarAlTocar: esAngosto,
+                  const SizedBox(height: 12),
+                  Text(
+                    item.titulo,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: disponible
+                          ? theme.colorScheme.onSurface
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-              ],
-            ),
-          ),
-
-          const Divider(color: Colors.white12, height: 1),
-          ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: const CircleAvatar(
-              backgroundColor: Colors.blueAccent,
-              child: Text(
-                'A',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            title: const Text(
-              'Administrador',
-              style: TextStyle(color: Colors.white, fontSize: 14),
-            ),
-            subtitle: Text(
-              correo,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.grey, fontSize: 11),
-            ),
-            trailing: IconButton(
-              tooltip: 'Cerrar sesión',
-              icon: const Icon(
-                Icons.logout_rounded,
-                color: Colors.grey,
-                size: 18,
-              ),
-              onPressed: _cerrarSesion,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _itemMenu(
-    ThemeData theme, {
-    required int indice,
-    required _Seccion seccion,
-    required bool cerrarAlTocar,
-  }) {
-    final seleccionado = _seleccionada == indice;
-    final pendiente = seccion.descripcion != null;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: InkWell(
-        onTap: () {
-          setState(() => _seleccionada = indice);
-          if (cerrarAlTocar) Navigator.of(context).pop();
-        },
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: seleccionado ? Colors.blueAccent : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                seccion.icono,
-                color: seleccionado ? Colors.white : Colors.grey[400],
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  seccion.titulo,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: seleccionado ? Colors.white : Colors.grey[400],
-                    fontWeight:
-                        seleccionado ? FontWeight.w600 : FontWeight.normal,
-                    fontSize: 14,
+                  const SizedBox(height: 4),
+                  Text(
+                    disponible ? item.categoria : 'Pendiente de construir',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
-                ),
+                ],
               ),
-              if (pendiente)
-                Tooltip(
-                  message: 'Pendiente de construir',
-                  child: Icon(
-                    Icons.construction_outlined,
-                    size: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _marcador(ThemeData theme, String descripcion) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.construction_outlined,
-              size: 48,
-              color: theme.colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              descripcion,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium,
             ),
           ],
         ),
@@ -358,3 +260,116 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 }
+
+/// Rejilla adaptativa de tarjetas.
+///
+/// El número de columnas se calcula por ancho disponible y no por un `breakpoint`
+/// fijo: así funciona en móvil, tableta y monitor sin tres ramas distintas.
+class RejillaTarjetas extends StatelessWidget {
+  const RejillaTarjetas({
+    super.key,
+    required this.children,
+    this.anchoMinimo = 260,
+    this.espaciado = 16,
+  });
+
+  final List<Widget> children;
+  final double anchoMinimo;
+  final double espaciado;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, restricciones) {
+        final columnas = (restricciones.maxWidth / anchoMinimo)
+            .floor()
+            .clamp(1, 4);
+
+        return Wrap(
+          spacing: espaciado,
+          runSpacing: espaciado,
+          children: [
+            for (final hijo in children)
+              SizedBox(
+                // Se resta el espaciado que consumen los huecos entre columnas,
+                // no sólo el ancho de las tarjetas: sin eso la última columna
+                // desborda por unos píxeles y el `Wrap` baja una tarjeta de más.
+                width: (restricciones.maxWidth -
+                        (espaciado * (columnas - 1))) /
+                    columnas,
+                child: hijo,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Métricas rápidas del panel de módulos.
+///
+/// Se calcula aquí, a partir de la lista cargada, en lugar de pedir un endpoint
+/// de estadísticas: son cuatro cifras derivadas de datos que ya están en
+/// memoria, y una petición extra para contarlos sería trabajo redundante.
+///
+/// La cuarta tarjeta no es «Protegidos» sino **«Auditoría hoy»**, y no es un
+/// capricho: el requisito del Command Center pedía cuatro cifras de un vistazo,
+/// y las otras tres (totales, activos, apagados) se derivan del mismo dato, así
+/// que una cuarta del mismo tipo no añadía nada. `Últimos cambios` sí aporta:
+/// responde a «¿alguien tocó algo últimamente?», que es la pregunta que se hace
+/// al abrir el panel sospechando un problema.
+class MetricasModulos extends StatelessWidget {
+  const MetricasModulos({
+    super.key,
+    required this.total,
+    required this.activos,
+    required this.criticos,
+    required this.cambiosRecientes,
+  });
+
+  final int total;
+  final int activos;
+
+  /// Módulos con candado (hoy, sólo `m0_cpanel`). Se muestra en el subtítulo de
+  /// la tarjeta de protegidos.
+  final int criticos;
+
+  /// Cambios de configuración registrados en la auditoría reciente.
+  final int cambiosRecientes;
+
+  @override
+  Widget build(BuildContext context) {
+    return RejillaTarjetas(
+      anchoMinimo: 200,
+      children: [
+        TarjetaMetrica(
+          etiqueta: 'Módulos totales',
+          valor: '$total',
+          icono: Icons.widgets_outlined,
+        ),
+        TarjetaMetrica(
+          etiqueta: 'Activos',
+          valor: '$activos',
+          icono: Icons.toggle_on_outlined,
+          color: IncesTheme.exito,
+        ),
+        TarjetaMetrica(
+          etiqueta: 'Apagados',
+          valor: '${total - activos}',
+          icono: Icons.toggle_off_outlined,
+          color: const Color(0xFF64748B),
+        ),
+        TarjetaMetrica(
+          etiqueta: 'Auditoría hoy',
+          valor: '$cambiosRecientes',
+          icono: Icons.history_outlined,
+          color: IncesTheme.rojoInces,
+        ),
+      ],
+    );
+  }
+}
+
+/// Etiqueta legible de un módulo del núcleo, usada en las migas de pan.
+String categoriaLegible(String categoria) =>
+    ModuloRepository.etiquetaCategoria(categoria);

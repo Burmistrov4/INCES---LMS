@@ -29,16 +29,38 @@ void main() {
   ) async {
     await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
 
-    // Identidad institucional
-    expect(find.text('INCES LMS'), findsOneWidget);
-    expect(find.text('cPanel & Aula Virtual'), findsOneWidget);
-
-    // Campos del formulario
+    // Campos del formulario. La etiqueta del botón va en minúscula desde el
+    // rediseño («Ingresar al sistema»), y ese literal es el que se comprueba
+    // —no el de la versión anterior en mayúscula— porque el estilo tipográfico
+    // ya no necesita gritar para destacar: el botón es un `ElevatedButton`
+    // primario sobre un fondo claro.
     expect(find.text('Cédula o Correo'), findsOneWidget);
     expect(find.text('Contraseña'), findsOneWidget);
+    expect(find.text('Ingresar al sistema'), findsOneWidget);
 
-    // Botón de ingreso
-    expect(find.text('Ingresar al Sistema'), findsOneWidget);
+    // Identidad institucional. En el ancho de prueba (800×600) el panel de
+    // marca lateral está oculto —se muestra a partir de 900 px—, así que la
+    // identidad aparece en su variante compacta sobre el formulario.
+    expect(find.text('INCES LMS'), findsOneWidget);
+    expect(find.text('La Isabelica'), findsOneWidget);
+    expect(find.text('Iniciar sesión'), findsOneWidget);
+  });
+
+  testWidgets('LoginScreen muestra el panel de marca en pantallas anchas', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+
+    // Con sitio suficiente, el panel de marca aparece y **la identidad compacta
+    // desaparece**: el mismo nombre dos veces en la misma pantalla sería ruido.
+    expect(find.text('Sistema de Gestión\nAcadémica'), findsOneWidget);
+    expect(find.text('CFS Nacional de Soldadura\n«Rafael Urdaneta»'), findsOneWidget);
+    expect(find.text('INCES LMS'), findsNothing);
   });
 
   testWidgets('AuthGate muestra splash de inicialización sin sesión activa', (
@@ -51,8 +73,10 @@ void main() {
       ),
     );
 
-    // Mientras se inicializa la sesión, muestra el splash de carga
-    expect(find.text('Inicializando sesión...'), findsOneWidget);
+    // Mientras se inicializa la sesión, muestra el splash de carga.
+    // El literal usa puntos suspensivos tipográficos (`…`), no tres puntos
+    // seguidos: es un solo carácter, y buscar `...` no encuentra nada.
+    expect(find.text('Inicializando sesión…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 

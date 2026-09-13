@@ -59,6 +59,31 @@ export function pareceErrorDeRed(valor: unknown): boolean {
 }
 
 /**
+ * `true` si PostgREST respondió **416 Range Not Satisfiable**.
+ *
+ * Pasa cuando se pide un `range()` que empieza más allá de la última fila. No es
+ * un fallo: es el final de la lista. PostgREST no le pone `code`, así que
+ * `pareceErrorPostgres` lo deja pasar y acabaría siendo un `500`, que es
+ * justo lo contrario de lo que significa.
+ *
+ * Lo reconoce el repositorio que hizo la consulta paginada, no el traductor
+ * genérico: sólo quien pidió una página sabe que una página de más es legítima.
+ * Traducirlo a `400` en el traductor sería peor que no hacer nada: convertiría
+ * una petición bien formada en un error del cliente.
+ */
+export function esRangoNoSatisfacible(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const conEstado = error as { status?: unknown; code?: unknown; message?: unknown };
+  if (conEstado.status === 416) return true;
+  // El cliente no siempre copia el estado HTTP: cuando no está, el mensaje es
+  // el único rastro que queda («Requested range not satisfiable»).
+  return (
+    typeof conEstado.message === 'string' &&
+    conEstado.message.toLowerCase().includes('range not satisfiable')
+  );
+}
+
+/**
  * Convierte cualquier fallo en un [ErrorApi].
  *
  * `contexto` describe la operación ("leer módulos", "actualizar parámetro") y se

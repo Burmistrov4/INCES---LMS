@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,7 +12,9 @@ import 'screens/aspirante_form_screen.dart';
 import 'screens/docente_dashboard.dart';
 import 'screens/login_screen.dart';
 import 'screens/restablecer_password_screen.dart';
+import 'screens/activar_cuenta_screen.dart';
 import 'services/auth_service.dart';
+import 'theme/inces_theme.dart';
 
 SupabaseClient get supabase => Supabase.instance.client;
 
@@ -37,24 +38,16 @@ class IncesLmsApp extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => RoleProvider(),
       child: MaterialApp(
-        title: 'INCES LMS - cPanel',
+        title: 'INCES LMS — Sistema de Gestión Académica',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF0F172A),
-            brightness: Brightness.light,
-          ),
-          textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF0F172A),
-            brightness: Brightness.dark,
-          ),
-          textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-        ),
+
+        // El tema se delega en `IncesTheme`. Tenerlo centralizado es lo que
+        // impide que cada pantalla vuelva a inventarse sus propios colores, que
+        // es exactamente lo que pasó antes: el login era `#0F172A` y los paneles
+        // también, pero con azules distintos, y la aplicación no se leía como un
+        // solo producto.
+        theme: IncesTheme.claro(),
+        darkTheme: IncesTheme.oscuro(),
         themeMode: ThemeMode.system,
 
         // `home` define la ruta raíz. Por eso NO se incluye '/' en `routes`:
@@ -64,6 +57,10 @@ class IncesLmsApp extends StatelessWidget {
           '/login': (_) => const LoginScreen(),
           '/inscripcion': (_) => const AspiranteFormScreen(),
           '/restablecer': (_) => const RestablecerPasswordScreen(),
+          // Deep link del docente invitado. Al abrirse por URL, Flutter usa esta
+          // ruta como pantalla inicial (no el AuthGate): el docente aún no tiene
+          // sesión. El token se lee de la URL dentro de la pantalla.
+          '/auth/activate': (_) => const ActivarCuentaScreen(),
         },
       ),
     );
@@ -144,19 +141,38 @@ class _AuthGateState extends State<AuthGate> {
     final roleProvider = context.watch<RoleProvider>();
 
     if (_isInitializing || roleProvider.isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0F172A),
+      return Scaffold(
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.school_outlined, color: Color(0xFF2563EB), size: 48),
-              SizedBox(height: 16),
-              CircularProgressIndicator(color: Color(0xFF2563EB)),
-              SizedBox(height: 16),
+              Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: IncesTheme.degradadoAzul,
+                  borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta),
+                ),
+                child: const Text(
+                  'I',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(height: 16),
               Text(
-                'Inicializando sesión...',
-                style: TextStyle(color: Color(0xFF94A3B8)),
+                'Inicializando sesión…',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),

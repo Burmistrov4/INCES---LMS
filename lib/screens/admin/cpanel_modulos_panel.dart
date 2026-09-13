@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../core/result.dart';
+import '../../models/config_audit_entry.dart';
 import '../../models/system_module.dart';
 import '../../repositories/modulo_repository.dart';
-import 'cpanel_estado.dart';
+import '../../theme/inces_theme.dart';
+import '../../widgets/comunes.dart';
+import '../admin_dashboard.dart';
 
 /// Módulo que da acceso a este mismo panel.
 ///
 /// La base de datos impide apagarlo (trigger `proteger_modulo_critico`) y la API
-/// también. La UI lo refleja desactivando el interruptor y explicando por qué,
-/// en vez de dejar que el usuario pulse y reciba un error.
+/// también. La UI lo refleja bloqueando el interruptor y explicando por qué, en
+/// vez de dejar que el usuario pulse y reciba un error.
 const String claveModuloCpanel = 'm0_cpanel';
 
 const Map<String, String> etiquetasRol = {
@@ -18,7 +21,30 @@ const Map<String, String> etiquetasRol = {
   'estudiante': 'Estudiante',
 };
 
-/// Interruptores de módulos: el núcleo del Poder Absoluto del Administrador.
+/// Iconos por módulo.
+///
+/// Se declaran aquí y no se leen de `system_modules.icono` —que ya existe en la
+/// base— porque ese campo guarda un nombre (`menu_book`) que hay que mapear a un
+/// `IconData` de todos modos, y el mapeo a un `Map` constante permite que un
+/// nombre desconocido tenga un icono por defecto en vez de romper el panel.
+const Map<String, IconData> _iconosModulo = {
+  'm0_cpanel': Icons.tune_outlined,
+  'm1_onboarding': Icons.badge_outlined,
+  'm2_curriculo': Icons.menu_book_outlined,
+  'm3_cuadrante': Icons.calendar_month_outlined,
+  'm4_inscripciones': Icons.how_to_reg_outlined,
+  'm5_archivos': Icons.folder_open_outlined,
+  'm6_asistencia': Icons.fact_check_outlined,
+  'm7_calificaciones': Icons.grading_outlined,
+  'm8_pasantias': Icons.work_outline,
+};
+
+/// Command Center de módulos.
+///
+/// Antes era una lista de filas con un `Switch` a la derecha: funcional, pero
+/// obligaba a leer cada línea para saber qué estaba encendido. Ahora cada módulo
+/// es una tarjeta con badge de estado, roles visibles y una cabecera que
+/// identifica su categoría, de modo que el estado se reconoce de un vistazo.
 class CpanelModulosPanel extends StatefulWidget {
   const CpanelModulosPanel({super.key, this.repositorio});
 
@@ -35,9 +61,19 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
   String? _error;
   List<SystemModule> _modulos = const [];
 
+  /// Cambios de configuración registrados hoy.
+  ///
+  /// Se pide en paralelo con los módulos y **no** es crítico: si falla, la
+  /// tarjeta muestra 0 y el panel sigue usable. Convertir esta cifra en un
+  /// requisito de carga haría que un problema en la tabla de auditoría dejara
+  /// al administrador sin poder gestionar módulos, que es lo que de verdad ha
+  /// venido a hacer.
+  int _cambiosHoy = 0;
+
   /// Claves con una operación de guardado en curso. Mientras una clave está
-  /// aquí, su interruptor se deshabilita: evita que dos pulsaciones rápidas
-  /// generen peticiones contradictorias.
+  /// aquí, **sólo su** interruptor se sustituye por un indicador: el resto del
+  /// panel sigue operable, porque el guardado de un módulo no debe bloquear el
+  /// trabajo con los demás.
   final Set<String> _guardando = {};
 
   @override
@@ -52,16 +88,38 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
       _error = null;
     });
 
-    final resultado = await _repo.obtenerModulos();
+    // Las dos peticiones viajan juntas: la auditoría no se espera a que terminen
+    // los módulos, así que no alarga la carga.
+    final resultados = await Future.wait([
+      _repo.obtenerModulos(),
+      _repo.obtenerAuditoria(limite: 50),
+    ]);
     if (!mounted) return;
+
+    final resultadoModulos = resultados[0] as Result<List<SystemModule>>;
+    final resultadoAuditoria = resultados[1] as Result<List<ConfigAuditEntry>>;
 
     setState(() {
       _cargando = false;
-      switch (resultado) {
+      switch (resultadoModulos) {
         case Success(value: final modulos):
           _modulos = modulos;
         case Failure(error: final fallo):
           _error = fallo.message;
+      }
+
+      // La auditoría es informativa: un fallo aquí no se propaga al panel.
+      if (resultadoAuditoria case Success(value: final entradas)) {
+        final hoy = DateTime.now();
+        _cambiosHoy = entradas
+            .where(
+              (e) =>
+                  e.creadoEn != null &&
+                  e.creadoEn!.toLocal().year == hoy.year &&
+                  e.creadoEn!.toLocal().month == hoy.month &&
+                  e.creadoEn!.toLocal().day == hoy.day,
+            )
+            .length;
       }
     });
   }
@@ -73,13 +131,16 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
       clave: modulo.clave,
       habilitado: habilitado,
     );
-    if (!mounted) return;
 
-    setState(() => _guardando.remove(modulo.clave));
+    // El estado de guardado se libera ANTES de comprobar `mounted`. Al revés,
+    // un desmontaje durante la petición dejaría la clave en `_guardando` para
+    // siempre y ese módulo mostraría un indicador de carga eterno.
+    if (mounted) setState(() => _guardando.remove(modulo.clave));
+    if (!mounted) return;
 
     switch (resultado) {
       case Success(value: final actualizado):
-        // Sólo ahora se refleja el cambio: si el guardado falla, el interruptor
+        // Sólo ahora se refleja el cambio: si el guardado falla, la tarjeta
         // sigue mostrando la verdad y no una intención.
         setState(() {
           _modulos = [
@@ -91,6 +152,7 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
           context,
           '${actualizado.nombre}: '
           '${actualizado.habilitado ? 'activado' : 'desactivado'}',
+          exito: actualizado.habilitado,
         );
       case Failure(error: final fallo):
         mostrarAviso(context, fallo.message, error: true);
@@ -110,8 +172,9 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
       clave: modulo.clave,
       roles: seleccion,
     );
+
+    if (mounted) setState(() => _guardando.remove(modulo.clave));
     if (!mounted) return;
-    setState(() => _guardando.remove(modulo.clave));
 
     switch (resultado) {
       case Success(value: final actualizado):
@@ -126,6 +189,7 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
           actualizado.rolesPermitidos.isEmpty
               ? '${actualizado.nombre}: visible para todos los roles'
               : '${actualizado.nombre}: acceso restringido',
+          exito: true,
         );
       case Failure(error: final fallo):
         mostrarAviso(context, fallo.message, error: true);
@@ -138,176 +202,121 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
       cargando: _cargando,
       error: _error,
       onReintentar: _cargar,
-      child: _construirLista(context),
+      child: _construirPanel(context),
     );
   }
 
-  Widget _construirLista(BuildContext context) {
+  Widget _construirPanel(BuildContext context) {
     if (_modulos.isEmpty) {
-      return const Center(child: Text('No hay módulos registrados.'));
+      return const Padding(
+        padding: EdgeInsets.all(48),
+        child: Center(child: Text('No hay módulos registrados.')),
+      );
     }
 
     final agrupados = ModuloRepository.agruparPorCategoria(_modulos);
     final activos = _modulos.where((m) => m.habilitado).length;
+    final criticos = _modulos.where((m) => m.clave == claveModuloCpanel).length;
 
+    // El contenido va dentro de su propio scrollable.
+    //
+    // No es decorativo: la lista de módulos crece con el catálogo, y este panel
+    // se monta tanto en el `SingleChildScrollView` de `ContenidoSeccion`
+    // (altura infinita, el caso normal) como en espacios de altura acotada
+    // (una vista embebida, una prueba). Sin el `Scrollbar`+`ListView` propio,
+    // la primera situación funciona y la segunda desborda; con él, las dos se
+    // comportan igual y el panel no depende de quién lo aloja. Se elige
+    // `shrinkWrap` para que, cuando la altura sí es infinita, la columna mida
+    // sólo lo que mide su contenido en vez de reclamar todo el espacio.
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      shrinkWrap: true,
+      // El scroll físico se desactiva cuando la altura es ilimitada: si no, el
+      // `ListView` intentaría competir con el `SingleChildScrollView` exterior
+      // y el gesto de rueda quedaría ambiguo entre los dos.
+      physics: const ClampingScrollPhysics(),
+      padding: EdgeInsets.zero,
       children: [
-        Aviso(
-          texto:
-              '$activos de ${_modulos.length} módulos activos. Al desactivar un '
-              'módulo, su API deja de atender de inmediato y desaparece del menú '
-              'de todos los usuarios. Cada cambio queda registrado en la auditoría.',
+        // --- Command Center: las cifras primero ----------------------------
+        // Van arriba y no al final porque responden a «¿cómo está el sistema?»
+        // antes de que el usuario tenga que buscar nada.
+        MetricasModulos(
+          total: _modulos.length,
+          activos: activos,
+          criticos: criticos,
+          cambiosRecientes: _cambiosHoy,
         ),
         const SizedBox(height: 20),
+        AvisoEnLinea(
+          texto:
+              'Al desactivar un módulo, su API deja de atender de inmediato y '
+              'desaparece del menú de todos los usuarios. Cada cambio queda '
+              'registrado en la auditoría con la fecha.',
+        ),
+        const SizedBox(height: 24),
+
+        // --- Módulos, por categoría, en rejilla ----------------------------
         for (final entrada in agrupados.entries) ...[
-          TituloSeccion(ModuloRepository.etiquetaCategoria(entrada.key)),
-          Card(
-            margin: const EdgeInsets.only(bottom: 20),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                for (var i = 0; i < entrada.value.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  _filaModulo(context, entrada.value[i]),
-                ],
-              ],
-            ),
+          TituloSeccion(
+            ModuloRepository.etiquetaCategoria(entrada.key),
+            subtitulo: _subtituloCategoria(entrada.key),
           ),
+          RejillaTarjetas(
+            anchoMinimo: 320,
+            children: [
+              for (final modulo in entrada.value) _tarjetaDe(modulo),
+            ],
+          ),
+          const SizedBox(height: 28),
         ],
       ],
     );
   }
 
-  Widget _filaModulo(BuildContext context, SystemModule modulo) {
-    final theme = Theme.of(context);
+  Widget _tarjetaDe(SystemModule modulo) {
     final esCritico = modulo.clave == claveModuloCpanel;
-    final guardando = _guardando.contains(modulo.clave);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        modulo.nombre,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _chipEstado(context, modulo.habilitado),
-                    if (esCritico) ...[
-                      const SizedBox(width: 6),
-                      Tooltip(
-                        message:
-                            'Módulo crítico: da acceso a este panel. No puede '
-                            'desactivarse.',
-                        child: Icon(
-                          Icons.lock_outline,
-                          size: 15,
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                if (modulo.descripcion != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    modulo.descripcion!,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-                const SizedBox(height: 8),
-                _filaRoles(context, modulo),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          if (guardando)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-          else
-            Switch(
-              value: modulo.habilitado,
-              onChanged: esCritico
-                  ? null
-                  : (valor) => _alternar(modulo, valor),
-            ),
-        ],
+    return TarjetaModulo(
+      titulo: modulo.nombre,
+      descripcion: modulo.descripcion,
+      icono: _iconosModulo[modulo.clave] ?? Icons.widgets_outlined,
+      estado: EstadoModulo.para(
+        habilitado: modulo.habilitado,
+        esCritico: esCritico,
       ),
-    );
-  }
-
-  Widget _chipEstado(BuildContext context, bool habilitado) {
-    final theme = Theme.of(context);
-    final color = habilitado ? Colors.green : theme.colorScheme.outline;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        habilitado ? 'activo' : 'inactivo',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _filaRoles(BuildContext context, SystemModule modulo) {
-    final theme = Theme.of(context);
-    final restringido = modulo.rolesPermitidos.isNotEmpty;
-
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Text(
-          restringido ? 'Acceso:' : 'Visible para todos los roles',
-          style: theme.textTheme.labelSmall,
-        ),
-        if (restringido)
-          for (final rol in modulo.rolesPermitidos)
-            Chip(
-              label: Text(etiquetasRol[rol] ?? rol),
-              labelStyle: theme.textTheme.labelSmall,
-              visualDensity: VisualDensity.compact,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-        TextButton.icon(
-          onPressed: _guardando.contains(modulo.clave)
-              ? null
-              : () => _editarRoles(modulo),
-          icon: const Icon(Icons.group_outlined, size: 15),
-          label: const Text('Cambiar'),
-          style: TextButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-          ),
-        ),
+      habilitado: modulo.habilitado,
+      guardando: _guardando.contains(modulo.clave),
+      rolesEtiquetas: [
+        for (final rol in modulo.rolesPermitidos) etiquetasRol[rol] ?? rol,
       ],
+      candadoRazon: esCritico
+          ? 'Módulo crítico: da acceso a este panel. No puede desactivarse.'
+          : null,
+      onAlternar: esCritico ? null : (valor) => _alternar(modulo, valor),
+      onEditarRoles: () => _editarRoles(modulo),
     );
+  }
+
+  /// Explica para qué sirve la categoría, no sólo cómo se llama.
+  ///
+  /// El nombre suelto («Académico») no ayuda a decidir dónde está un módulo; la
+  /// frase sí.
+  static String? _subtituloCategoria(String categoria) {
+    switch (categoria) {
+      case 'nucleo':
+        return 'El núcleo del sistema. Sin esto no hay nada más.';
+      case 'academico':
+        return 'Currículo, horarios, inscripciones y asistencia.';
+      case 'recursos':
+        return 'Almacenamiento y material de apoyo.';
+      case 'evaluacion':
+        return 'Calificaciones y actas.';
+      case 'avanzado':
+        return 'Pasantías y procesos de egreso.';
+      case 'operacion':
+        return 'Parámetros operativos del centro.';
+      default:
+        return null;
+    }
   }
 }
 
@@ -331,7 +340,7 @@ class _DialogoRolesState extends State<_DialogoRoles> {
     return AlertDialog(
       title: Text('Acceso a ${widget.modulo.nombre}'),
       content: SizedBox(
-        width: 380,
+        width: 400,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,13 +350,18 @@ class _DialogoRolesState extends State<_DialogoRoles> {
               'Con roles marcados, sólo ellos lo ven.',
               style: theme.textTheme.bodySmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             for (final rol in etiquetasRol.entries)
               CheckboxListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
                 value: _seleccion.contains(rol.key),
-                title: Text(rol.value),
+                title: Text(
+                  rol.value,
+                  style: theme.textTheme.bodyMedium,
+                ),
                 onChanged: (marcado) {
                   setState(() {
                     if (marcado == true) {
@@ -357,6 +371,14 @@ class _DialogoRolesState extends State<_DialogoRoles> {
                     }
                   });
                 },
+              ),
+            if (_seleccion.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: AvisoEnLinea(
+                  texto: 'Sin roles marcados: todos los usuarios verán este módulo.',
+                  icono: Icons.public_outlined,
+                ),
               ),
           ],
         ),

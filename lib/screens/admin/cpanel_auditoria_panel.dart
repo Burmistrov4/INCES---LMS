@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/result.dart';
 import '../../models/config_audit_entry.dart';
 import '../../repositories/modulo_repository.dart';
-import 'cpanel_estado.dart';
+import '../../widgets/comunes.dart';
 
 /// Historial de cambios de configuración.
 ///

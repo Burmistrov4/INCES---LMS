@@ -61,6 +61,32 @@ export interface EntradaAuditoria {
   creadoEn: string | null;
 }
 
+/** Invitación de docente por token. El token en claro nunca se guarda: sólo su hash. */
+export interface InvitacionDocente {
+  id: string;
+  email: string;
+  tokenHash: string;
+  isUsed: boolean;
+  createdAt: string;
+  /** Instante ISO tras el cual la invitación ya no sirve (48 h desde su creación). */
+  expiresAt: string;
+}
+
+/** Resultado de comprobar si una invitación sigue usable. */
+export type EstadoInvitacion = 'valida' | 'usada' | 'expirada';
+
+export type EstadoAcceso = 'SUCCESS' | 'FAILED';
+
+/** Entrada de la traza de acceso (auth_logs). */
+export interface EntradaAcceso {
+  id: string;
+  userId: string | null;
+  email: string | null;
+  ip: string | null;
+  estado: EstadoAcceso;
+  createdAt: string;
+}
+
 export interface CambiosModulo {
   habilitado?: boolean;
   orden?: number;
