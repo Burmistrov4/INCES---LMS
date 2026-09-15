@@ -33,7 +33,8 @@
 | **D10** | Conexión directa sólo IPv6 | ✅ Resuelta (libro mayor de migraciones) |
 | **Fase 4+** | M2 Currículo … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — ejecutada el 2026-09-14
+**Verificación al cierre de esta iteración** — suites del 2026-09-14; migraciones
+de M2 aplicadas y verificadas el **2026-09-15**
 
 | Comprobación | Resultado |
 | --- | --- |
@@ -44,10 +45,10 @@
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **96 / 96** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13) |
-| **Migraciones en la nube** | **5 / 5** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **43 / 43** comprobaciones (`supabase/verificar-esquema.mjs`) |
-| **Libro mayor de migraciones (D10)** | 5 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2 en el repositorio** | Archivos **6.º y 7.º**, **pendientes a propósito** — diseñadas y validadas en pglite, no aplicadas a la nube (ver §9 y §10) |
+| **Migraciones en la nube** | **7 / 7** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **52 / 52** comprobaciones (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 7 versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 13 tablas + la vista `cursos`, con RLS activo en las 4 nuevas (ver §9 y §10) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
 | Documento OpenAPI | OpenAPI 3.1.0 · **15 rutas · 24 esquemas** |
@@ -66,20 +67,18 @@
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las cinco migraciones que
-componen el esquema desplegado se aplicaron contra el proyecto real
-`twdppwnxlnmxkiejbrei` y el resultado se comprobó después, consultando el
-catálogo de PostgreSQL por separado: 11 tablas con RLS activo (las 8 originales
-más `teacher_invitations`, `auth_logs` y el libro mayor `schema_migrations`),
-los 6 triggers y funciones que sostienen las invariantes, 9 módulos sembrados,
-8 parámetros y 5 cursos.
+**La base de datos ya está aplicada y verificada.** Las siete migraciones se
+aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
+comprobó después, consultando el catálogo de PostgreSQL por separado:
+**13 tablas** con RLS activo, **1 vista** de compatibilidad (`cursos`, D12),
+**11 funciones**, **15 triggers** y **29 políticas RLS**, más 9 módulos
+sembrados, 8 parámetros y los 5 cursos — que desde la migración de D12 viven
+dentro de `programs` como `CURSO_LIBRE`.
 
-> **Cinco aplicadas, siete escritas.** El repositorio contiene además
-> `202609150001_mod2_curriculo.sql` y `202609160001_resolucion_d12_d13.sql`
-> (§9 y §10): validados contra PostgreSQL real, **todavía no aplicados a la
-> nube**. Cuando se apliquen, el esquema desplegado sube a 14 tablas (las tres de
-> M2 más la vista `cursos`) y estas cifras hay que **volver a medirlas, no
-> estimarlas** — es la lección de D11.
+> **Estas cifras están medidas, no estimadas.** Salen de
+> `supabase/verificar-esquema.mjs` (52/52) y de consultas directas al catálogo,
+> hechas **después** de aplicar. Es la lección de D11: cuando una migración se
+> aplica, se vuelve a contar en vez de confiar en lo que decía el documento.
 
 **El libro mayor de migraciones (D10) ya está en uso.** `schema_migrations`
 guarda una fila por migración aplicada con su checksum SHA-256. Eso convierte
@@ -354,10 +353,12 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 
 | Tabla | Origen | Propósito |
 | --- | --- | --- |
-| `cursos` | Fase 0 | Catálogo de propuestas formativas |
+| `programs` | **M2** | Oferta formativa: carreras (`CARRERA`) y cursos libres (`CURSO_LIBRE`). Absorbió a `cursos` (D12) |
+| `subjects` | **M2** | Banco global de materias, compartido entre programas |
+| `program_subjects` | **M2** | El pensum: qué materia va en qué programa y en qué período |
 | `profiles` | Fase 0 | Identidad y rol. Espejo de `auth.users` |
 | `aspirantes` | Fase 0 | Ficha de inscripción del aspirante |
-| `sections` | Fase 0 | Secciones con cupo (M3) |
+| `sections` | Fase 0 → **M2** | Secciones abiertas. **Rediseñada en D13**: `program_id`, `subject_id`, `period_code`, `name`, `max_capacity` |
 | `enrollments` | Fase 0 | Matrículas y estados de cupo (M4) |
 | `system_modules` | **Fase 3** | Interruptores de módulos del cPanel |
 | `system_settings` | **Fase 3** | Parámetros operativos editables |
@@ -365,6 +366,12 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `teacher_invitations` | **Módulo 1** | Invitaciones de docentes por token (se guarda el hash) |
 | `auth_logs` | **Módulo 1** | Traza de acceso: IP, instante, `SUCCESS`/`FAILED` |
 | `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
+
+### Vistas
+
+| Vista | Origen | Propósito |
+| --- | --- | --- |
+| `cursos` | **D12** | **Vista de compatibilidad** sobre `programs` (`type = 'CURSO_LIBRE'`) con `security_invoker`. Existía como tabla desde Fase 0; se conservó para no romper el desplegable del formulario público de inscripción mientras Flutter siga leyendo `cursos`. Se retira con `drop view public.cursos;` cuando el cliente lea `programs` directamente |
 
 ### Funciones y triggers
 
@@ -379,6 +386,8 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `audit_config_change()` | Trigger | Escribe en `config_audit_log` cada cambio de módulo o parámetro |
 | `proteger_modulo_critico()` | Trigger | **Cortacircuitos:** impide apagar o borrar `m0_cpanel` |
 | `proteger_ultimo_admin()` | Trigger | **Cortacircuitos (D8):** impide degradar, desactivar o borrar al último administrador activo. Usa un bloqueo de transacción para cerrar la carrera entre dos degradaciones simultáneas |
+| `exigir_pensum_no_vacio()` | **Constraint trigger diferido** en `programs` | **Regla 1 de M2:** un programa `CARRERA` no puede quedar activo sin materias. Es diferido a propósito: la comprobación corre al **confirmar la transacción**, y eso es lo que permite que el asistente de M2 mande programa y pensum en **una sola petición** mientras un `insert` suelto sin materias falla |
+| `proteger_pensum_en_uso()` | Trigger en `program_subjects` | **Regla 2 de M2:** bloquea cambiar el `period_order` o quitar materias cuando hay secciones activas del período vigente usando ese programa. Falla abierto si no hay período declarado (guarda de integridad, no barrera) |
 
 ### Políticas RLS
 
@@ -389,7 +398,12 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `system_modules` | Cualquier autenticado | **Solo admin** |
 | `system_settings` | Públicos: `anon` + autenticados. Privados: solo admin | **Solo admin** |
 | `config_audit_log` | **Solo admin** | **Nadie.** Único camino: el trigger |
-| `sections` / `enrollments` | Activas / el propio | Admin / el propio |
+| `programs` | **Público**: `anon` ve las activas; los autenticados ven todo, incluidos los borradores | **Solo admin** |
+| `subjects` | **Solo autenticados.** El banco de materias no es público | **Solo admin** |
+| `program_subjects` | **Solo autenticados** | **Solo admin** |
+| `sections` | Activas (`is_active`) para `anon` y autenticados | **Solo admin.** Sin `DELETE` para nadie: archivar es `is_active = false` |
+| `enrollments` | El propio; admin todo | El propio; admin todo |
+| `cursos` *(vista, no tabla)* | Hereda la RLS de `programs` gracias a `security_invoker`: `anon` sólo ve los cursos activos | — es una proyección; se escribe en `programs` |
 | `teacher_invitations` | **Solo admin** | **Solo admin.** El servicio de activación usa `service_role` y no pasa por aquí |
 | `auth_logs` | **Solo admin** | **Nadie.** Único camino: el backend con `service_role` |
 | `schema_migrations` | **Nadie** (revocado a `anon` y `authenticated`) | **Nadie.** Sólo el script con token de administración |
@@ -781,7 +795,7 @@ npm test              # 171 pruebas, incluidas las del módulo R2 y las de OpenA
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 43 comprobaciones
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 52 comprobaciones
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
@@ -795,7 +809,7 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 | `flutter test` (110) | La lógica del cliente | El SQL, la API, la red |
 | `supabase/tests` (96) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
 | `npm test` (171) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (43) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `verificar-esquema.mjs` (52) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 
@@ -849,8 +863,8 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (43/43) |
-| Libro mayor de migraciones | ✅ 5/5 con checksum (D10 resuelta) |
+| Base de datos en la nube | ✅ Migrada y verificada (52/52) |
+| Libro mayor de migraciones | ✅ 7/7 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
@@ -867,9 +881,8 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 1. **Abrir la pantalla de activación en un navegador** con un token real
    (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
-2. **Aplicar las dos migraciones de M2 a la nube** (§10). El diseño ya está
-   cerrado y D12/D13 ya están resueltas; falta correr
-   `node supabase/apply-migrations.mjs` y volver a verificar el esquema.
+2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
+   el libro mayor marca 7/7 y la verificación independiente del esquema da 52/52.
 3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
@@ -884,10 +897,10 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 ### Luego: Fase 4 — M2 Currículo y M3 Cuadrante
 
 1. ~~Decidir D12 y D13~~ — **hecho** el 2026-09-15. Ver §10.
-2. **Aplicar las migraciones `202609150001` y `202609160001`** y, en el mismo
-   paso, añadir `programs`, `subjects` y `program_subjects` a `esperadas` en
-   `verificar-esquema.mjs`. El orden importa: la segunda migración consume
-   `programs`, así que va después.
+2. ~~Aplicar las migraciones `202609150001` y `202609160001`~~ — **hecho** el
+   2026-09-15, y `verificar-esquema.mjs` actualizado: ahora comprueba las 13
+   tablas, la vista `cursos` (con `security_invoker`), las columnas de M2 y el
+   trigger de la Regla 2. 52/52.
 3. **Implementar las rutas de M2** (`/api/v1/admin/programas`, `/materias`) y el
    asistente de tres pasos en Flutter. Contrato propuesto en §9.
 4. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
@@ -903,14 +916,15 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 ---
 
-## 9. Módulo 2 — Currículo y Pensum: diseño entregado, sin aplicar
+## 9. Módulo 2 — Currículo y Pensum: diseñado y aplicado
 
-**Estado: diseñado, validado contra PostgreSQL real, y con D12/D13 ya resueltas
-(§10). Pendiente de aplicar a la nube.**
-Son dos archivos — `supabase/migrations/202609150001_mod2_curriculo.sql` (las
-tres tablas) y `supabase/migrations/202609160001_resolucion_d12_d13.sql` (las
-deudas) — y el validador de SQL los aplica y los prueba en cada corrida, pero la
-base de la nube todavía no los tiene. Es lo primero de la lista de §8.
+**Estado: diseñado, validado en PostgreSQL real y ✅ aplicado a la nube** el
+2026-09-15. Son dos archivos —
+`supabase/migrations/202609150001_mod2_curriculo.sql` (las tres tablas) y
+`supabase/migrations/202609160001_resolucion_d12_d13.sql` (las deudas)—: el
+validador de SQL los prueba en cada corrida (96/96), y el esquema desplegado ya
+los tiene, verificado con 52/52 comprobaciones independientes. Lo que falta es
+la API y la interfaz, no el esquema.
 
 ### Las tres tablas
 
