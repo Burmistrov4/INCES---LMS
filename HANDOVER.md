@@ -1,10 +1,12 @@
 # HANDOVER — INCES LMS
 
-> Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14** y
-> puesto al día el **2026-09-15** (Módulo 2 completo: base, backend y UI). Todo lo
-> que aparece aquí fue verificado contra el repositorio en el momento de
-> redactarlo. Si algo de este documento contradice al código, **gana el código**:
-> avísame y lo corrijo.
+> Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14**,
+> puesto al día el **2026-09-15** (Módulo 2 completo) y **actualizado el
+> 2026-09-15 con el Módulo 3**: esquema aplicado, verificado y **corregido** (un
+> fallo que dejaba el módulo inoperable, ver §2.6), contrato de las 14 rutas
+> escrito. Todo lo que aparece aquí fue verificado contra el repositorio en el
+> momento de redactarlo. Si algo de este documento contradice al código, **gana
+> el código**: avísame y lo corrijo.
 
 ---
 
@@ -14,21 +16,19 @@
 exactamente con `origin/main`.
 
 ```
-HEAD = origin/main = ec361ac
+HEAD = origin/main = dfb0a8b
 ```
 
 Verificado con `git rev-list --left-right --count origin/main...HEAD` → `0 0`.
 
 ```
+dfb0a8b  docs(modulo3): contrato de API y verificacion de esquema desplegado
+d676907  fix(modulo3): los envoltorios de trigger anti-colision deben ser security definer
+50aed06  feat(modulo3): esquema DDL de cuadrante, aulas, guardias y triggers anti-colision
+3c62c53  docs(handover): modulo 2 aplicado, UI completa y humo real en verde
 ec361ac  feat(modulo2): UI del asistente de curriculo y pensum
 9291e9a  fix(modulo1): garantizar lectura de token desde uri fragment en activacion
 c12e9b5  feat(modulo2): repositorios, rutas y traduccion de errores para curriculo
-25f2369  docs(modulo2): actualizar contrato API para reflejar diseno transaccional con RPC
-3b466bd  test(m2): humo de integracion del asistente contra la base real
-3d94dff  feat(m2): tipos y reglas puras del curriculo, con 18 pruebas
-cc1d1a3  feat(m2): las dos escrituras del asistente, como funciones transaccionales
-86ebd1b  feat(m2): aplica el curriculo a la nube y hace autoconsistente el verificador
-5bc1025  feat(m2): resuelve D12 y D13 y cierra el diseno de curriculo (96/96 en pglite)
 ```
 
 > **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
@@ -45,14 +45,14 @@ Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
 sí se versiona a propósito (es la plantilla documentada, sin valores reales).
 `.workbuddy-ai/` también está ignorado: la memoria del proyecto no viaja al repo.
 
-### ✅ Migración de M2 aplicada en la nube (verificado, no supuesto)
+### ✅ Migraciones de M2 y M3 aplicadas en la nube (verificado, no supuesto)
 
-Las 8 migraciones están aplicadas. El libro mayor lo confirma:
+Las 10 migraciones están aplicadas. El libro mayor lo confirma:
 
 ```
 $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
   Proyecto : twdppwnxlnmxkiejbrei   (ACTIVE_HEALTHY, sa-east-1)
-  Migraciones: 8
+  Migraciones: 10
 
   aplicada   202609100001_init.sql
   aplicada   202609120001_phase1_onboarding.sql
@@ -62,16 +62,20 @@ $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
   aplicada   202609150001_mod2_curriculo.sql
   aplicada   202609160001_resolucion_d12_d13.sql
   aplicada   202609170001_mod2_rpc_curriculo.sql
+  aplicada   202609180001_mod3_cuadrante_aulas.sql
+  aplicada   202609180002_mod3_trigger_agenda_definer.sql
 
   0 pendiente(s), 0 con deriva.
 ```
 
-`node supabase/verificar-esquema.mjs` → **56/56 OK, 0 fallos** (comprobado el
-2026-09-15). Incluye las 10 aserciones de M2: `cursos` es vista con
-`security_invoker`, `programs.type`/`is_active`, `program_subjects` con
-`period_order`, `sections.program_id`, los dos constraint triggers, y las dos
-funciones del asistente (`security invoker`, `anon` no puede, `authenticated`
-sí).
+`node supabase/verificar-esquema.mjs` → **81/81 OK, 0 fallos** (comprobado el
+2026-09-15). Incluye las aserciones de M2 (`cursos` es vista con
+`security_invoker`, `programs.type`/`is_active`, `sections.program_id`, los dos
+constraint triggers, las dos funciones del asistente) y **las de M3**: las 4
+tablas nuevas con sus columnas, la FK `sections.period_code → academic_periods`,
+el lapso vigente registrado, las 3 vistas con `security_invoker`, el `turno` como
+columna generada, y —la más importante— **`prosecdef` de los dos envoltorios
+anti-colisión debe ser `DEFINER`** (ver §2.6).
 
 ---
 
@@ -81,9 +85,9 @@ sí).
 
 | Suite | Resultado | Comando |
 |---|---|---|
-| Backend (vitest) | **189 / 189** en verde | `cd backend && npm test` |
+| Backend (vitest) | **232 / 232** en verde | `cd backend && npm test` |
 | Flutter | **197 / 197** en verde | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **110 / 110** en verde · 8 migraciones | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **164 / 164** en verde · 10 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
 > tocaste. En el cierre de M2, correr los archivos sueltos daba verde y la suite
@@ -117,7 +121,8 @@ Protegida por el `preHandler` `exigirAdmin()` del prefijo `/api/v1/admin`.
 
 Archivos tocados: `dominio/puertos.ts`, `infra/repos-supabase.ts`,
 `http/esquemas.ts`, `http/rutas/admin.ts`, `http/openapi.ts`.
-`openapi.json` regenerado: **15 rutas, 24 esquemas**.
+`openapi.json` regenerado: **22 rutas, 40 esquemas** (las de M3 todavía no
+existen: están documentadas en `docs/CONTRATO_API_MODULO3.md`, no implementadas).
 
 **Regla de oro de paginación (no la rompas):** el total se cuenta **primero** con
 `{ head: true, count: 'exact' }`, y se devuelve página vacía si
@@ -285,7 +290,7 @@ valores (`PORT`, `API_BASE_URL`, `CORS_ORIGINS`) deben contar la misma historia.
 ### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⚠️ arreglada, sin navegador
 
 **Mitad-API: VERIFICADA** contra la base real con `node supabase/humo-invitaciones.mjs
---confirmar` → **17/17 sin fallos**, cero residuo. Cubre lo que las 171 pruebas con
+--confirmar` → **17/17 sin fallos**, cero residuo. Cubre lo que las 232 pruebas con
 dobles no podían cubrir:
 
 - RLS de `teacher_invitations` y `auth_logs` con JWT reales: el admin ve, `anon`
@@ -349,7 +354,7 @@ falta un catch-all en el hosting. La pantalla lee el token de `Uri.base.fragment
 
 **Base aplicada.** `202609150001_mod2_curriculo.sql`,
 `202609160001_resolucion_d12_d13.sql` y `202609170001_mod2_rpc_curriculo.sql`
-están en la nube: **8/8 aplicadas, 0 deriva** (ver el bloque de arriba).
+están en la nube: **10/10 aplicadas, 0 deriva** (ver el bloque de arriba).
 
 Tres tablas: `programs`, `subjects` (banco global) y `program_subjects` (pensum,
 muchos-a-muchos). Además:
@@ -390,9 +395,9 @@ asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
 
 | Qué | Resultado |
 |---|---|
-| pglite (PostgreSQL real, 8 migraciones) | **110 / 110** |
-| Esquema en la nube (`verificar-esquema.mjs`) | **56 / 56**, 0 fallos |
-| Backend (vitest) | **189 / 189** |
+| pglite (PostgreSQL real, 10 migraciones) | **164 / 164** |
+| Esquema en la nube (`verificar-esquema.mjs`) | **81 / 81**, 0 fallos |
+| Backend (vitest) | **232 / 232** |
 | Flutter | **197 / 197** |
 | Humo de M2 contra la base real | **15 / 15**, purga completa |
 
@@ -433,11 +438,87 @@ pueden cerrar desde este entorno:
 
 ---
 
+### 2.6 Módulo 3 — esquema aplicado y corregido; **backend pendiente (PASO 4)**
+
+**Base aplicada.** `202609180001_mod3_cuadrante_aulas.sql` (todo el diseño) y
+`202609180002_mod3_trigger_agenda_definer.sql` (la corrección) están en la nube:
+**10/10 aplicadas, 0 deriva**.
+
+Cuatro tablas nuevas: `academic_periods` (el lapso deja de ser texto suelto),
+`classrooms` (aulas, talleres **y zonas**, un solo concepto), `teacher_duties`
+(guardias de custodia) y `schedule_slots` (el cuadrante). Tres vistas de lectura
+con `security_invoker`. **La migración de corrección no es cosmética: sin ella el
+módulo era inoperable.**
+
+#### ⚠️ Lo que hay que saber antes de tocar los triggers
+
+Los dos envoltorios anti-colisión **deben ser `security definer`**. Estuvieron
+como `security invoker` en `202609180001`, y como `exigir_agenda_libre()` está
+**revocada a propósito** para todos, el llamante no tenía `EXECUTE` y **toda alta
+de guardia o de clase fallaba**:
+
+```
+ERROR: 42501: permission denied for function exigir_agenda_libre
+CONTEXT: PL/pgSQL function teacher_duties_exigir_agenda() line 9 at PERFORM
+```
+
+**Y no lo vio una batería de 156 aserciones en verde**, porque las pruebas del
+trigger escribían como el **dueño** de las tablas, y el dueño se salta la
+comprobación de privilegios de función. **Si escribes una prueba de trigger,
+pregúntate como qué rol está escribiendo.** Tres redes lo cubren ahora: la
+sección 14.8 de `supabase/tests` escribe como `authenticated` con claims de
+admin, `verificar-esquema.mjs` comprueba `prosecdef` contra la nube, y el
+fail-first quedó demostrado. Ver `REPORTE_ARIA.md` **R-20** y
+`docs/CONTRATO_API_MODULO3.md` **§10**.
+
+#### La colisión: por qué no hay un `unique`
+
+La regla cruza **dos tablas** (`teacher_duties` y `schedule_slots`), así que
+ningún `unique` puede expresarla. Y en `schedule_slots` el lapso **no es una
+columna** —se deriva de la sección—, de modo que
+`unique (teacher_id, day_of_week, block)` **prohibiría** que el mismo docente
+dictara el mismo bloque en dos lapsos distintos, que es justo planificar el
+siguiente. La regla vive en una función compartida + dos triggers finos, y la
+carrera entre dos administradores se cierra con `pg_advisory_xact_lock` por
+`(lapso, día, bloque)`.
+
+#### Lo que falta de M3
+
+**Las 14 rutas del contrato, que son el PASO 4.** Están **diseñadas y
+documentadas** en `docs/CONTRATO_API_MODULO3.md`, pero **no implementadas**: no
+están en `openapi.ts` ni en la lista de `test/openapi.test.ts`. **No confundir
+«documentado» con «desplegado»** — es la confusión que produjo D11.
+
+El contrato incluye un código de error nuevo, **`CHOQUE_DE_AGENDA` (409)**,
+separado de `RESTRICCION_VIOLADA` (400) por el texto del mensaje del trigger, con
+el mismo criterio y el mismo motivo que `PENSUM_EN_USO` en M2.
+
+#### Datos que están vacíos **a propósito** (no los «arregles» sembrando)
+
+| Tabla | Filas | Por qué |
+|---|---|---|
+| `classrooms` | **0** | El inventario de espacios del CFS es un dato institucional. Sembrar «Taller de Soldadura Cabina A» habría sido **inventárselo** (R-18) |
+| `teacher_duties` | **0** | Depende del inventario y del cuadrante real |
+| `schedule_slots` | **0** | Ídem |
+| `academic_periods` | **1** | Sólo `2026-1`, **leído de `system_settings`**, no escrito a mano |
+
+Consecuencia que la UI tendrá que explicar: **mientras `classrooms` esté vacía el
+cuadrante no se puede usar** —una clase sin aula no existe—, así que un
+desplegable vacío sin mensaje hará pensar que la pantalla está rota.
+
+Y las fechas del lapso (`start_date` / `end_date`) son **nulas**: el centro no las
+ha cargado y no se inventan (R-17).
+
+---
+
 ## 3. Mapa de Documentos Vivos
 
 | Documento | Qué es | Cuándo leerlo |
 |---|---|---|
-| **`ESTADO_DEL_SISTEMA.md`** | **Fuente de verdad.** 758 líneas: estado por fase, deudas D1–D10, recetas de arranque | **Primero, siempre** |
+| **`ESTADO_DEL_SISTEMA.md`** | **Fuente de verdad.** Estado por fase, esquema, deudas D1–D13, recetas de arranque. **Ojo: se desincroniza solo** — verifica las cifras | **Primero, siempre** |
+| `REPORTE_ARIA.md` | Contradicciones del enunciado y fallos propios, resueltos uno por uno (R-01…R-20) | Si algo del diseño te chirría |
+| **`docs/CONTRATO_API_MODULO3.md`** | **El contrato de M3**: 14 rutas, tipos, errores, y por qué no hay un `unique` de colisión. **§10 explica el fallo `42501`** | **Antes de tocar nada de M3** |
+| `docs/CONTRATO_API_MODULO2.md` | Contrato de M2 (currículo y pensum), ya implementado | Al tocar M2 |
 | `ROADMAP.md` | ⚠️ **Desactualizado** — no lo tomes como referencia de estado | Sólo contexto histórico |
 | `docs/PLAN_MAESTRO_STACK_DEFINITIVO.md` | El stack vigente, con sus ADR | Si dudas del stack |
 | `README.md` | Arranque rápido (incluye `--web-port=8080`) | Al levantar el entorno |
@@ -454,7 +535,7 @@ pueden cerrar desde este entorno:
 | `temas/api-backend.md` | Backend, PostgREST, por qué los dobles en memoria engañan |
 | `temas/infraestructura.md` | Supabase, R2, despliegue dual |
 | `temas/interfaz.md` | Flutter, tema, componentes |
-| `2026-09-11.md` / `12` / `13` | Logs diarios. El del 13 detalla el cierre del Módulo 1 |
+| `2026-09-11.md` … `15.md` | Logs diarios. El del 13 cierra el Módulo 1; el del **15** cierra el M3 (esquema, el fallo `42501` y el contrato) |
 
 ---
 
@@ -489,30 +570,43 @@ STACK (FIJADO, NO REABRIR)
 DOCUMENTACIÓN VIVA (léela antes de escribir código)
 ---------------------------------------------------
 1. HANDOVER.md                  -> estado y pendientes, en la raíz. EMPIEZA AQUÍ.
-2. ESTADO_DEL_SISTEMA.md        -> fuente de verdad (758 líneas).
+2. ESTADO_DEL_SISTEMA.md        -> fuente de verdad. OJO: se desincroniza solo,
+                                   verifica las cifras contra el código.
 3. .workbuddy-ai/memory/MEMORY.md y temas/convenciones.md -> reglas y convenciones.
    convenciones.md es OBLIGATORIO antes de tocar cualquier archivo de código.
-4. ROADMAP.md está DESACTUALIZADO: no lo uses como referencia de estado.
-5. backend/.env.example tiene todas las variables explicadas.
+4. docs/CONTRATO_API_MODULO3.md -> el contrato de lo que toca ahora (M3), y en
+                                   su §10 el fallo que casi se cuela a produccion.
+5. ROADMAP.md está DESACTUALIZADO: no lo uses como referencia de estado.
+6. backend/.env.example tiene todas las variables explicadas.
 
-ESTADO ACTUAL
--------------
-- Backend: 171/171 tests, typecheck y eslint limpios.
-- Flutter: 110/110 tests, `flutter analyze` sin incidencias.
-- SQL: 66/66 aserciones en pglite (49 de M1 + 17 de M2).
-- Esquema en la nube: 43/43 comprobaciones. Humo de invitación: 17/17.
-- HEAD en `main` = `506a400`, idéntico a `origin/main` (verificado con
-  `git ls-remote`). Working tree limpio. No hay nada sin subir.
-- Módulo 1 completo (invitación de docentes + auditoría de accesos) y verificado
-  de extremo a extremo contra la base real.
-- Módulo 2: esquema y contrato DISEÑADOS y validados en pglite, **no aplicados a
-  la nube** (1 migración pendiente en el libro mayor). Antes de aplicarla hay que
-  resolver D12 y D13 (ver §2.5).
-- Módulos 3-8: sólo diseño.
-- Deudas abiertas: D7 (verificación de tokens en caché), D9 (URL prefirmada de
-  PUT sin límite de tamaño; latente, M5 apagado), D12 (`cursos` vs `programs`),
-  D13 (`sections` no es la de M3, y le falta `program_id`).
-- D8, D10 y D11 están resueltas.
+ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
+-----------------------------------------------------
+- Backend: 232/232 tests, typecheck y eslint limpios.
+- Flutter: 197/197 tests, `flutter analyze` sin incidencias.
+- SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
+- Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
+  Humo de invitacion: 17/17. Humo de curriculo: 14/14.
+- HEAD en `main` = `dfb0a8b`, idéntico a `origin/main`. Working tree limpio.
+- Modulo 1 completo y verificado de extremo a extremo contra la base real.
+- Modulo 2 completo: base, backend y UI.
+- Modulo 3: ESQUEMA APLICADO Y CORREGIDO; backend PENDIENTE (las 14 rutas del
+  contrato son el PASO 4). Su migracion de correccion no es cosmetica: sin ella
+  toda alta de guardia o clase fallaba con 42501 (ver HANDOVER §2.6).
+- Modulos 4-8: solo diseno.
+- Deudas abiertas: D7 (verificacion de tokens en cache), D9 (URL prefirmada de
+  PUT sin limite de tamano; latente, M5 apagado).
+- Resueltas: D8, D10, D11, D12, D13.
+- Decisiones que NO son tuyas: R-06 (nomenclatura del lapso, 2026-1 vs SA26-2),
+  R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).
+  Las cuatro se cambian sin tocar codigo: son datos, o una funcion de una linea.
+
+LA TRAMPA QUE MAS CARO COSTO
+----------------------------
+Un trigger `security invoker` que llama a una funcion revocada deja el modulo
+inoperable, y la suite NO lo ve si las pruebas escriben como el dueño de las
+tablas (el dueño se salta la comprobacion de EXECUTE). Antes de escribir una
+prueba de trigger: preguntate como que rol esta escribiendo. Detalle en
+REPORTE_ARIA.md R-20.
 
 TAREA INMEDIATA
 ---------------
@@ -520,7 +614,7 @@ Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (171 / 110 / 66).
+   para confirmar que heredas verde (232 / 197 / 164).
 3. Lee HANDOVER.md §2 y dime cuál de los pendientes atacamos primero:
    (a) resolver D12/D13 y aplicar la migración de M2,
    (b) verificar el dominio en Resend (desbloquea el correo a terceros), o

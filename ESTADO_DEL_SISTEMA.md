@@ -4,7 +4,7 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-13 · **Esquema del Módulo 3 aplicado,
+> **Última actualización:** 2026-09-15 · **Esquema del Módulo 3 aplicado,
 > verificado y corregido** (cuadrante, aulas, guardias docentes y triggers
 > anti-colisión), y **contrato de API escrito** (`docs/CONTRATO_API_MODULO3.md`).
 > Módulo 1 cerrado y Módulo 2 con backend completo. **D10 resuelta** (libro mayor
@@ -19,7 +19,7 @@
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real, y **volvió a corregirse el 2026-09-13** (232 backend / 197 Flutter /
+> base real, y **volvió a corregirse el 2026-09-15** (232 backend / 197 Flutter /
 > 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
 > código**: verifica antes de citar una cifra de aquí.
 
@@ -44,8 +44,8 @@
 | **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ⏳ Pendiente (PASO 4) |
 | **Fase 4+** | M4 Inscripciones … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del **2026-09-13**;
-migraciones de M3 aplicadas y verificadas el **2026-09-13**
+**Verificación al cierre de esta iteración** — suites del **2026-09-15**;
+migraciones de M3 aplicadas y verificadas el **2026-09-15**
 
 | Comprobación | Resultado |
 | --- | --- |
@@ -59,7 +59,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-13**
 | **Migraciones en la nube** | **10 / 10** registradas en `schema_migrations` |
 | **Verificación independiente del esquema en la nube** | **81 / 81** comprobaciones (`supabase/verificar-esquema.mjs`) |
 | **Libro mayor de migraciones (D10)** | 10 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M3 en la nube** | ✅ **Aplicadas** el 2026-09-13 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
+| **Migraciones de M3 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
@@ -817,7 +817,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-13: 232 / 197 / 22 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 232 / 197 / 22 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -1022,7 +1022,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    `supabase.rpc(...)` y el contrato está en `docs/CONTRATO_API_MODULO2.md`.
 4. ~~El asistente de tres pasos en Flutter~~ — **hecho**: es la parte de M2 que
    faltaba, y ya está con sus pruebas de widget.
-5. ~~Aplicar el esquema de M3~~ — **hecho** el 2026-09-13
+5. ~~Aplicar el esquema de M3~~ — **hecho** el 2026-09-15
    (`202609180001` + la corrección `202609180002`). Ver §12.
 6. **Implementar las 14 rutas de M3** — es el **PASO 4**, y es lo siguiente que
    toca. El contrato completo está en `docs/CONTRATO_API_MODULO3.md`:

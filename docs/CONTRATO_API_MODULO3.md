@@ -1,6 +1,6 @@
 # Contrato de API — Módulo 3 (Cuadrante, Horarios, Aulas y Guardias Docentes)
 
-> **Estado (2026-09-13): el esquema está aplicado, verificado y corregido.** Las
+> **Estado (2026-09-15): el esquema está aplicado, verificado y corregido.** Las
 > **10 migraciones están en el libro mayor**, `verificar-esquema.mjs` pasa
 > **81/81** comprobaciones contra la nube y la batería de `supabase/tests` da
 > **164 aserciones en verde**. Las rutas de este documento **todavía no existen**:
