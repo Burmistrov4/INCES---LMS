@@ -438,6 +438,85 @@ colisión habría que comprobarla en cuatro sitios en vez de dos.
 
 ---
 
+## R-19 · «Período activo» significa dos cosas distintas a la vez
+
+**Gravedad: media. Es de diseño, y se resuelve nombrando las dos.**
+
+Al añadir `academic_periods.is_active` quedaron **dos** campos que responden a la
+pregunta «¿cuál es el período activo?»: la columna `is_active` del lapso y el
+parámetro `system_settings.periodo_activo` (que ya existía, y que R-12 acaba de
+atar al catálogo). Dos fuentes de verdad para lo mismo es exactamente la clase de
+divergencia que R-12 fue a eliminar, reapareciendo un nivel más arriba.
+
+**No son lo mismo, y ése es el caso real del centro:** al cerrar un lapso se
+prepara el siguiente mientras el vigente sigue dictándose. Puede haber varios
+lapsos **abiertos** y sólo uno **vigente**.
+
+**Resolución:** se separan por nombre y por camino.
+
+| Concepto | Campo | Significado |
+| --- | --- | --- |
+| Abierto | `academic_periods.is_active` | Se puede planificar en él |
+| Vigente | `system_settings.periodo_activo` | La UI lo muestra por defecto |
+
+El vigente se mueve por **una sola ruta** (`PUT /api/v1/admin/periodos/:id/vigente`)
+y no por `PATCH /periodos/:id`, para que no haya dos caminos que cambien lo mismo.
+Y sigue en pie la guarda de R-12: el vigente **tiene** que existir en el catálogo.
+
+Si el INCES decide que sólo necesita uno de los dos conceptos, se puede retirar
+`is_active` sin tocar código de aplicación: nadie lo usa para decidir nada.
+
+---
+
+## R-20 · Un trigger `security invoker` que llama a una función revocada: el módulo entero inoperable
+
+**Gravedad: crítica. Estuvo aplicado en producción hasta que se corrigió.**
+
+No es una contradicción del enunciado, sino un fallo propio, y se documenta aquí
+porque es el más grave de todo el proyecto hasta ahora.
+
+La migración `202609180001` declaró los dos envoltorios de trigger como
+`security invoker` y a la vez revocó el `EXECUTE` de `exigir_agenda_libre()` a
+`authenticated`. Con `invoker`, el envoltorio corre con los privilegios del
+llamante, que no tiene `EXECUTE` sobre la función delegada. Comprobado contra la
+nube:
+
+```
+ERROR: 42501: permission denied for function exigir_agenda_libre
+CONTEXT: PL/pgSQL function teacher_duties_exigir_agenda() line 9 at PERFORM
+```
+
+**Toda alta de guardia o de clase fallaba**, y la protección anti-colisión ni
+llegaba a evaluarse. El módulo era inoperable para cualquier usuario real.
+
+**Por qué no lo vio una batería de 156 aserciones en verde:** las pruebas del
+trigger escribían como el **dueño** de las tablas (`postgres`), y el dueño se
+salta la comprobación de privilegios de función. El caso probado no era el caso
+de producción. Es la misma trampa ya documentada con los repositorios en memoria:
+**un doble que corre con más permisos que el usuario real no prueba al usuario
+real.**
+
+**Resolución** (`202609180002`): los envoltorios pasan a `security definer` con
+`set search_path` fijo. No amplía lo que el llamante puede escribir —la RLS se
+evalúa aparte y el envoltorio no devuelve dato alguno— y no es invocable a mano,
+porque PostgreSQL no permite llamar directamente a una función que devuelve
+`trigger`. La función delegada **sigue revocada**: la puerta es el trigger.
+No se «arregló» concediendo `EXECUTE` a `authenticated`, que también habría
+funcionado pero habría vuelto la función un oráculo de la agenda ajena.
+
+**Lo que quedó para que no vuelva:** la sección 14.8 de `supabase/tests` escribe
+como `authenticated` con claims de admin (falla si el envoltorio vuelve a
+`invoker`), `verificar-esquema.mjs` comprueba `prosecdef` contra la nube, y se
+demostró el fail-first de las cuatro aserciones nuevas.
+
+> **Nota que casi engaña a la propia prueba:** «el trigger sigue protegiendo»
+> **pasaba** con el fallo presente, porque sólo exigía *algún* error y recibía
+> `42501` en lugar de `23514`. Por eso la aserción siguiente comprueba el
+> **código**. Una prueba que acepta cualquier error no prueba la regla: prueba
+> que algo se rompió.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -460,3 +539,5 @@ colisión habría que comprobarla en cuatro sitios en vez de dos.
 | R-16 | «Turno» y «bloque» podían contradecirse | `turno` generado desde `block` | ✅ Resuelta (frontera provisional) |
 | R-17 | Las fechas del período no se conocen | Anulables; las carga el centro | ✅ Resuelta |
 | R-18 | «Aula/zona»: una zona no es un aula | Una zona es una fila de `classrooms` | ✅ Resuelta |
+| R-19 | «Período activo» significa dos cosas | `is_active` (abierto) vs `periodo_activo` (vigente) | ✅ Resuelta (se puede simplificar) |
+| R-20 | Trigger `invoker` + función revocada: módulo inoperable | Envoltorios a `security definer` (migración 202609180002) | ✅ Resuelta y verificada |

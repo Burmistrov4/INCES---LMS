@@ -4,17 +4,24 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-14 · **Módulo 1 cerrado** (invitación de
-> docentes + auditoría de accesos), verificado **de extremo a extremo contra
-> Supabase real** con tokens de usuario reales. **D10 resuelta** (libro mayor de
-> migraciones con checksums). Puertos y CORS alineados. Repositorio publicado en
-> GitHub.
+> **Última actualización:** 2026-09-13 · **Esquema del Módulo 3 aplicado,
+> verificado y corregido** (cuadrante, aulas, guardias docentes y triggers
+> anti-colisión), y **contrato de API escrito** (`docs/CONTRATO_API_MODULO3.md`).
+> Módulo 1 cerrado y Módulo 2 con backend completo. **D10 resuelta** (libro mayor
+> de migraciones con checksums). Puertos y CORS alineados. Repositorio publicado
+> en GitHub.
+>
+> **El Módulo 3 tiene el esquema hecho y el backend pendiente.** Las 14 rutas de
+> `docs/CONTRATO_API_MODULO3.md` están **diseñadas y documentadas, no
+> implementadas**. En la tabla de verificación, «22 rutas» son las que existen de
+> verdad; las de M3 todavía no cuentan.
 
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real. **Si vuelve a haber discrepancia, gana el código**: verifica antes de
-> citar una cifra de aquí.
+> base real, y **volvió a corregirse el 2026-09-13** (232 backend / 197 Flutter /
+> 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
+> código**: verifica antes de citar una cifra de aquí.
 
 ---
 
@@ -32,29 +39,32 @@
 | **Módulo 1** | Invitación de docentes por token + auditoría de accesos (`auth_logs`) | ✅ Completa |
 | **D10** | Conexión directa sólo IPv6 | ✅ Resuelta (libro mayor de migraciones) |
 | **Módulo 2 (backend)** | Currículo y Pensum: repositorio, 7 rutas y traducción de errores | ✅ Completo |
-| **Módulo 2 (frontend)** | Asistente de 3 pasos en Flutter | ⏳ Pendiente |
-| **Fase 4+** | M3 Cuadrante … M8 Pasantías | ⏳ Pendiente |
+| **Módulo 2 (frontend)** | Asistente de 3 pasos en Flutter | ✅ Completo |
+| **Módulo 3 (esquema)** | Cuadrante, aulas, guardias: 4 tablas, 2 triggers anti-colisión, 3 vistas | ✅ **Aplicado y verificado** |
+| **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ⏳ Pendiente (PASO 4) |
+| **Fase 4+** | M4 Inscripciones … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del 2026-09-15; migraciones
-de M2 aplicadas y verificadas el **2026-09-15**
+**Verificación al cierre de esta iteración** — suites del **2026-09-13**;
+migraciones de M3 aplicadas y verificadas el **2026-09-13**
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **110 / 110** en verde |
+| `flutter test` | **197 / 197** en verde |
 | `npm test` (backend) | **232 / 232** en verde (14 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **110 / 110** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente) |
-| **Migraciones en la nube** | **8 / 8** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **56 / 56** comprobaciones (`supabase/verificar-esquema.mjs`) |
-| **Libro mayor de migraciones (D10)** | 8 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 13 tablas + la vista `cursos`, con RLS activo en las 4 nuevas (ver §9, §10 y §11) |
+| Validador SQL contra PostgreSQL real (pglite) | **164 / 164** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3) |
+| **Migraciones en la nube** | **10 / 10** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **81 / 81** comprobaciones (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 10 versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M3 en la nube** | ✅ **Aplicadas** el 2026-09-13 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
+| **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
-| Documento OpenAPI | OpenAPI 3.1.0 · **22 rutas · 40 esquemas** |
+| Documento OpenAPI | OpenAPI 3.1.0 · **22 rutas · 40 esquemas** (las de M3 aún no existen) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -70,18 +80,26 @@ de M2 aplicadas y verificadas el **2026-09-15**
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las ocho migraciones se
+**La base de datos ya está aplicada y verificada.** Las diez migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**13 tablas** con RLS activo, **1 vista** de compatibilidad (`cursos`, D12),
-**13 funciones**, **15 triggers** y **29 políticas RLS**, más 9 módulos
-sembrados, 8 parámetros y los 5 cursos — que desde la migración de D12 viven
-dentro de `programs` como `CURSO_LIBRE`.
+**17 tablas** con RLS activo **en las 17**, **4 vistas** (`cursos` de D12 más las
+tres del Módulo 3), **20 funciones**, **22 triggers** y **38 políticas RLS**, más
+9 módulos sembrados, 8 parámetros, 1 lapso (`2026-1`) y los 5 cursos — que desde
+la migración de D12 viven dentro de `programs` como `CURSO_LIBRE`.
 
 > **Estas cifras están medidas, no estimadas.** Salen de
-> `supabase/verificar-esquema.mjs` (56/56) y de consultas directas al catálogo,
+> `supabase/verificar-esquema.mjs` (81/81) y de consultas directas al catálogo,
 > hechas **después** de aplicar. Es la lección de D11: cuando una migración se
 > aplica, se vuelve a contar en vez de confiar en lo que decía el documento.
+
+**`classrooms`, `teacher_duties` y `schedule_slots` están vacías, y es lo
+correcto.** No se sembró ni un aula ni una guardia: el inventario de espacios del
+CFS es un dato institucional que **no se inventa** (R-18). Las tres tablas
+existirán con 0 filas hasta que el administrador cargue el registro real, y
+mientras tanto el cuadrante no se puede usar —una clase sin aula no existe—, cosa
+que la UI tendrá que decir en vez de mostrar un desplegable vacío sin
+explicación.
 
 **El libro mayor de migraciones (D10) ya está en uso.** `schema_migrations`
 guarda una fila por migración aplicada con su checksum SHA-256. Eso convierte
@@ -368,6 +386,10 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `config_audit_log` | **Fase 3** | Auditoría append-only de la configuración |
 | `teacher_invitations` | **Módulo 1** | Invitaciones de docentes por token (se guarda el hash) |
 | `auth_logs` | **Módulo 1** | Traza de acceso: IP, instante, `SUCCESS`/`FAILED` |
+| `academic_periods` | **M3** | Catálogo de lapsos. `sections.period_code` apunta aquí (R-12), así que `periodo_activo` ya no puede divergir en silencio |
+| `classrooms` | **M3** | Espacios del CFS: aulas, talleres **y zonas**. Una zona es una fila con `capacity = 0` (R-18). **Sin semilla a propósito** |
+| `teacher_duties` | **M3** | Guardias de custodia: docente + espacio + día/bloque, con o sin clase. `turno` es derivado |
+| `schedule_slots` | **M3** | El cuadrante: sección + docente + aula + día/bloque. El lapso se deriva de la sección |
 | `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
 
 ### Vistas
@@ -375,6 +397,15 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | Vista | Origen | Propósito |
 | --- | --- | --- |
 | `cursos` | **D12** | **Vista de compatibilidad** sobre `programs` (`type = 'CURSO_LIBRE'`) con `security_invoker`. Existía como tabla desde Fase 0; se conservó para no romper el desplegable del formulario público de inscripción mientras Flutter siga leyendo `cursos`. Se retira con `drop view public.cursos;` cuando el cliente lea `programs` directamente |
+| `v_cuadrante_clases` | **M3** | El cuadrante enriquecido: materia, sección, aula, día legible y nombre del docente. `security_invoker` |
+| `v_cuadrante_guardias` | **M3** | Las guardias con su aula y su día legible. `security_invoker` |
+| `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
+
+> **Las tres vistas de M3 llevan `security_invoker`, y no es un detalle.** Sin
+> él corren con los privilegios de su dueño y **se saltan la RLS de las tablas
+> base**: un estudiante vería el cuadrante de todo el centro, que es justo el
+> dato que las políticas existen para acotar. `verificar-esquema.mjs` comprueba
+> las cuatro.
 
 ### Funciones y triggers
 
@@ -393,6 +424,13 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `proteger_pensum_en_uso()` | Trigger en `program_subjects` | **Regla 2 de M2:** bloquea cambiar el `period_order` o quitar materias cuando hay secciones activas del período vigente usando ese programa. Falla abierto si no hay período declarado (guarda de integridad, no barrera) |
 | `crear_programa_con_pensum(...)` | **RPC** (`security invoker`) | El asistente de M2: crea el programa y su pensum en **una sola transacción**. Existe porque PostgREST no admite insertar un padre con sus hijos en la misma petición (comprobado: `PGRST204`). Ver §11 |
 | `reemplazar_pensum(...)` | **RPC** (`security invoker`) | Reemplazo transaccional del pensum: borra lo que sobra, reordena lo que cambia e inserta lo nuevo. La Regla 2 la aplican los triggers, no esta función |
+| `turno_de_bloque(bloque)` | Función (`immutable`) | Bloque 1–6 → `MAÑANA`, 7–12 → `TARDE`. Existe para que `turno` sea una **columna generada** y no pueda contradecir al bloque (R-16). La frontera es provisional y vive en **un solo sitio** |
+| `dia_legible(dia)` | Función (`immutable`) | 1 → `lunes` … 6 → `sábado`, para los mensajes de error y la vista del cuadrante |
+| `exigir_agenda_libre(periodo, dia, bloque, docente, aula, origen, id)` | Función (`security definer`) | **El corazón de M3.** Comprueba que el docente **y** el espacio estén libres, mirando **las dos tablas** (`teacher_duties` y `schedule_slots`) con un `union all`. `definer` a propósito: con la RLS del llamante el chequeo sería ciego. Se serializa con `pg_advisory_xact_lock`. **Revocada a todos**: la única puerta son los triggers |
+| `teacher_duties_exigir_agenda()` | Trigger en `teacher_duties` | Envoltorio fino: sale si la guardia está archivada y delega en `exigir_agenda_libre`. **`security definer`** — ver R-20 |
+| `schedule_slots_exigir_agenda()` | Trigger en `schedule_slots` | Igual, resolviendo antes el lapso por la sección. **`security definer`** — ver R-20 |
+| `exigir_periodo_registrado()` | Trigger en `system_settings` | Rechaza un `periodo_activo` que no exista en `academic_periods`. Es lo que convierte la divergencia silenciosa de R-06/R-12 en una violación ruidosa |
+| `nombre_para_mostrar(uuid)` | Función (`security definer`, `stable`) | Devuelve el nombre de un docente/admin activo, y `NULL` para todo lo demás. Existe porque `profiles_read_own` impide al estudiante leer la fila del docente, y **relajar esa política expondría `cedula` y `email` de todo el centro** (RLS no es por columna). Ver R-14 |
 
 ### Políticas RLS
 
@@ -412,6 +450,45 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `teacher_invitations` | **Solo admin** | **Solo admin.** El servicio de activación usa `service_role` y no pasa por aquí |
 | `auth_logs` | **Solo admin** | **Nadie.** Único camino: el backend con `service_role` |
 | `schema_migrations` | **Nadie** (revocado a `anon` y `authenticated`) | **Nadie.** Sólo el script con token de administración |
+| `academic_periods` | **Público**: `anon` + autenticados (el formulario de inscripción necesita saber el lapso) | **Solo admin** |
+| `classrooms` | Autenticados. **`anon` no tiene ni el `GRANT`** | **Solo admin.** Sin `DELETE`: archivar es `is_active = false` |
+| `teacher_duties` | El docente ve **solo las suyas**; `anon` no tiene `GRANT`; **el estudiante no tiene política ninguna** | **Solo admin** |
+| `schedule_slots` | El docente ve las suyas; el estudiante ve **las de su sección** (vía `enrollments`); `anon` no tiene `GRANT` | **Solo admin** |
+| `v_cuadrante_clases`, `v_cuadrante_guardias`, `v_periodo_vigente` *(vistas)* | Heredan la RLS de las tablas base gracias a `security_invoker` | — es una proyección |
+
+> **«Sin política» no es lo mismo que «política que devuelve vacío».** Para un
+> estudiante, `teacher_duties` no tiene ninguna política: es la diferencia entre
+> una puerta cerrada con llave y una puerta pintada en la pared.
+>
+> Y `anon` recibe `42501 permission denied`, **no una lista vacía**. Es
+> deliberado: una lista vacía sería indistinguible de «la política está mal
+> escrita», y el formulario de inscripción no necesita la agenda. El rechazo
+> explícito se distingue; el silencio no.
+
+### El fallo de M3 que hay que conocer antes de tocar los triggers (R-20)
+
+Los dos envoltorios de trigger del cuadrante (`teacher_duties_exigir_agenda` y
+`schedule_slots_exigir_agenda`) son **`security definer`**, y **cambiarlos a
+`invoker` deja el módulo entero inoperable**:
+
+```
+ERROR: 42501: permission denied for function exigir_agenda_libre
+CONTEXT: PL/pgSQL function teacher_duties_exigir_agenda() line 9 at PERFORM
+```
+
+Estuvieron así en la migración `202609180001` y se corrigieron en
+`202609180002`. El motivo es que `exigir_agenda_libre()` está **revocada a
+propósito** para todos (la única puerta es el trigger), así que con `invoker` el
+llamante no tiene `EXECUTE` y **toda alta de guardia o de clase falla**.
+
+**Y no se detectó con 156 aserciones en verde**, porque las pruebas del trigger
+escribían como el **dueño** de las tablas, que se salta la comprobación de
+privilegios de función. Ver `REPORTE_ARIA.md` R-20 y
+`docs/CONTRATO_API_MODULO3.md` §10.
+
+Hay **tres** redes para que no vuelva: la sección 14.8 de `supabase/tests`
+escribe como `authenticated` con claims de admin, `verificar-esquema.mjs`
+comprueba `prosecdef` contra la nube, y se demostró el fail-first.
 
 **Nota sobre `config_audit_log` y `auth_logs`:** las dos auditorías tienen dos
 barreras independientes. RLS no tiene política de escritura **y** no hay `GRANT`
@@ -492,6 +569,12 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
+
+> **Las rutas de M3 existen en el papel, no en el código.** Las 14 que describe
+> `docs/CONTRATO_API_MODULO3.md` (§1) están **diseñadas y documentadas**, pero
+> **no implementadas**: no están en `openapi.ts` ni en la lista de
+> `test/openapi.test.ts`, y por eso el recuento sigue siendo 22. Es el PASO 4.
+> No confundir «documentado» con «desplegado» — es la confusión que produjo D11.
 
 **Las dos escrituras de M2 no usan `insert`.** `POST /programas` y
 `PATCH /programas/:id/pensum` van por las funciones `crear_programa_con_pensum` y
@@ -734,7 +817,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *(Aquellas 5 migraciones eran las de entonces; hoy el repositorio tiene 8, ver §10 y §11)* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-13: 232 / 197 / 22 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -795,7 +878,7 @@ URL de Supabase inexistente, no leyendo el código:
    desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
    navegador es un origen **distinto** de `localhost`).
 
-> El fallo 8 es el motivo por el que existe la prueba de humo. Las 171 pruebas de
+> El fallo 8 es el motivo por el que existe la prueba de humo. Las 232 pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
 > sólo aparecen al hablar con la infraestructura de verdad.
@@ -816,11 +899,11 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 171 pruebas, incluidas las del módulo R2 y las de OpenAPI
+npm test              # 232 pruebas, incluidas las del módulo R2 y las de OpenAPI
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 56 comprobaciones
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 81 comprobaciones
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
@@ -831,12 +914,19 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (110) | La lógica del cliente | El SQL, la API, la red |
-| `supabase/tests` (110) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (171) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (56) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `flutter test` (197) | La lógica del cliente | El SQL, la API, la red |
+| `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `npm test` (232) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
+
+> **La red de `supabase/tests` tiene un punto ciego, y M3 lo demostró.** Corre
+> como el **dueño** de las tablas, así que **no ve los problemas de privilegios**:
+> el dueño se salta la comprobación de `EXECUTE` sobre funciones. Ese punto ciego
+> dejó pasar un fallo que hacía inoperable el módulo entero (R-20). La sección
+> 14.8 escribe ahora como `authenticated` con claims de admin para cubrirlo.
+> **Si añades una prueba de trigger, pregúntate como qué rol está escribiendo.**
 
 Las pruebas de R2 **no tocan la red**: firmar una URL es criptografía local. Por
 eso se verifica el endpoint, la caducidad, los encabezados firmados y el rechazo
@@ -854,13 +944,16 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las ocho migraciones**, y ejecuta 110 aserciones
+aplica el shim de Supabase y **las diez migraciones**, y ejecuta 164 aserciones
 sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
-integridad, las dos reglas de negocio de M2, y la resolución de D12/D13
+integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
-en las dos direcciones). **Las dos migraciones de M2 se validan aquí aunque no
-estén aplicadas en la nube**: el validador las levanta en un PostgreSQL real y
-comprueba que el trigger diferido de la Regla 1 y el trigger de la Regla 2 hacen
+en las dos direcciones), y el Módulo 3 completo (aulas, lapsos, guardias,
+cuadrante, los dos triggers anti-colisión en las dos direcciones —lo que debe
+rechazar y lo que debe permitir—, el cruce guardia/clase, y la escritura **como
+`authenticated` real**, que es lo que cubre el punto ciego de R-20).
+**Las migraciones se validan aquí aunque el validador corra en PGlite**: el
+validador las levanta en un PostgreSQL real y comprueba que los triggers hacen
 lo que dicen hacer.
 
 ### Lo que la prueba de humo comprueba
@@ -888,8 +981,8 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (56/56) |
-| Libro mayor de migraciones | ✅ 8/8 con checksum (D10 resuelta) |
+| Base de datos en la nube | ✅ Migrada y verificada (81/81) |
+| Libro mayor de migraciones | ✅ 10/10 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
@@ -907,7 +1000,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
 2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
-   el libro mayor marca 8/8 y la verificación independiente del esquema da 56/56.
+   el libro mayor marca 10/10 y la verificación independiente del esquema da 81/81.
 3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
@@ -919,45 +1012,53 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    El `--web-port=8080` no es opcional: sin él Flutter toma un puerto libre
    distinto en cada arranque y `CORS_ORIGINS` lo rechaza.
 
-### Luego: Fase 4 — M2 Currículo y M3 Cuadrante
+### Luego: M3 Cuadrante, y lo que queda por delante
 
 1. ~~Decidir D12 y D13~~ — **hecho** el 2026-09-15. Ver §10.
 2. ~~Aplicar las migraciones `202609150001` y `202609160001`~~ — **hecho** el
-   2026-09-15, y `verificar-esquema.mjs` actualizado: ahora comprueba las 13
-   tablas, la vista `cursos` (con `security_invoker`), las columnas de M2 y el
-   trigger de la Regla 2. 56/56.
+   2026-09-15, y `verificar-esquema.mjs` actualizado.
 3. ~~Implementar las rutas de M2 (`/api/v1/admin/programas`, `/materias`)~~ —
-   **hecho** el 2026-09-15: las 7 rutas existen, el repositorio llama a las dos
-   funciones por `supabase.rpc(...)` y el contrato está en
-   `docs/CONTRATO_API_MODULO2.md`. **Falta el asistente de tres pasos en Flutter.**
-4. **Encender `m2_curriculo` desde el cPanel** cuando la pantalla de M2 exista.
-   El interruptor ya funciona; lo que falta es lo que hay detrás.
-5. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
+   **hecho**: las 7 rutas existen, el repositorio llama a las dos funciones por
+   `supabase.rpc(...)` y el contrato está en `docs/CONTRATO_API_MODULO2.md`.
+4. ~~El asistente de tres pasos en Flutter~~ — **hecho**: es la parte de M2 que
+   faltaba, y ya está con sus pruebas de widget.
+5. ~~Aplicar el esquema de M3~~ — **hecho** el 2026-09-13
+   (`202609180001` + la corrección `202609180002`). Ver §12.
+6. **Implementar las 14 rutas de M3** — es el **PASO 4**, y es lo siguiente que
+   toca. El contrato completo está en `docs/CONTRATO_API_MODULO3.md`:
+   `/api/v1/admin/aulas`, `/periodos`, `/guardias`, `/cuadrante` y
+   `/api/v1/mi-horario`. Incluye el código de error nuevo `CHOQUE_DE_AGENDA`
+   (409) y la traducción del `23514` de colisión por el texto del mensaje.
+7. **Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel** cuando sus
+   pantallas existan. El interruptor ya funciona; lo que falta es lo que hay
+   detrás.
+8. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
    cerrar D9 con una regla de ciclo de vida en R2.
-6. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
+9. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida
    caducidad, cruza con `enrollments` y registra la asistencia. Tres faltas
    consecutivas disparan el motor de bids de M4. **No se implementa todavía**:
-   depende de M3 (cuadrante) y M4 (bids), que aún no existen.
-7. **Decidir R-06** (convención de período: `2026-1` frente a `SA26-2`). Es la
-   única decisión abierta que deja una guarda inerte: el trigger de la Regla 2
-   está aplicado y funciona, pero sólo dispara si el `period_code` de una sección
-   coincide exactamente con `system_settings.periodo_activo`. Hasta que se
-   elija una convención y se use en los dos sitios, la regla no bloquea nada en
-   la práctica. **No se elige unilateralmente: la decide el equipo.**
+   el esquema de M3 ya existe, pero M4 (bids) no.
+10. **Decidir R-06** (convención de período: `2026-1` frente a `SA26-2`). Ya no
+   deja una guarda inerte —el catálogo `academic_periods`, la FK desde `sections`
+   y el trigger de `periodo_activo` hacen imposible la divergencia silenciosa—,
+   pero sí decide **cuántos lapsos** acaban existiendo: si la coordinación usa
+   `SA26-2` mientras el parámetro dice `2026-1`, habrá dos lapso para lo mismo.
+   Lo que cambió es que ahora eso se ve, en vez de pasar inadvertido.
+   **No se elige unilateralmente: la decide el equipo.**
 
 ---
 
-## 9. Módulo 2 — Currículo y Pensum: diseñado y aplicado
+## 9. Módulo 2 — Currículo y Pensum: completo
 
-**Estado: diseñado, validado en PostgreSQL real y ✅ aplicado a la nube** el
-2026-09-15. Son dos archivos —
-`supabase/migrations/202609150001_mod2_curriculo.sql` (las tres tablas) y
-`supabase/migrations/202609160001_resolucion_d12_d13.sql` (las deudas)—: el
-validador de SQL los prueba en cada corrida (96/96), y el esquema desplegado ya
-los tiene, verificado con 56/56 comprobaciones independientes. Lo que falta es
-la API y la interfaz, no el esquema.
+**Estado: esquema aplicado a la nube, backend y frontend completos.** Son dos
+archivos —`supabase/migrations/202609150001_mod2_curriculo.sql` (las tres tablas)
+y `supabase/migrations/202609160001_resolucion_d12_d13.sql` (las deudas)—: el
+validador de SQL los prueba en cada corrida, el esquema desplegado los tiene y
+`verificar-esquema.mjs` lo comprueba de forma independiente. El contrato de sus
+7 rutas está en `docs/CONTRATO_API_MODULO2.md` y el asistente de tres pasos en
+Flutter ya está construido y probado.
 
 ### Las tres tablas
 
@@ -1050,8 +1151,9 @@ corre prisa.
 ## 10. Resolución de D12 y D13 (2026-09-15)
 
 **Archivo: `supabase/migrations/202609160001_resolucion_d12_d13.sql`.**
-Validado contra PostgreSQL real (pglite) con **96/96** comprobaciones (eran 66
-antes de esta migración). Las contradicciones que aparecieron al cruzar el
+Validado contra PostgreSQL real (pglite): aquella migración llevó la suite de 66
+a **96** comprobaciones. **La suite siguió creciendo con M3 y hoy son 164** (ver
+§7). Las contradicciones que aparecieron al cruzar el
 documento de M2 con el código base están documentadas una por una en
 `REPORTE_ARIA.md` (R-01 … R-09).
 
@@ -1248,4 +1350,56 @@ Al crear tablas o funciones nuevas, **la caché de esquema de PostgREST no se
 entera sola**. Durante el reconocimiento, el insert anidado falló en parte por
 eso. Si una ruta nueva responde `PGRST204` o `404` sobre un objeto que existe,
 antes de tocar el código: `notify pgrst, 'reload schema'`.
+
+---
+
+## 12. Módulo 3 — Cuadrante, aulas y guardias: esquema aplicado
+
+**Estado: esquema aplicado, verificado y corregido; backend pendiente (PASO 4).**
+Dos archivos —`supabase/migrations/202609180001_mod3_cuadrante_aulas.sql` (todo
+el diseño) y `supabase/migrations/202609180002_mod3_trigger_agenda_definer.sql`
+(la corrección de R-20)—. El contrato completo de las 14 rutas está en
+**`docs/CONTRATO_API_MODULO3.md`**, que es el documento que hay que leer antes de
+tocar nada de este módulo.
+
+### Las cuatro tablas y por qué cada una
+
+| Tabla | Qué resuelve |
+| --- | --- |
+| `academic_periods` | El lapso deja de ser un texto suelto. `sections.period_code` pasa a ser **FK** contra él, así que la divergencia silenciosa de R-06 se vuelve imposible (R-12) |
+| `classrooms` | Un **solo** concepto de espacio: aulas, talleres y zonas. Una zona es una fila con `capacity = 0` (R-18) |
+| `teacher_duties` | La guardia de custodia: docente + espacio + día/bloque, con o sin clase. Lleva `period_code` obligatorio (R-15) |
+| `schedule_slots` | El cuadrante: sección + docente + aula + día/bloque. El lapso **no** se guarda: se deriva de la sección |
+
+### La colisión, que es el corazón del módulo
+
+Un docente no puede estar en dos sitios a la vez, y un espacio no puede alojar
+dos grupos a la misma hora. **Ningún `unique` puede expresar eso**, por dos
+motivos: la colisión cruza **dos tablas** (`teacher_duties` y
+`schedule_slots`), y en `schedule_slots` el lapso no es una columna —un
+`unique (teacher_id, day_of_week, block)` **prohibiría** que el mismo docente
+dictara el mismo bloque en dos lapsos distintos, que es planificar el siguiente—.
+
+Por eso vive en **una función compartida** (`exigir_agenda_libre()`, que hace dos
+comprobaciones y cada una consulta las dos tablas) y **dos triggers finos**. Dos
+escrituras simultáneas se serializan con `pg_advisory_xact_lock` indexado por
+`(lapso, día, bloque)`, para que sólo se esperen las que podrían chocar.
+
+Los detalles completos —incluido el fallo `42501` que dejó el módulo inoperable y
+cómo se corrigió, y por qué 156 aserciones en verde no lo vieron— están en
+`REPORTE_ARIA.md` **R-20** y en `docs/CONTRATO_API_MODULO3.md` **§10**. **Es
+lectura obligatoria antes de tocar esos triggers.**
+
+### Lo que NO se inventó, y es deliberado
+
+| Dato | Por qué está vacío |
+| --- | --- |
+| Aulas y zonas | El inventario del CFS es un dato institucional. **No se siembra** (R-18) |
+| Guardias y clases | Dependen de las aulas y del cuadrante real |
+| Fechas del lapso | El centro no las ha cargado. `start_date`/`end_date` son nulas **a propósito** (R-17) |
+| Nombre del lapso | Sólo se sembró `2026-1`, **leído de `system_settings`**, no escrito a mano |
+
+Mientras `classrooms` esté vacía, el cuadrante no se puede usar —una clase sin
+aula no existe— y la UI tendrá que decirlo en vez de mostrar un desplegable vacío
+sin explicación.
 

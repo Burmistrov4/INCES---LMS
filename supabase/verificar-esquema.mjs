@@ -6,13 +6,15 @@
  * sobre una tabla preexistente con otro diseño también "no falla". Este script
  * interroga el catálogo y responde a las preguntas que importan:
  *
- *   1. ¿Están las 13 tablas esperadas?
+ *   1. ¿Están las 17 tablas esperadas?
  *   2. ¿Coinciden las columnas de `aspirantes` con el modelo Dart?
  *   3. ¿RLS activo en todas?
  *   4. ¿Existen los triggers que sostienen las invariantes (D8)?
  *   5. ¿Los módulos del cPanel están sembrados?
  *   6. ¿Sigue en pie la vista de compatibilidad `cursos` (D12) y están las
  *      tablas del currículo (M2)?
+ *   7. ¿Está el Módulo 3 desplegado — aulas, períodos, guardias, cuadrante,
+ *      sus vistas y sus triggers anti-colisión?
  *
  * Uso: SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
  */
@@ -75,25 +77,37 @@ const tablas = await consultar(
 // `apply-migrations.mjs` (deuda D10). Es nuestra, no andamiaje heredado, y por
 // eso entra en la lista de esperadas en vez de saltar como sobrante.
 const esperadas = [
+  'academic_periods',
   'aspirantes',
   'auth_logs',
+  'classrooms',
   'config_audit_log',
   'enrollments',
   'profiles',
   'program_subjects',
   'programs',
+  'schedule_slots',
   'schema_migrations',
   'sections',
   'subjects',
   'system_modules',
   'system_settings',
+  'teacher_duties',
   'teacher_invitations',
 ];
 // `cursos` YA NO es una tabla: `202609160001` la convirtió en una vista de
 // compatibilidad sobre `programs` (deuda D12). Se comprueba aparte, en el
 // bloque 6, porque `pg_tables` **no ve vistas**. Si algún día reapareciera aquí
 // como tabla, sería una regresión silenciosa de D12 — y el bloque 6 la caza.
-const vistasEsperadas = ['cursos'];
+// Las tres vistas del Módulo 3 se comprueban en el bloque 7, con su
+// `security_invoker` incluido, que es lo que impide que se conviertan en un
+// agujero por el que un estudiante vería el cuadrante de todo el centro.
+const vistasEsperadas = [
+  'cursos',
+  'v_cuadrante_clases',
+  'v_cuadrante_guardias',
+  'v_periodo_vigente',
+];
 const presentes = tablas.map((t) => t.tablename);
 
 for (const tabla of esperadas) {
@@ -143,7 +157,8 @@ const funciones = await consultar(
   "select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
     "where n.nspname = 'public' and p.proname in " +
     "('is_admin', 'handle_new_user', 'link_pending_aspirante', 'proteger_modulo_critico', " +
-    "'proteger_ultimo_admin', 'set_updated_at', 'apply_aspirante_auth_fields');",
+    "'proteger_ultimo_admin', 'set_updated_at', 'apply_aspirante_auth_fields', " +
+    "'turno_de_bloque', 'dia_legible', 'exigir_agenda_libre', 'nombre_para_mostrar');",
 );
 const nombresFunciones = funciones.map((f) => f.proname);
 for (const fn of [
@@ -153,6 +168,10 @@ for (const fn of [
   'proteger_modulo_critico',
   'proteger_ultimo_admin',
   'set_updated_at',
+  'turno_de_bloque',
+  'dia_legible',
+  'exigir_agenda_libre',
+  'nombre_para_mostrar',
 ]) {
   comprobar(`función public.${fn}()`, nombresFunciones.includes(fn));
 }
@@ -167,6 +186,9 @@ for (const trigger of [
   'system_modules_proteger_critico',
   'proteger_ultimo_admin',
   'profiles_set_updated_at',
+  'system_settings_periodo_registrado',
+  'teacher_duties_exigir_agenda',
+  'schedule_slots_exigir_agenda',
 ]) {
   comprobar(`trigger ${trigger}`, nombresTriggers.includes(trigger));
 }
@@ -335,6 +357,153 @@ comprobar(
   'authenticated sí puede ejecutarlas (la RLS decide si es admin)',
   funcionesRpc.length > 0 && funcionesRpc.every((f) => f.autenticado_puede === true),
   funcionesRpc.map((f) => `${f.proname}=${f.autenticado_puede ? 'sí' : 'NO'}`).join(', '),
+);
+
+console.log('\n  7. M3: aulas, períodos, guardias y cuadrante\n');
+
+// Las cuatro tablas nuevas. No basta con que existan: se comprueban las
+// columnas que el contrato de la API necesita, porque una tabla con el diseño
+// equivocado también «existe».
+const colsPeriodos = await columnasDe('academic_periods');
+comprobar(
+  'academic_periods tiene code, start_date, end_date e is_active',
+  ['code', 'start_date', 'end_date', 'is_active'].every((c) => colsPeriodos.includes(c)),
+  colsPeriodos.join(', '),
+);
+const colsAulas = await columnasDe('classrooms');
+comprobar(
+  'classrooms tiene name, capacity e is_workshop',
+  ['name', 'capacity', 'is_workshop'].every((c) => colsAulas.includes(c)),
+  colsAulas.join(', '),
+);
+const colsGuardias = await columnasDe('teacher_duties');
+comprobar(
+  'teacher_duties tiene teacher_id, classroom_id, period_code, day_of_week y block',
+  ['teacher_id', 'classroom_id', 'period_code', 'day_of_week', 'block'].every((c) =>
+    colsGuardias.includes(c),
+  ),
+  colsGuardias.join(', '),
+);
+const colsCuadrante = await columnasDe('schedule_slots');
+comprobar(
+  'schedule_slots tiene section_id, teacher_id, classroom_id, day_of_week y block',
+  ['section_id', 'teacher_id', 'classroom_id', 'day_of_week', 'block'].every((c) =>
+    colsCuadrante.includes(c),
+  ),
+  colsCuadrante.join(', '),
+);
+
+// R-16 — `turno` es derivado. Si dejara de ser una columna generada se podría
+// insertar un turno que contradiga al bloque, y la agenda mostraría mentiras.
+const generadas = await consultar(
+  "select table_name, column_name from information_schema.columns " +
+    "where table_schema = 'public' and is_generated = 'ALWAYS' " +
+    "and table_name in ('teacher_duties', 'schedule_slots');",
+);
+for (const tabla of ['teacher_duties', 'schedule_slots']) {
+  comprobar(
+    `${tabla}.turno es una columna generada`,
+    generadas.some((g) => g.table_name === tabla && g.column_name === 'turno'),
+    generadas
+      .filter((g) => g.table_name === tabla)
+      .map((g) => g.column_name)
+      .join(', ') || 'ninguna',
+  );
+}
+
+// R-12 — `sections.period_code` dejó de ser texto libre: ahora apunta al
+// catálogo de períodos. Es lo que convierte la divergencia silenciosa de R-06 en
+// una violación ruidosa.
+const fkPeriodo = await consultar(
+  'select 1 as ok from information_schema.table_constraints tc ' +
+    'join information_schema.constraint_column_usage ccu ' +
+    'on ccu.constraint_name = tc.constraint_name and ccu.table_schema = tc.table_schema ' +
+    "where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public' " +
+    "and tc.table_name = 'sections' and ccu.table_name = 'academic_periods';",
+);
+comprobar(
+  'sections.period_code apunta a academic_periods (R-12)',
+  fkPeriodo.length === 1,
+  fkPeriodo.length === 1 ? 'FK presente' : 'AUSENTE',
+);
+
+// El período activo de `system_settings` tiene que existir en el catálogo, que
+// es justo lo que vigila el trigger `system_settings_periodo_registrado`.
+const sembrado = await consultar(
+  'select ap.code, ap.is_active from public.academic_periods ap ' +
+    "join public.system_settings ss on ss.clave = 'periodo_activo' " +
+    "where ap.code = (ss.valor #>> '{}');",
+);
+comprobar(
+  'el período vigente está registrado en academic_periods',
+  sembrado.length === 1,
+  sembrado.length === 1 ? `${sembrado[0].code} (activo=${sembrado[0].is_active})` : 'SIN REGISTRAR',
+);
+
+// Las tres vistas de lectura, con su `security_invoker`. Sin él correrían con
+// los privilegios del dueño y un estudiante vería el cuadrante de todo el centro.
+for (const vista of ['v_cuadrante_clases', 'v_cuadrante_guardias', 'v_periodo_vigente']) {
+  const rel = relaciones.find((r) => r.relname === vista);
+  const opc = (rel?.reloptions ?? []).join(',');
+  comprobar(
+    `${vista} existe, es vista y usa security_invoker`,
+    rel?.relkind === 'v' &&
+      (opc.includes('security_invoker=true') || opc.includes('security_invoker=on')),
+    rel ? `relkind = ${rel.relkind}, opciones = ${opc || 'NINGUNA'}` : 'AUSENTE',
+  );
+}
+
+// LA COMPROBACIÓN QUE FALTABA (migración 202609180002)
+// Los dos envoltorios de trigger DEBEN ser `security definer`. Con `security
+// invoker` corren con los privilegios del llamante, que no tiene EXECUTE sobre
+// `exigir_agenda_libre()`, y **toda alta de guardia o de clase fallaba con
+// 42501**: el módulo quedaba inoperable y la protección anti-colisión ni se
+// evaluaba. No lo detectó la batería de pruebas porque escribía como el dueño de
+// las tablas, y el dueño se salta la comprobación de privilegios de función.
+// Esta aserción es lo que impide que la regresión vuelva en silencio.
+const envoltorios = await consultar(
+  'select p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' " +
+    "and p.proname in ('teacher_duties_exigir_agenda', 'schedule_slots_exigir_agenda') " +
+    'order by p.proname;',
+);
+comprobar(
+  'los dos envoltorios anti-colisión son security DEFINER',
+  envoltorios.length === 2 && envoltorios.every((f) => f.prosecdef === true),
+  envoltorios.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', ') ||
+    'AUSENTES',
+);
+
+// Y la puerta sigue cerrada: el envoltorio es la única entrada. Conceder EXECUTE
+// a `authenticated` convertiría la función en un oráculo de la agenda ajena
+// (¿está ocupado el jueves a las 9?) y en un grifo del `pg_advisory_xact_lock`.
+const delegada = await consultar(
+  "select p.prosecdef, has_function_privilege('authenticated', p.oid, 'EXECUTE') as puede " +
+    'from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' and p.proname = 'exigir_agenda_libre';",
+);
+comprobar(
+  'exigir_agenda_libre es DEFINER y authenticated NO puede llamarla',
+  delegada.length === 1 && delegada[0].prosecdef === true && delegada[0].puede === false,
+  delegada.length === 1
+    ? `${delegada[0].prosecdef ? 'DEFINER' : 'invoker'}, authenticated_puede=${delegada[0].puede}`
+    : 'AUSENTE',
+);
+
+// Superficie de `anon`: sólo el catálogo de períodos es público. Aulas, guardias
+// y cuadrante no lo son.
+const anonSuperficie = await consultar(
+  "select c.relname, has_table_privilege('anon', c.oid, 'SELECT') as puede " +
+    'from pg_class c join pg_namespace n on n.oid = c.relnamespace ' +
+    "where n.nspname = 'public' and c.relkind = 'r' " +
+    "and c.relname in ('academic_periods', 'classrooms', 'teacher_duties', 'schedule_slots') " +
+    'order by c.relname;',
+);
+comprobar(
+  'anon sólo alcanza academic_periods, no las aulas ni la agenda',
+  anonSuperficie.length === 4 &&
+    anonSuperficie.every((t) => (t.relname === 'academic_periods') === t.puede),
+  anonSuperficie.map((t) => `${t.relname}=${t.puede ? 'PUEDE' : 'no'}`).join(', '),
 );
 
 console.log(
