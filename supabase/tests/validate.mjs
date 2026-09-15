@@ -395,6 +395,154 @@ async function main() {
     db.exec(`update public.profiles set rol = 'docente' where id = '${ADMIN2_ID}'`),
   );
 
+  // ------------------------------------------- 13. Módulo 2 — Currículo
+  seccion('13. Módulo 2 — Currículo y Pensum');
+
+  const PROG_ID = '33333333-3333-3333-3333-333333333333';
+  const MAT_ID = '44444444-4444-4444-4444-444444444444';
+
+  const tablasM2 = (
+    await db.query(
+      "select tablename, rowsecurity from pg_tables where schemaname = 'public' " +
+        "and tablename in ('programs', 'subjects', 'program_subjects')",
+    )
+  ).rows;
+  check('existen las 3 tablas de M2', tablasM2.length === 3, `hay ${tablasM2.length}`);
+  check('RLS activo en las 3 tablas de M2', tablasM2.every((t) => t.rowsecurity));
+
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours)
+     values ('${MAT_ID}', 'ALG-I', 'Algorítmica', 96)`,
+  );
+
+  // --- integridad de los datos maestros -----------------------------------
+  await esperaError('programs.code rechaza minúsculas', () =>
+    db.exec("insert into public.programs (code, name, type) values ('cur-sist-01', 'X', 'CARRERA')"),
+  );
+  await esperaError('subjects rechaza una carga horaria de cero', () =>
+    db.exec("insert into public.subjects (code, name, academic_hours) values ('CERO-1', 'Vacía', 0)"),
+  );
+  await esperaError('programs.type rechaza un tipo inventado', () =>
+    db.exec("insert into public.programs (code, name, type) values ('TIPO-1', 'X', 'DIPLOMADO')"),
+  );
+
+  const porDefecto = (
+    await db.query("select requires_internship, is_active from public.programs limit 0")
+  ).rows;
+  check('la consulta de control no devuelve filas (aún no hay programas)', porDefecto.length === 0);
+
+  // --- Regla 1: no existen carreras vacías ---------------------------------
+  // El trigger es DIFERIDO: no falla al insertar, falla al CONFIRMAR. Esa es la
+  // propiedad que hace posible el asistente de una sola petición.
+  await db.exec('begin');
+  await db.exec(
+    `insert into public.programs (id, code, name, type, is_active)
+     values ('${PROG_ID}', 'VACIO-01', 'Programa sin materias', 'CARRERA', true)`,
+  );
+  await esperaError('un programa activo sin materias no se puede confirmar', () =>
+    db.exec('commit'),
+  );
+
+  // El mismo contenido, pero con el pensum en la MISMA transacción: confirma.
+  let asistenteOk = true;
+  try {
+    await db.exec('begin');
+    await db.exec(
+      `insert into public.programs (id, code, name, type, is_active)
+       values ('${PROG_ID}', 'SIST-01', 'Análisis de Sistemas', 'CARRERA', true)`,
+    );
+    await db.exec(
+      `insert into public.program_subjects (program_id, subject_id, period_order)
+       values ('${PROG_ID}', '${MAT_ID}', 1)`,
+    );
+    await db.exec('commit');
+  } catch (e) {
+    asistenteOk = false;
+    await db.exec('rollback');
+  }
+  check('el asistente confirma programa + pensum en una sola transacción', asistenteOk);
+
+  await esperaError('una materia no puede estar dos veces en el mismo pensum', () =>
+    db.exec(
+      `insert into public.program_subjects (program_id, subject_id, period_order)
+       values ('${PROG_ID}', '${MAT_ID}', 2)`,
+    ),
+  );
+
+  // El otro camino al mismo estado inválido: vaciarle el pensum a un programa
+  // que ya está activo.
+  await db.exec('begin');
+  await db.exec(`delete from public.program_subjects where program_id = '${PROG_ID}'`);
+  await esperaError('quitarle la última materia a un programa activo no se puede confirmar', () =>
+    db.exec('commit'),
+  );
+
+  // El escape que documenta la migración: archivar primero sí se permite.
+  let archivadoOk = true;
+  try {
+    await db.exec('begin');
+    await db.exec(`update public.programs set is_active = false where id = '${PROG_ID}'`);
+    await db.exec(`delete from public.program_subjects where program_id = '${PROG_ID}'`);
+    await db.exec('commit');
+  } catch {
+    archivadoOk = false;
+    await db.exec('rollback');
+  }
+  check('archivar el programa antes de vaciar el pensum sí se permite', archivadoOk);
+
+  // Se deja el programa publicado otra vez para las pruebas de RLS.
+  await db.exec('begin');
+  await db.exec(`update public.programs set is_active = true where id = '${PROG_ID}'`);
+  await db.exec(
+    `insert into public.program_subjects (program_id, subject_id, period_order)
+     values ('${PROG_ID}', '${MAT_ID}', 1)`,
+  );
+  await db.exec('commit');
+
+  // --- RLS ----------------------------------------------------------------
+  const anonProgramas = await como('anon', null, () =>
+    db.query('select code from public.programs order by code'),
+  );
+  check(
+    'anon ve la oferta activa (el formulario de inscripción la necesita)',
+    anonProgramas.rows.length === 1 && anonProgramas.rows[0].code === 'SIST-01',
+    `ve ${anonProgramas.rows.length}`,
+  );
+
+  await esperaError('anon NO tiene acceso al banco de materias', () =>
+    como('anon', null, () => db.query('select count(*)::int as n from public.subjects')),
+  );
+
+  await esperaError('un estudiante NO puede crear un programa', () =>
+    como('authenticated', ALUMNO_ID, () =>
+      db.exec("insert into public.programs (code, name, type) values ('HACK-01', 'X', 'CARRERA')"),
+    ),
+  );
+
+  const alumnoLee = await como('authenticated', ALUMNO_ID, () =>
+    db.query('select count(*)::int as n from public.programs'),
+  );
+  check('un estudiante sí puede leer la oferta completa', alumnoLee.rows[0].n === 1);
+
+  // Un borrador no debe asomar al formulario público.
+  await db.exec(
+    `insert into public.programs (code, name, type, is_active)
+     values ('BORR-01', 'Programa en borrador', 'CURSO_LIBRE', false)`,
+  );
+  const anonTrasBorrador = await como('anon', null, () =>
+    db.query('select count(*)::int as n from public.programs'),
+  );
+  check(
+    'un programa en borrador no asoma a anon',
+    anonTrasBorrador.rows[0].n === 1,
+    `anon ve ${anonTrasBorrador.rows[0].n}`,
+  );
+
+  const adminProgramas = await como('authenticated', ADMIN_ID, () =>
+    db.query('select count(*)::int as n from public.programs'),
+  );
+  check('el admin sí ve el borrador', adminProgramas.rows[0].n === 2);
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +

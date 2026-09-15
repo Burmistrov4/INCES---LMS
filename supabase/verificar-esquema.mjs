@@ -53,6 +53,9 @@ console.log('\n  1. Tablas y RLS\n');
 const tablas = await consultar(
   "select tablename, rowsecurity from pg_tables where schemaname = 'public' order by tablename;",
 );
+// `schema_migrations` no la crea una migración: la crea el libro mayor de
+// `apply-migrations.mjs` (deuda D10). Es nuestra, no andamiaje heredado, y por
+// eso entra en la lista de esperadas en vez de saltar como sobrante.
 const esperadas = [
   'aspirantes',
   'auth_logs',
@@ -60,6 +63,7 @@ const esperadas = [
   'cursos',
   'enrollments',
   'profiles',
+  'schema_migrations',
   'sections',
   'system_modules',
   'system_settings',
@@ -164,6 +168,24 @@ const ajustes = await consultar('select count(*)::int as n from public.system_se
 comprobar('parámetros sembrados', ajustes[0].n > 0, `${ajustes[0].n} filas`);
 const cursos = await consultar('select count(*)::int as n from public.cursos;');
 comprobar('cursos sembrados', cursos[0].n === 5, `${cursos[0].n} filas`);
+
+console.log('\n  5. Libro mayor de migraciones (D10)\n');
+const libro = await consultar(
+  'select version, checksum from public.schema_migrations order by version;',
+);
+comprobar(
+  'migraciones registradas',
+  libro.length === 5,
+  `${libro.length} filas — ${libro.map((m) => m.version).join(', ')}`,
+);
+// Un checksum vacío o corto significaría que el libro se escribió a mano sin
+// calcular la huella, y la detección de deriva quedaría desactivada en silencio.
+comprobar(
+  'todos los checksums tienen pinta de SHA-256',
+  libro.every((m) => typeof m.checksum === 'string' && /^[0-9a-f]{64}$/.test(m.checksum)),
+  libro.filter((m) => !/^[0-9a-f]{64}$/.test(m.checksum ?? '')).map((m) => m.version).join(', ') ||
+    'ninguno sospechoso',
+);
 
 console.log(
   `\n  ${fallos === 0 ? '✓ Esquema verificado sin fallos.' : `✗ ${fallos} comprobaciones fallidas.`}\n`,

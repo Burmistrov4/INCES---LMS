@@ -4,10 +4,17 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-13 · Fases 1, 2 y 3 cerradas. **Base de datos
-> desplegada y verificada en la nube.** Primer administrador creado. API probada
-> de extremo a extremo contra Supabase real. D6 (OpenAPI) resuelta. Repositorio
-> publicado en GitHub.
+> **Última actualización:** 2026-09-14 · **Módulo 1 cerrado** (invitación de
+> docentes + auditoría de accesos), verificado **de extremo a extremo contra
+> Supabase real** con tokens de usuario reales. **D10 resuelta** (libro mayor de
+> migraciones con checksums). Puertos y CORS alineados. Repositorio publicado en
+> GitHub.
+
+> ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
+> (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
+> código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
+> base real. **Si vuelve a haber discrepancia, gana el código**: verifica antes de
+> citar una cifra de aquí.
 
 ---
 
@@ -22,25 +29,36 @@
 | **M5** | Almacenamiento R2 (servicio + puerto) | 🟡 Construido, sin credenciales |
 | **D8** | Protección del último administrador activo | ✅ Completa |
 | **D6** | OpenAPI 3.1 generado desde Zod | ✅ Completa |
+| **Módulo 1** | Invitación de docentes por token + auditoría de accesos (`auth_logs`) | ✅ Completa |
+| **D10** | Conexión directa sólo IPv6 | ✅ Resuelta (libro mayor de migraciones) |
 | **Fase 4+** | M2 Currículo … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración**
+**Verificación al cierre de esta iteración** — ejecutada el 2026-09-14
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **88 / 88** en verde |
-| Validador SQL contra PostgreSQL real | **49 / 49** aserciones en verde |
-| **Migraciones aplicadas a la nube** | **4 / 4** aplicadas y verificadas |
-| **Verificación independiente del esquema en la nube** | **30 / 30** comprobaciones |
-| **Prueba de humo contra la nube real** | **24 / 24** comprobaciones |
+| `flutter test` | **110 / 110** en verde |
+| `npm test` (backend) | **171 / 171** en verde (11 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
-| `npm test` (backend) | **138 / 138** en verde |
 | `npm run build` (backend) | Compila sin errores |
-| Documento OpenAPI | OpenAPI 3.1.0 · 11 rutas · 17 esquemas |
+| Validador SQL contra PostgreSQL real (pglite) | **66 / 66** aserciones en verde (49 de M1 + 17 de M2) |
+| **Migraciones en la nube** | **5 / 5** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **43 / 43** comprobaciones (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 5 versiones aplicadas con checksum SHA-256 válido |
+| **Migración de M2 en el repositorio** | 6.º archivo, **pendiente a propósito** — diseñado y validado en pglite, no aplicado a la nube (ver §9) |
+| **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
+| Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
+| Documento OpenAPI | OpenAPI 3.1.0 · **15 rutas · 24 esquemas** |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
+
+> **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
+> reales (admin ve, `anon` no ve, un docente no ve, nadie inserta trazas a mano),
+> el camino HTTP `invitar → activar → rol docente`, el token de un solo uso y que
+> el token en claro no queda en la base. **No** cubre la pantalla de activación en
+> un navegador real: eso sigue pendiente.
 
 ---
 
@@ -48,11 +66,19 @@
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las cuatro migraciones se
-aplicaron el 2026-09-13 contra el proyecto real `twdppwnxlnmxkiejbrei` y el
-resultado se comprobó después, consultando el catálogo de PostgreSQL por
-separado: 8 tablas con RLS activo, los 6 triggers y funciones que sostienen las
+**La base de datos ya está aplicada y verificada.** Las cinco migraciones se
+aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
+comprobó después, consultando el catálogo de PostgreSQL por separado: 11 tablas
+con RLS activo (las 8 originales más `teacher_invitations`, `auth_logs` y el
+libro mayor `schema_migrations`), los 6 triggers y funciones que sostienen las
 invariantes, 9 módulos sembrados, 8 parámetros y 5 cursos.
+
+**El libro mayor de migraciones (D10) ya está en uso.** `schema_migrations`
+guarda una fila por migración aplicada con su checksum SHA-256. Eso convierte
+una operación ciega en una operación verificable: `apply-migrations.mjs` sabe
+qué falta, y se niega a tocar la base si detecta que un archivo ya aplicado
+cambió. **Corolario que hay que respetar: una migración ya corrida no se edita
+nunca.** Se añade otra que la corrija.
 
 **La API está probada contra esa base.** No con dobles de prueba: con el proceso
 real hablando con Supabase real, usando un token emitido por GoTrue y
@@ -158,7 +184,7 @@ queda en el historial ni se puede revisar en un diff.
 | Proyecto Supabase `twdppwnxlnmxkiejbrei` | ✅ Creado, vivo, `ACTIVE_HEALTHY` |
 | Clave publicable verificada contra la nube | ✅ Válida |
 | Credenciales inyectadas en `backend/.env` y `.env.json` | ✅ Hecho |
-| Migraciones aplicadas y verificadas | ✅ **Las 4** |
+| Migraciones aplicadas y verificadas | ✅ **Las 5** (registradas en `schema_migrations`) |
 | Primer administrador creado | ✅ `lorenzo-roca11@hotmail.com` (rol `admin`) |
 | API probada contra la nube real | ✅ 24 / 24 comprobaciones |
 | API publicada | ❌ Pendiente (falta elegir host) |
@@ -189,15 +215,38 @@ Hay dos caminos, y el segundo es el que se usó:
 | `supabase/apply-migrations.mjs` (API de administración) | Sólo token de acceso | ✅ HTTPS por IPv4 |
 
 ```bash
-# Comprobar sin aplicar nada
+# Ver el estado del libro mayor sin tocar la base: qué está aplicado, qué falta
+# y si algún archivo ya aplicado cambió (deriva).
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs --check
 
-# Aplicar las 4 migraciones y verificar el resultado
+# Aplicar SÓLO lo pendiente. Cada migración se registra en el libro mayor dentro
+# de la misma transacción, así que no puede quedar aplicada sin registrar.
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs
+
+# Registrar TODAS las pendientes como aplicadas SIN ejecutarlas. Es para una base
+# que ya tiene el esquema pero nació antes de que existiera el libro mayor.
+# Confírmalo antes con verificar-esquema.mjs.
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs --adoptar
 
 # Comprobar el esquema resultante contra el catálogo de PostgreSQL
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
 ```
+
+**Qué hace exactamente `apply-migrations.mjs`.** Ya no reaplica todo a ciegas:
+lee `public.schema_migrations`, calcula el SHA-256 de cada archivo de
+`supabase/migrations/` y decide archivo por archivo. Cuatro estados posibles:
+
+| Estado | Significado | Qué hace |
+| --- | --- | --- |
+| `aplicada` | La versión está en el libro y el checksum coincide | No la toca |
+| `pendiente` | La versión no está en el libro | La ejecuta y la registra |
+| `deriva` | Está en el libro pero el archivo cambió | **Se niega a continuar** (`exit 1`) |
+| `sin-libro` | No existe `public.schema_migrations` | La crea y trata todo como pendiente |
+
+La deriva es la que justifica el diseño: editar una migración ya corrida
+significa que la base real y el repositorio dejaron de coincidir, y el script
+prefiere detenerse a adivinar. **Nunca editar una migración ya aplicada**: se
+añade otra que la corrija.
 
 ### Obstáculo encontrado: el proyecto traía un esquema heredado que chocaba
 
@@ -257,7 +306,7 @@ bueno: un `PATCH` que responde 200 no prueba que la fila quedara bien.
 
 | Componente | Artefacto | Comando |
 | --- | --- | --- |
-| Base de datos | 4 migraciones SQL | ✅ Ya aplicadas a la nube |
+| Base de datos | 5 migraciones SQL | ✅ Ya aplicadas a la nube |
 | API | Imagen Docker multi-etapa | `docker compose up -d api` |
 | Frontend | App Flutter | `flutter build web --release` |
 
@@ -305,6 +354,9 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `system_modules` | **Fase 3** | Interruptores de módulos del cPanel |
 | `system_settings` | **Fase 3** | Parámetros operativos editables |
 | `config_audit_log` | **Fase 3** | Auditoría append-only de la configuración |
+| `teacher_invitations` | **Módulo 1** | Invitaciones de docentes por token (se guarda el hash) |
+| `auth_logs` | **Módulo 1** | Traza de acceso: IP, instante, `SUCCESS`/`FAILED` |
+| `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
 
 ### Funciones y triggers
 
@@ -330,10 +382,15 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `system_settings` | Públicos: `anon` + autenticados. Privados: solo admin | **Solo admin** |
 | `config_audit_log` | **Solo admin** | **Nadie.** Único camino: el trigger |
 | `sections` / `enrollments` | Activas / el propio | Admin / el propio |
+| `teacher_invitations` | **Solo admin** | **Solo admin.** El servicio de activación usa `service_role` y no pasa por aquí |
+| `auth_logs` | **Solo admin** | **Nadie.** Único camino: el backend con `service_role` |
+| `schema_migrations` | **Nadie** (revocado a `anon` y `authenticated`) | **Nadie.** Sólo el script con token de administración |
 
-**Nota sobre `config_audit_log`:** la auditoría tiene dos barreras independientes.
-RLS no tiene política de escritura **y** no hay `GRANT` de escritura. Aunque
-alguien añadiera una política por error, seguiría sin poder escribir.
+**Nota sobre `config_audit_log` y `auth_logs`:** las dos auditorías tienen dos
+barreras independientes. RLS no tiene política de escritura **y** no hay `GRANT`
+de escritura. Aunque alguien añadiera una política por error, seguiría sin poder
+escribir. Hay una prueba en el humo de invitación que lo comprueba con un JWT de
+administrador real: ni el admin puede insertar una traza a mano.
 
 ### Semilla de módulos
 
@@ -385,8 +442,27 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 | `PATCH` | `/api/v1/admin/modulos/:clave` | admin | `habilitado`, `orden`, `rolesPermitidos` |
 | `GET` | `/api/v1/admin/parametros` | admin | Todos los parámetros |
 | `PATCH` | `/api/v1/admin/parametros/:clave` | admin | Cambia `valor` validando el `tipo` |
-| `GET` | `/api/v1/admin/auditoria` | admin | Historial (`?limite=`, 1–200) |
+| `GET` | `/api/v1/admin/auditoria` | admin | Historial de configuración (`?limite=`, 1–200) |
+| `GET` | `/api/v1/admin/acceso` | admin | Trazas de acceso (`?estado=`, `?email=`, `?userId=`, paginado) |
+| `GET` | `/api/v1/admin/usuarios` | admin | Padrón de usuarios (`?rol=`, `?activo=`, `?busqueda=`, paginado) |
 | `PATCH` | `/api/v1/admin/usuarios/:id/rol` | admin | Cambia el rol de un usuario |
+| `POST` | `/api/v1/admin/usuarios/invitaciones` | admin | Invita a un docente: crea el token y devuelve el enlace |
+| `POST` | `/api/v1/auth/activar` | **token de invitación** | El docente fija su contraseña y queda promovido a `docente` |
+
+**15 rutas en total**, contadas en el documento OpenAPI. Las dos últimas son las
+únicas que no van protegidas por un JWT de sesión: `/auth/activar` va protegida
+por el token de un solo uso, porque el docente todavía no tiene sesión cuando
+abre el enlace. Por eso esa ruta consulta la base con `service_role`.
+
+**Paginación: el patrón es contar primero.** Toda ruta de listado hace
+`select count(*)` con `head: true` **antes** de pedir la página, y devuelve
+`{ filas, total, limite, desplazamiento }`. Dos razones: el cliente pinta «1 a 25
+de 340» sin una segunda consulta, y si el desplazamiento ya superó el total se
+devuelve una página vacía sin pedirla. La red contra el `416` de PostgREST
+(`esRangoNoSatisfacible()`) sigue en su sitio, pero conviene saber que **el 416
+no se ha reproducido**: cinco sondeos con rangos fuera de límite devolvieron
+siempre `200` con cero filas. La guarda de contar primero es correcta por sí
+misma; su justificación escrita —«evita el 416»— está sin verificar.
 
 ### El contrato se genera, no se escribe (D6, resuelta)
 
@@ -425,27 +501,48 @@ curl -s http://localhost:3000/openapi.json | head # el mismo documento, en vivo
 
 ### Códigos de error
 
+Todo error sale con la misma forma: `{ "error": { "codigo", "mensaje", "detalles"? } }`.
+El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
+`detalles` (con `contexto` y el mensaje técnico de Postgres) para el log.
+
 | Código | HTTP | Cuándo |
 | --- | --- | --- |
-| `NO_AUTENTICADO` | 401 | Sin token o token inválido |
+| `NO_AUTENTICADO` | 401 | Sin token, token inválido o sesión vencida (`PGRST301`/`PGRST302`) |
 | `CUENTA_INACTIVA` | 403 | Perfil con `active = false` |
 | `SOLO_ADMIN` | 403 | Ruta de administración sin rol admin |
 | `MODULO_DESHABILITADO` | 403 | El módulo está apagado en el cPanel |
 | `MODULO_NO_AUTORIZADO` | 403 | El rol no está en la lista blanca del módulo |
-| `PERMISO_DENEGADO` | 403 | RLS de PostgreSQL rechazó la operación |
+| `PERMISO_DENEGADO` | 403 | RLS de PostgreSQL rechazó la operación (`42501`) |
 | `MODULO_DESCONOCIDO` | 404 | La clave de módulo no existe |
 | `PARAMETRO_DESCONOCIDO` | 404 | La clave de parámetro no existe |
+| `PERFIL_INEXISTENTE` | 404 | El usuario cuyo rol se quiere cambiar no existe |
+| `NO_ENCONTRADO` | 404 | PostgREST no encontró la fila (`PGRST116`) |
 | `RUTA_NO_ENCONTRADA` | 404 | Ruta inexistente |
+| `INVITACION_INVALIDA` | 404 | El token de invitación no corresponde a ninguna invitación. **Mensaje deliberadamente genérico** |
 | `MODULO_CRITICO` | 409 | Intento de apagar `m0_cpanel` |
 | `AUTO_DEGRADACION` | 409 | Un admin intenta quitarse su propio rol |
 | `ULTIMO_ADMIN` | 409 | El cambio dejaría el sistema sin administradores activos |
-| `PERFIL_INEXISTENTE` | 404 | El usuario cuyo rol se quiere cambiar no existe |
+| `INVITACION_YA_USADA` | 409 | El token de invitación ya se consumió |
+| `REGISTRO_DUPLICADO` | 409 | Violación de unicidad (`23505`): correo ya registrado, código repetido |
+| `RECURSO_CADUCADO` | 410 | La invitación pasó sus 48 horas |
 | `PETICION_INVALIDA` | 400 | Fallo de validación (Zod, UUID de ruta o tipo de parámetro) |
+| `RESTRICCION_VIOLADA` | 400 | Un `check` de la base rechazó el dato (`23514`) |
+| `REFERENCIA_INVALIDA` | 400 | La fila apunta a un registro que no existe (`23503`) |
+| `ERROR_INTERNO` | 500 | Fallo no clasificado |
+| `ERROR_BASE_DE_DATOS` | 500 | Error de Postgres sin traducción específica |
+| `ESQUEMA_DESACTUALIZADO` | 500 | Falta aplicar una migración (`42P01`, tabla ausente) |
 | `SUPABASE_INALCANZABLE` | 503 | No se pudo contactar con la base de datos |
 | `SERVICIO_NO_DISPONIBLE` | 503 | `modo_mantenimiento` activo |
 | `ARCHIVO_NO_ENCONTRADO` | 404 | El objeto no existe en R2 |
 | `ALMACENAMIENTO_DENEGADO` | 403 | R2 rechazó las credenciales o el permiso |
 | `ERROR_ALMACENAMIENTO` | 500 | Fallo de R2 no clasificado |
+
+> **Por qué `INVITACION_INVALIDA` es un 404 y no un 400.** El token de una
+> invitación inexistente y el de una invitación real no se distinguen desde
+> fuera: el mismo código y el mismo mensaje para los dos. Un atacante no puede
+> usar la API como oráculo para averiguar qué tokens existen. La distinción
+> entre «no existe» (404) y «ya usada» (409) sí se hace, porque en ese punto el
+> dueño legítimo del enlace necesita saber qué pasó.
 
 ---
 
@@ -463,9 +560,16 @@ curl -s http://localhost:3000/openapi.json | head # el mismo documento, en vivo
 | `lib/screens/admin_dashboard.dart` | ✅ | Menú lateral adaptativo (cajón por debajo de 900 px) |
 | `lib/screens/admin/cpanel_modulos_panel.dart` | ✅ | **Núcleo Fase 3** |
 | `lib/screens/admin/cpanel_parametros_panel.dart` | ✅ | **Núcleo Fase 3** |
-| `lib/screens/admin/cpanel_auditoria_panel.dart` | ✅ | **Núcleo Fase 3** |
+| `lib/screens/admin/cpanel_auditoria_panel.dart` | ✅ | **Núcleo Fase 3**: auditoría de configuración |
+| `lib/screens/admin/cpanel_auditoria_accesos_panel.dart` | ✅ | **Módulo 1**: trazas de acceso (`auth_logs`), con filtros y auto-refresco |
+| `lib/screens/admin/cpanel_invitaciones_panel.dart` | ✅ | **Módulo 1**: invita docentes y muestra el enlace de activación |
+| `lib/screens/activar_cuenta_screen.dart` | ✅ | **Módulo 1**: lee el token de `Uri.base.fragment` y fija la contraseña |
 | `lib/screens/docente_dashboard.dart` | ✅ | Marcador con cierre de sesión real |
 | `lib/screens/aspirante_dashboard.dart` | ✅ | Usa el repositorio, con estado de error y reintento |
+
+> **Pendiente de la mitad de interfaz de M1:** que un navegador real abra
+> `http://localhost:8080/#/auth/activate?token=…` y confirme que el token llega
+> por el fragmento. El humo cubre la API; la pantalla no se ha abierto todavía.
 
 ### Backend (Node 22 / TypeScript 5.7 / Fastify 5)
 
@@ -481,7 +585,7 @@ curl -s http://localhost:3000/openapi.json | head # el mismo documento, en vivo
 | `src/http/plugins/modulos.ts` | Guardias de módulo y mantenimiento (lógica pura) |
 | `src/http/plugins/errores.ts` | Cuerpo de error uniforme |
 | `src/http/esquemas.ts` | Validación de entrada + coherencia de tipos |
-| `src/http/rutas/` | `salud`, `yo`, `admin` |
+| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth` |
 | `src/app.ts` | Construye la app con todo inyectado |
 | `src/server.ts` | Único punto que lee `process.env` |
 
@@ -581,8 +685,11 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2) |
-| **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | 🟡 Mitigada con `supabase/apply-migrations.mjs` |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
+| **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14 |
+| **D12** | `cursos` (Fase 0) y `programs` (M2) son el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ⏳ **Abierta** — hay que decidir si `programs` absorbe a `cursos` antes de M3. Ver §9 |
+| **D13** | El `sections` actual (`nombre`, `cupo_maximo`, `activa`) no coincide con el que exige el M3 del documento: `period_code`, `subject_id`, `name`, `max_capacity` | ⏳ **Abierta** — el M3 necesita una migración que rediseñe `sections`, y esa migración es destructiva |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -639,7 +746,7 @@ URL de Supabase inexistente, no leyendo el código:
    desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
    navegador es un origen **distinto** de `localhost`).
 
-> El fallo 8 es el motivo por el que existe la prueba de humo. Las 138 pruebas de
+> El fallo 8 es el motivo por el que existe la prueba de humo. Las 171 pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
 > sólo aparecen al hablar con la infraestructura de verdad.
@@ -660,25 +767,27 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 138 pruebas, incluidas las del módulo R2 y las de OpenAPI
+npm test              # 171 pruebas, incluidas las del módulo R2 y las de OpenAPI
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 30 comprobaciones
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 43 comprobaciones
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
+node supabase/humo-invitaciones.mjs                                 # 17 comprobaciones (--confirmar escribe)
 ```
 
 ### Las tres redes de seguridad, y qué cubre cada una
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (88) | La lógica del cliente | El SQL, la API, la red |
-| `supabase/tests` (49) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (138) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (30) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `flutter test` (110) | La lógica del cliente | El SQL, la API, la red |
+| `supabase/tests` (66) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `npm test` (171) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `verificar-esquema.mjs` (43) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
+| `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 
 Las pruebas de R2 **no tocan la red**: firmar una URL es criptografía local. Por
 eso se verifica el endpoint, la caducidad, los encabezados firmados y el rechazo
@@ -696,8 +805,11 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y las cuatro migraciones, y ejecuta 49 aserciones sobre
-el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol e integridad.
+aplica el shim de Supabase y **las seis migraciones**, y ejecuta 66 aserciones
+sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
+integridad, y las dos reglas de negocio de M2. **La migración de M2 se valida
+aquí aunque no esté aplicada en la nube**: el validador la levanta en un
+PostgreSQL real y comprueba que el trigger diferido hace lo que dice hacer.
 
 ### Lo que la prueba de humo comprueba
 
@@ -724,35 +836,139 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (30/30) |
+| Base de datos en la nube | ✅ Migrada y verificada (43/43) |
+| Libro mayor de migraciones | ✅ 5/5 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
+| Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
 | Contrato OpenAPI 3.1 | ✅ Generado desde Zod, con 9 pruebas de coherencia |
-| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `428b837`, verificado con `git ls-remote` |
+| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `e7164de` + 1 commit local sin subir, verificado con `git ls-remote` |
 
 **Lo que queda en su tejado, en orden:**
 
-1. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
+1. **Subir los commits locales.** `git push origin main` está bloqueado por falta
+   de credenciales de GitHub en este entorno (el *credential helper* no devuelve
+   nada y no hay `GITHUB_TOKEN` ni `~/.git-credentials`). Lo corre Lorenzo.
+2. **Abrir la pantalla de activación en un navegador** con un token real
+   (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
+   del fragmento. Es la mitad de interfaz que el humo no cubre.
+3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
-2. **Arrancar el frontend con puerto fijo** contra la nube:
+4. **Arrancar el frontend con puerto fijo** contra la nube:
 
    ```bash
    flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
    ```
 
    El `--web-port=8080` no es opcional: sin él Flutter toma un puerto libre
-   distinto en cada arranque y `CORS_ORIGINS` lo rechaza. Ver «CORS» más abajo.
+   distinto en cada arranque y `CORS_ORIGINS` lo rechaza.
 
 ### Luego: Fase 4 — M2 Currículo y M3 Cuadrante
 
-1. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
+1. **Decidir D12** (`cursos` vs `programs`) y **D13** (rediseño de `sections`). Las
+   dos son decisiones de datos, no de código, y condicionan M2 y M3. Ver §9.
+2. **Aplicar `202609150001_mod2_curriculo.sql`** y, en el mismo paso, añadir
+   `programs`, `subjects` y `program_subjects` a `esperadas` en
+   `verificar-esquema.mjs`. **No aplicar antes de resolver D12.**
+3. **Implementar las rutas de M2** (`/api/v1/admin/programas`, `/materias`) y el
+   asistente de tres pasos en Flutter. Contrato propuesto en §9.
+4. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
    interruptor ya funciona; lo que falta es lo que hay detrás.
-2. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
+5. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
    cerrar D9 con una regla de ciclo de vida en R2.
-3. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
+6. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida
    caducidad, cruza con `enrollments` y registra la asistencia. Tres faltas
    consecutivas disparan el motor de bids de M4. **No se implementa todavía**:
    depende de M3 (cuadrante) y M4 (bids), que aún no existen.
+
+---
+
+## 9. Módulo 2 — Currículo y Pensum: diseño entregado, sin aplicar
+
+**Estado: diseñado y validado contra PostgreSQL real, NO aplicado a la nube.**
+El archivo existe (`supabase/migrations/202609150001_mod2_curriculo.sql`) y el
+validador de SQL lo aplica y lo prueba en cada corrida, pero la base de la nube
+todavía no lo tiene. Es deliberado: M2 abre después de cerrar la mitad de
+interfaz de M1 y de resolver D12.
+
+### Las tres tablas
+
+| Tabla | Papel |
+| --- | --- |
+| `programs` | La oferta macro: carreras y cursos libres |
+| `subjects` | Banco global de materias, compartido entre programas |
+| `program_subjects` | El pensum: qué materia va en qué programa y en qué período |
+
+La tabla puente no es decoración: es lo que permite que Inglés Técnico exista
+**una vez** y esté en cinco pensums. Duplicar la materia por programa es lo que
+hace que después las notas de dos alumnos de la misma materia no sean
+comparables.
+
+### Las dos reglas de negocio, y cómo se hacen cumplir
+
+**Regla 1 — no existen carreras vacías.** Un programa activo con cero materias es
+un error del administrativo, no un estado válido. Se implementa con un
+**constraint trigger diferido** (`exigir_pensum_no_vacio`): se declara
+`deferrable initially deferred`, así que la comprobación corre **al confirmar la
+transacción**, no al insertar cada fila. Esa diferencia es exactamente la que
+permite que el asistente de tres pasos mande el programa y su pensum en **una
+sola petición** y pase la validación, mientras que un `insert` suelto sin
+materias falla. El documento pide un `POST` consolidado al final; el diferido es
+lo que hace que las dos cosas sean compatibles.
+
+**Regla 2 — inmutabilidad en uso.** No se puede cambiar el `period_order` de un
+pensum ni quitarle materias si ya hay secciones activas del período vigente
+usando ese programa. **No se puede implementar todavía**: la condición depende de
+`sections.program_id`, y `sections` no tiene esa columna (es D13). Se implementa
+en la migración de M3, cuando el vínculo exista. Mientras tanto la regla queda
+escrita aquí y en el encabezado de la migración, no a medias en el código.
+
+### Decisiones de diseño, y de dónde salen
+
+| Decisión | Por qué |
+| --- | --- |
+| `text` + `check` en vez de `enum` de Postgres para `type` | Es la convención ya establecida del proyecto (`auth_logs.estado` lo dice por escrito: «no se usa un enum de Postgres para no atarnos al dialecto»). El documento pide `ENUM`; se sigue la convención del código |
+| `is_active boolean not null default false` | El documento pone `DEFAULT TRUE`, pero eso **contradice su propia Regla 1**: un programa nace activo y sin materias, así que todo `insert` fallaría. Nace en borrador; publicarlo es lo que dispara la validación |
+| Columnas en inglés (`code`, `name`, `academic_hours`) | El documento las define así y la migración más reciente del proyecto (`teacher_invitations`) ya usa inglés. Las tablas de Fase 0 usan español (`nombre`, `activo`): la mezcla es real y está asumida |
+| El servidor construye el pensum en una transacción | Sin transacción, un fallo a mitad del asistente dejaría un programa a medio armar |
+
+### Contrato de API propuesto
+
+Sigue la convención del proyecto (`/api/v1/admin/…`, en español), no la ruta
+literal del documento (`/api/v1/programs/setup`): las rutas de administración ya
+viven bajo `/api/v1/admin` y ese prefijo es el que aplica `exigirAdmin`.
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/programas` | Lista paginada (`?tipo=`, `?activo=`, `?busqueda=`) |
+| `GET` | `/api/v1/admin/programas/:id` | Detalle con el pensum agrupado por período |
+| `POST` | `/api/v1/admin/programas` | **El asistente**: programa + pensum en una transacción |
+| `PATCH` | `/api/v1/admin/programas/:id` | Metadatos: `nombre`, `requires_internship`, `is_active` |
+| `PATCH` | `/api/v1/admin/programas/:id/pensum` | Reemplaza el pensum. 409 si hay secciones activas (Regla 2) |
+| `GET` | `/api/v1/admin/materias` | Banco global (`?busqueda=`, paginado) |
+| `POST` | `/api/v1/admin/materias` | Registra una materia en caliente (el modal del paso 2) |
+
+Ninguna ruta borra: archivar es `is_active = false`, para no romper históricos.
+Las siete rutas quedan documentadas en OpenAPI por construcción, y
+`test/openapi.test.ts` obliga a declararlas en la lista esperada.
+
+### Deuda que este diseño abre, y hay que cerrar antes de M3
+
+- **D12 — `cursos` contra `programs`.** Son el mismo concepto. Los cinco cursos
+  sembrados (`Herrería`, `Oratoria`, …) son exactamente `CURSO_LIBRE`. La
+  migración **no los toca**: absorberlos implica migrar
+  `aspirantes.curso_seleccionado` (texto libre) y el formulario público de
+  inscripción, que hoy lee `cursos` con `anon` y tiene una lista de respaldo en
+  `AspiranteRepository.cursosRespaldo`. Es una decisión consciente, no un
+  olvido.
+- **D13 — `sections` no es la que M3 necesita.** La actual tiene `nombre` y
+  `cupo_maximo`; el documento pide `period_code`, `subject_id`, `name` y
+  `max_capacity`. Además, la cabecera del cuadrante del documento
+  (`PERÍODO | ESPECIALIDAD | SECCIÓN`) necesita llegar a `programs`, y el
+  `sections` del documento **sólo tiene `subject_id`**: como una materia puede
+  pertenecer a varios programas (ese es el punto del M2M), la especialidad
+  quedaría ambigua. **Falta un `sections.program_id` en el diseño del documento.**
+  Sin él, la Regla 2 tampoco se puede implementar.
 
