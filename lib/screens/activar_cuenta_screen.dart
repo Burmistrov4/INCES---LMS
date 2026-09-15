@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../core/navegacion.dart';
 import '../repositories/invitacion_repository.dart';
 import '../theme/inces_theme.dart';
 
@@ -40,17 +41,14 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
     _token = widget.token ?? _leerTokenDeUrl();
   }
 
-  /// Lee el token de la URL compatible con las dos estrategias de enrutado web:
-  /// ruta con query real (`/auth/activate?token=`) o fragmento de hash
-  /// (`/#/auth/activate?token=`). En el segundo caso el token vive dentro del
-  /// fragmento, no en el query de la página.
-  String? _leerTokenDeUrl() {
-    final query = Uri.base.queryParameters['token'];
-    if (query != null && query.isNotEmpty) return query;
-    final fragmento = Uri.base.fragment;
-    if (fragmento.isEmpty) return null;
-    return Uri.parse(fragmento).queryParameters['token'];
-  }
+  /// Lee el token de la URL de la página.
+  ///
+  /// Es el respaldo de `widget.token`: en web el enrutador ya extrae el token
+  /// del nombre de la ruta, pero si la pantalla se abre por un camino que no
+  /// pasa por él, la URL sigue siendo la fuente de verdad. La regla vive en
+  /// `core/navegacion.dart` —la misma que usa el enrutador— para poder probarla
+  /// sin navegador; aquí sólo se le entrega la URL real.
+  String? _leerTokenDeUrl() => tokenDeUrl(Uri.base);
 
   @override
   void dispose() {

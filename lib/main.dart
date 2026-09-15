@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config/app_config.dart';
+import 'core/navegacion.dart';
 import 'providers/role_provider.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/aspirante_dashboard.dart';
@@ -30,8 +31,54 @@ Future<void> main() async {
   runApp(const IncesLmsApp());
 }
 
+/// Pantallas alcanzables por nombre de ruta, indexadas por **camino**.
+///
+/// La activación de docentes no está aquí a propósito: necesita el token del
+/// enlace, y los constructores de esta tabla sólo reciben el `BuildContext`.
+/// Se resuelve aparte en [_generarRuta].
+final Map<String, WidgetBuilder> _pantallas = {
+  '/login': (_) => const LoginScreen(),
+  '/inscripcion': (_) => const AspiranteFormScreen(),
+  '/restablecer': (_) => const RestablecerPasswordScreen(),
+};
+
+/// Resuelve una ruta a partir de su nombre.
+///
+/// Existe porque la tabla `routes` compara cadenas **exactas**: un enlace
+/// profundo llega con la consulta pegada (`/auth/activate?token=…`) y no
+/// encuentra destino. Cuando eso pasaba, el `Navigator` descartaba la pila
+/// inicial entera y mostraba `/`, así que el docente abría el enlace del correo
+/// y aterrizaba en el login: el token nunca llegaba a la pantalla.
+///
+/// Devuelve `null` para las rutas desconocidas **a propósito**. Al expandir un
+/// enlace de varios segmentos, `Navigator` pide `/`, `/auth` y
+/// `/auth/activate`; los intermedios que no existen deben quedarse en `null`
+/// para que se filtren en vez de ensuciar el historial.
+Route<dynamic>? _generarRuta(RouteSettings ajustes) {
+  final destino = analizarRuta(ajustes.name);
+
+  if (destino.ruta == rutaActivacion) {
+    return MaterialPageRoute<dynamic>(
+      settings: ajustes,
+      builder: (_) => ActivarCuentaScreen(token: destino.token),
+    );
+  }
+
+  final pantalla = _pantallas[destino.ruta];
+  if (pantalla == null) return null;
+
+  return MaterialPageRoute<dynamic>(settings: ajustes, builder: pantalla);
+}
+
 class IncesLmsApp extends StatelessWidget {
-  const IncesLmsApp({super.key});
+  const IncesLmsApp({super.key, this.rutaInicial});
+
+  /// Ruta con la que arranca la aplicación.
+  ///
+  /// En web la fija la URL del navegador, así que la app real no pasa nada. Se
+  /// expone para poder abrir la aplicación en un enlace profundo concreto desde
+  /// las pruebas, que no tienen navegador.
+  final String? rutaInicial;
 
   @override
   Widget build(BuildContext context) {
@@ -53,15 +100,15 @@ class IncesLmsApp extends StatelessWidget {
         // `home` define la ruta raíz. Por eso NO se incluye '/' en `routes`:
         // Flutter lanza una aserción si ambos existen y la app no arranca.
         home: const AuthGate(),
-        routes: {
-          '/login': (_) => const LoginScreen(),
-          '/inscripcion': (_) => const AspiranteFormScreen(),
-          '/restablecer': (_) => const RestablecerPasswordScreen(),
-          // Deep link del docente invitado. Al abrirse por URL, Flutter usa esta
-          // ruta como pantalla inicial (no el AuthGate): el docente aún no tiene
-          // sesión. El token se lee de la URL dentro de la pantalla.
-          '/auth/activate': (_) => const ActivarCuentaScreen(),
-        },
+        initialRoute: rutaInicial,
+
+        // Las rutas simples se resuelven por tabla exacta. El deep link del
+        // docente invitado (`/auth/activate?token=…`) pasa por `_generarRuta`,
+        // que sí sabe leer la consulta. Al abrirse por URL, esa pantalla queda
+        // encima del `AuthGate`: el docente todavía no tiene sesión, y el botón
+        // de volver tiene un destino sensato.
+        routes: _pantallas,
+        onGenerateRoute: _generarRuta,
       ),
     );
   }
