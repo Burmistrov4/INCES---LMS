@@ -23,17 +23,24 @@ import 'support/fake_gateway.dart';
 /// tarjeta de módulo se resuelven contra `Theme.of(context)`; sin el tema, el
 /// test mediría un `ThemeData` por defecto que la aplicación nunca usa.
 ///
-/// **No se envuelve el panel en un scrollable.** Los dos paneles tienen
-/// contratos de layout distintos y ambos son correctos:
-///   * `CpanelAuditoriaPanel` gestiona su propio scroll con un `Expanded`
-///     interno, así que exige altura **acotada**.
-///   * `CpanelModulosPanel` devuelve una columna que crece con su contenido.
+/// **No se envuelve el panel en un scrollable.** Los paneles tienen contratos
+/// de layout distintos y los dos son correctos:
+///   * `CpanelAuditoriaPanel` reparte el espacio con un `Expanded` interno, así
+///     que exige altura **acotada**.
+///   * `CpanelModulosPanel` devuelve una lista que crece con su contenido.
 ///
-/// Por eso la prueba los monta en el `body` acotado del `Scaffold`, igual que
-/// hace `ContenidoSeccion` en producción con el `ConstrainedBox`. Envolverlos
-/// en un `SingleChildScrollView` daría altura infinita al primero y rompería su
-/// `Expanded`; y montar el segundo en el `Scaffold` sin más lo haría medir el
-/// hueco sobrante, que no es lo que ocurre en la aplicación.
+/// Por eso la prueba los monta en el `body` acotado del `Scaffold`, que es
+/// exactamente lo que hace `ContenidoSeccion` en producción: entrega la altura
+/// que sobra tras las migas de pan, sin scroll propio. Envolverlos en un
+/// `SingleChildScrollView` daría altura infinita al primero y rompería su
+/// `Expanded`.
+///
+/// Esta nota decía antes que `ContenidoSeccion` «acota la altura con el
+/// `ConstrainedBox`», y **no era cierto**: por entonces envolvía todo en un
+/// `SingleChildScrollView`, así que los paneles con `Expanded` reventaban al
+/// abrirse en la aplicación real mientras estas pruebas seguían en verde. La
+/// lección no está en esta nota sino en `contenido_seccion_test.dart`: el layout
+/// de un panel se prueba montándolo **como se monta de verdad**.
 Future<void> montarPanel(WidgetTester tester, Widget panel) async {
   await tester.pumpWidget(
     MaterialApp(

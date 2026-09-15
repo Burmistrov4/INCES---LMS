@@ -72,8 +72,12 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Raíz desplazable, igual que los paneles de módulos y parámetros:
+    // `ContenidoSeccion` entrega una altura acotada y este panel crece con su
+    // contenido —aviso, formulario y, cuando el correo no sale, la tarjeta del
+    // enlace—, así que en una ventana baja el final quedaría recortado.
+    return ListView(
+      padding: EdgeInsets.zero,
       children: [
         TituloSeccion(
           'Invitación de docentes',

@@ -10,6 +10,7 @@ import 'admin/cpanel_auditoria_panel.dart';
 import 'admin/cpanel_modulos_panel.dart';
 import 'admin/cpanel_parametros_panel.dart';
 import 'admin/cpanel_invitaciones_panel.dart';
+import 'admin/cpanel_programas_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
@@ -156,6 +157,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Administración del sistema', 'Usuarios y Roles'],
           child: CpanelInvitacionesPanel(),
+        );
+      case 'Programas Académicos':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Gestión académica', 'Programas Académicos'],
+          child: CpanelProgramasPanel(),
         );
       default:
         return Padding(

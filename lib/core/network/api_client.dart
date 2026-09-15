@@ -42,6 +42,31 @@ class ApiClient {
     return _procesar(respuesta, ruta);
   }
 
+  /// Actualización parcial (PATCH) de un recurso.
+  ///
+  /// El backend trata el `PATCH` como un parche de verdad: sólo se envían los
+  /// campos que cambian. Mandar el objeto entero convertiría cualquier campo
+  /// ausente en un intento de escribir `null`, que el esquema `.strict()`
+  /// rechazaría con un 400.
+  Future<Map<String, dynamic>> patch(
+    String ruta, {
+    Map<String, dynamic>? cuerpo,
+    String? token,
+    Map<String, String>? encabezadosExtra,
+  }) async {
+    final respuesta = await _http.patch(
+      _resolver(ruta),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+        ...?encabezadosExtra,
+      },
+      body: cuerpo == null ? null : jsonEncode(cuerpo),
+    );
+
+    return _procesar(respuesta, ruta);
+  }
+
   /// Lectura (GET) con parámetros de consulta opcionales.
   ///
   /// Los parámetros vacíos se descartan: así el panel de auditoría puede mandar

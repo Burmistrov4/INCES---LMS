@@ -447,6 +447,24 @@ class _ItemMenu extends StatelessWidget {
 /// El ancho máximo existe por legibilidad: en un monitor ancho, una línea de
 /// texto que ocupe los 2500 px es incómoda de leer porque el ojo pierde el
 /// principio de la línea siguiente.
+///
+/// ## El contrato de altura, y por qué ya no hay un scroll aquí
+///
+/// Esta sección entrega a su hijo una altura **acotada**: la que sobra tras las
+/// migas de pan. No la envuelve en un `SingleChildScrollView`.
+///
+/// Antes sí lo hacía, y era un fallo silencioso: un scroll vertical da al hijo
+/// altura **infinita**, y un panel que reparte el espacio con `Expanded` —o que
+/// usa un `ListView` normal— revienta con «incoming height constraints are
+/// unbounded». Tres paneles del cPanel lo hacían, así que abrirlos en la
+/// aplicación real lanzaba una excepción de layout; las pruebas no lo veían
+/// porque los montaban en el `body` acotado de un `Scaffold`, que no es como se
+/// montan de verdad.
+///
+/// La regla, entonces: **el panel decide si llena el hueco o si crece.** Si su
+/// contenido puede pasar de la pantalla, se envuelve él mismo en un
+/// `SingleChildScrollView`. Así los dos contratos caben, en vez de obligar a
+/// todos a compartir uno que sólo sirve a unos.
 class ContenidoSeccion extends StatelessWidget {
   const ContenidoSeccion({
     super.key,
@@ -464,7 +482,7 @@ class ContenidoSeccion extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, restricciones) {
         final esAngosto = restricciones.maxWidth < 700;
-        return SingleChildScrollView(
+        return Padding(
           padding: EdgeInsets.all(esAngosto ? 16 : 24),
           child: Center(
             child: ConstrainedBox(
@@ -473,7 +491,13 @@ class ContenidoSeccion extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (migas.isNotEmpty) MigasDePan(partes: migas),
-                  child,
+                  // `Flexible` y no un hijo suelto: en un `Column`, un hijo no
+                  // flexible recibe altura **infinita** en el eje principal, así
+                  // que un panel con `Expanded` o con un `ListView` normal
+                  // volvería a reventar. Siendo flexible, recibe el hueco que
+                  // sobra —acotado— y lo reparte como quiera. El ajuste es
+                  // holgado, no forzado: un panel corto no se estira.
+                  Flexible(child: child),
                 ],
               ),
             ),

@@ -220,19 +220,14 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
 
     // El contenido va dentro de su propio scrollable.
     //
-    // No es decorativo: la lista de módulos crece con el catálogo, y este panel
-    // se monta tanto en el `SingleChildScrollView` de `ContenidoSeccion`
-    // (altura infinita, el caso normal) como en espacios de altura acotada
-    // (una vista embebida, una prueba). Sin el `Scrollbar`+`ListView` propio,
-    // la primera situación funciona y la segunda desborda; con él, las dos se
-    // comportan igual y el panel no depende de quién lo aloja. Se elige
-    // `shrinkWrap` para que, cuando la altura sí es infinita, la columna mida
-    // sólo lo que mide su contenido en vez de reclamar todo el espacio.
+    // No es decorativo: la lista de módulos crece con el catálogo. Con
+    // `shrinkWrap` la columna mide lo que mide su contenido cuando hay sitio de
+    // sobra —en vez de reclamar todo el alto y dejar un hueco vacío debajo— y se
+    // desplaza cuando no lo hay. Así el panel se comporta igual dentro de la
+    // sección acotada de la aplicación que en una vista embebida, sin depender
+    // de quién lo aloja.
     return ListView(
       shrinkWrap: true,
-      // El scroll físico se desactiva cuando la altura es ilimitada: si no, el
-      // `ListView` intentaría competir con el `SingleChildScrollView` exterior
-      // y el gesto de rueda quedaría ambiguo entre los dos.
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       children: [
