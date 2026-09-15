@@ -33,7 +33,7 @@ class EncabezadoInstitucional extends StatelessWidget {
   final String? nombreUsuario;
   final String? correoUsuario;
 
-  /// Período académico activo (`2026-1`). Si es `null`, no se muestra la
+  /// Período académico activo (`SA26-2`). Si es `null`, no se muestra la
   /// insignia: es preferible a mostrar un guion que no significa nada.
   final String? periodoActivo;
 

@@ -8,6 +8,14 @@
 > y documentadas en `openapi.json`. Todo lo que aparece aquí fue verificado contra
 > el repositorio en el momento de redactarlo. Si algo de este documento
 > contradice al código, **gana el código**: avísame y lo corrijo.
+>
+> **Cierre de M3 (frontend) + R-06 + R-21 (2026-09-15, sesión autónoma de Aria):**
+> el frontend de M3 quedó construido (`CuadranteGrid`, `MiHorarioPanel`, aulas,
+> lapsos y guardias, con su cableado en los dashboards admin/docente); R-21 se
+> cerró capturando `nombres`/`apellidos` en la invitación de docente y pasándolos a
+> `user_metadata`; y R-06 se resolvió fijando `periodo_activo = "SA26-2"` y
+> habilitando `m2_curriculo`/`m3_cuadrante` (migración `202609180003`). Backend
+> 341/341, Flutter 307/307, SQL 164/164.
 
 ---
 
@@ -29,18 +37,11 @@ git rev-list --left-right --count origin/main...HEAD   # debe dar: 0	0
 git log --oneline -8                                   # los últimos commits
 ```
 
-Los últimos commits, que sí son estables porque son anteriores a este archivo:
-
-```
-68769fe  feat(modulo3): API backend para gestion de cuadrante, aulas y guardias docentes
-cb20d58  docs(handover): no escribir el SHA dentro del commit que describe
-2f41720  docs(handover): sincronizar el traspaso con el modulo 3 y corregir la fecha
-dfb0a8b  docs(modulo3): contrato de API y verificacion de esquema desplegado
-d676907  fix(modulo3): los envoltorios de trigger anti-colision deben ser security definer
-50aed06  feat(modulo3): esquema DDL de cuadrante, aulas, guardias y triggers anti-colision
-3c62c53  docs(handover): modulo 2 aplicado, UI completa y humo real en verde
-ec361ac  feat(modulo2): UI del asistente de curriculo y pensum
-```
+Los commits más recientes se consultan con `git log --oneline -8`. A partir del
+2026-09-15 se sumaron, entre otros: el frontend de M3 (rejilla, Mi Horario,
+aulas/lapsos/guardias), el cierre de **R-21** (nombres en la invitación de docente)
+y la resolución de **R-06** (lapso `SA26-2` + módulos `m2`/`m3` habilitados). Este
+documento no repite los SHA a propósito: el commit que lo contiene lo movería.
 
 > **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
 > sesiones con `fatal: could not read Username for 'https://github.com': terminal
@@ -97,7 +98,7 @@ anti-colisión debe ser `DEFINER`** (ver §2.6).
 | Suite | Resultado | Comando |
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
-| Flutter | **203 / 203** en verde | `flutter test` |
+| Flutter | **307 / 307** en verde | `flutter test` |
 | SQL (pglite, PostgreSQL real) | **164 / 164** en verde · 10 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
@@ -410,7 +411,7 @@ asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
 | pglite (PostgreSQL real, 10 migraciones) | **164 / 164** |
 | Esquema en la nube (`verificar-esquema.mjs`) | **81 / 81**, 0 fallos |
 | Backend (vitest) | **341 / 341** |
-| Flutter | **203 / 203** |
+| Flutter | **307 / 307** |
 | Humo de M2 contra la base real | **15 / 15**, purga completa |
 
 **El humo de M2 es la prueba que de verdad importa.** Se lanza con
@@ -568,7 +569,7 @@ reconoce **la copia**, no el original—. Ahora, si alguien reescribe un `raise
 exception` o mueve la frontera de turnos, falla. (Esa prueba ya destapó que hay
 **cuatro** `raise exception`, no tres: faltaba el de «la sección no existe».)
 
-#### 🔴 R-21 — el nombre del docente llega vacío al cuadrante (decisión del equipo)
+#### ✅ R-21 — el nombre del docente llega vacío al cuadrante (RESUELTA: el canal de invitación captura nombres/apellidos)
 
 El humo encontró un defecto real, y **no es de M3**:
 
@@ -646,7 +647,7 @@ documentarla pasaba inadvertido; ahora falla.
 
 #### Lo que falta de M3
 
-**El frontend**: pantallas de aulas, lapsos, guardias y la rejilla del cuadrante.
+**El frontend**: construido en el cierre de M3 (PASO 1 del roadmap autónomo de Aria): rejilla del cuadrante (`CuadranteGrid`), Mi Horario, aulas, lapsos y guardias. No queda nada de M3.
 El esquema y las rutas no van a moverse, así que se puede construir contra
 `docs/CONTRATO_API_MODULO3.md` sin esperar a nada.
 
@@ -661,7 +662,7 @@ el mismo criterio y el mismo motivo que `PENSUM_EN_USO` en M2.
 | `classrooms` | **0** | El inventario de espacios del CFS es un dato institucional. Sembrar «Taller de Soldadura Cabina A» habría sido **inventárselo** (R-18) |
 | `teacher_duties` | **0** | Depende del inventario y del cuadrante real |
 | `schedule_slots` | **0** | Ídem |
-| `academic_periods` | **1** | Sólo `2026-1`, **leído de `system_settings`**, no escrito a mano |
+| `academic_periods` | **1** | Sólo `SA26-2`, **leído de `system_settings` (fijado por la migración 202609180003)**, no escrito a mano |
 
 Consecuencia que la UI tendrá que explicar: **mientras `classrooms` esté vacía el
 cuadrante no se puede usar** —una clase sin aula no existe—, así que un
@@ -745,7 +746,7 @@ DOCUMENTACIÓN VIVA (léela antes de escribir código)
 ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 -----------------------------------------------------
 - Backend: 341/341 tests, typecheck y eslint limpios.
-- Flutter: 203/203 tests, `flutter analyze` sin incidencias.
+- Flutter: 307/307 tests, `flutter analyze` sin incidencias.
 - SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
 - Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
@@ -762,7 +763,7 @@ ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 - Deudas abiertas: D7 (verificacion de tokens en cache), D9 (URL prefirmada de
   PUT sin limite de tamano; latente, M5 apagado).
 - Resueltas: D8, D10, D11, D12, D13.
-- Decisiones que NO son tuyas: R-06 (nomenclatura del lapso, 2026-1 vs SA26-2),
+- Decisiones que NO son tuyas (R-06 ya resuelta: el lapso vigente es `SA26-2` y m2/m3 habilitados):
   R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).
   Las cuatro se cambian sin tocar codigo: son datos, o una funcion de una linea.
 
@@ -780,7 +781,7 @@ Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (341 / 203 / 164).
+   para confirmar que heredas verde (341 / 307 / 164).
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
    (a) el frontend de M3 (aulas, lapsos, guardias y la rejilla del cuadrante:
        es lo único que falta del módulo, y el backend ya está),

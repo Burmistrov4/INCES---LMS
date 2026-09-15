@@ -107,7 +107,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   /// dashboard a cargar todo el catálogo de parámetros antes de pintar. Cuando
   /// se construya el módulo de currículo, el período pasará a ser una selección
   /// real; hasta entonces un valor fijo comunica mejor que un hueco.
-  static const String _periodoActivo = '2026-1';
+  /// El lapso vigente es `SA26-2` (ver system_settings.periodo_activo, fijado por
+  /// la migración 202609180003). Cuando el módulo de currículo lo lea de ahí, este
+  /// literal desaparece.
+  static const String _periodoActivo = 'SA26-2';
 
   Future<void> _cerrarSesion() async {
     await _auth.cerrarSesion();

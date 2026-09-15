@@ -102,7 +102,7 @@ actualizarse**, o el TEG documentará una ruta que no existe y sin protección.
 
 ---
 
-## R-06 · Dos convenciones de período incompatibles — **DECISIÓN PENDIENTE**
+## R-06 · Dos convenciones de período incompatibles — **RESUELTA (2026-09-15): el lapso vigente es `SA26-2`**
 
 **Gravedad: alta. Es una guarda que no guarda y no avisa.**
 
@@ -517,7 +517,7 @@ demostró el fail-first de las cuatro aserciones nuevas.
 
 ---
 
-## R-21 · El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL
+## R-21 · El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL — **RESUELTA (2026-09-15)**
 
 **Encontrado el 2026-09-15** por `supabase/humo-cuadrante.mjs`, el humo real de
 M3. **No lo podía ver ninguna prueba con dobles**, y ninguna de las 341 del
@@ -705,7 +705,7 @@ uno estaba cubierto.
 | R-03 | Regla 1 decía "carreras", se aplicaba a todo | Acotada a `CARRERA` | ✅ Resuelta |
 | R-04 | `ENUM` vs convención del proyecto | `text` + `check` | ✅ Resuelta |
 | R-05 | Ruta fuera del prefijo con guardia | `/api/v1/admin/programas` | ✅ Resuelta (el documento debe actualizarse) |
-| R-06 | Dos convenciones de período | — | 🔴 **DECISIÓN PENDIENTE** |
+| R-06 | Dos convenciones de período | `SA26-2` como lapso vigente; m2/m3 habilitados | ✅ **Resuelta (2026-09-15)** |
 | R-07 | `curso_seleccionado` por nombre | Diferida a D14 | ⏳ Abierta, sin urgencia (0 filas) |
 | R-08 | `sections` de Fase 0 era un stub | Rediseñada completa | ✅ Resuelta |
 | R-09 | `cursos` vs `programs` (D12) | Vista de compatibilidad | ✅ Resuelta |
@@ -720,5 +720,5 @@ uno estaba cubierto.
 | R-18 | «Aula/zona»: una zona no es un aula | Una zona es una fila de `classrooms` | ✅ Resuelta |
 | R-19 | «Período activo» significa dos cosas | `is_active` (abierto) vs `periodo_activo` (vigente) | ✅ Resuelta (se puede simplificar) |
 | R-20 | Trigger `invoker` + función revocada: módulo inoperable | Envoltorios a `security definer` (migración 202609180002) | ✅ Resuelta y verificada |
-| R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación nunca captura los nombres** | 🔴 **DECISIÓN PENDIENTE** (alcance de M1) |
+| R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación ahora captura nombres/apellidos** y los pasa a `user_metadata` (migración 202609130002 + commit de R-21) | ✅ **Resuelta (2026-09-15)** |
 | R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |

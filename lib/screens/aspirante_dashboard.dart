@@ -100,7 +100,7 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       onSeleccionar: (indice) => setState(() => _seleccionada = indice),
       rolEtiqueta: 'Estudiante',
       correoUsuario: _auth.emailActual,
-      periodoActivo: '2026-1',
+      periodoActivo: 'SA26-2',
       onCerrarSesion: _cerrarSesion,
       contenido: _contenido(),
     );

@@ -10,7 +10,7 @@
 > completo. **D10 resuelta** (libro mayor de migraciones con checksums). Puertos y
 > CORS alineados. Repositorio publicado en GitHub.
 >
-> **Del Módulo 3 sólo falta el frontend.** Las 14 rutas ya existen, están
+> **El Módulo 3 está completo (frontend incluido).** Las 14 rutas ya existen, están
 > registradas en Fastify y documentadas en `openapi.json` (el recuento pasó de
 > **22** a **29 rutas** y de **40** a **62 esquemas**). `test/openapi.test.ts`
 > compara ahora el documento contra las rutas **reales** en las dos direcciones,
@@ -42,7 +42,7 @@
 | **Módulo 2 (frontend)** | Asistente de 3 pasos en Flutter | ✅ Completo |
 | **Módulo 3 (esquema)** | Cuadrante, aulas, guardias: 4 tablas, 2 triggers anti-colisión, 3 vistas | ✅ **Aplicado y verificado** |
 | **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ✅ **Completo** (PASO 4) |
-| **Módulo 3 (frontend)** | Pantallas de aulas, lapsos, guardias y cuadrante | ⏳ Pendiente |
+| **Módulo 3 (frontend)** | Pantallas de aulas, lapsos, guardias y cuadrante (rejilla `CuadranteGrid`, `MiHorarioPanel`) | ✅ Completo |
 | **Fase 4+** | M4 Inscripciones … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-15**;
@@ -87,7 +87,7 @@ aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **17 tablas** con RLS activo **en las 17**, **4 vistas** (`cursos` de D12 más las
 tres del Módulo 3), **20 funciones**, **22 triggers** y **38 políticas RLS**, más
-9 módulos sembrados, 8 parámetros, 1 lapso (`2026-1`) y los 5 cursos — que desde
+9 módulos sembrados, 8 parámetros, 1 lapso (`SA26-2`) y los 5 cursos — que desde
 la migración de D12 viven dentro de `programs` como `CURSO_LIBRE`.
 
 > **Estas cifras están medidas, no estimadas.** Salen de
@@ -504,8 +504,8 @@ administrador real: ni el admin puede insertar una traza a mano.
 | --- | --- | --- | --- |
 | `m0_cpanel` | Administrador Maestro | 🟢 activo | `admin` |
 | `m1_onboarding` | Autenticación y Onboarding | 🟢 activo | todos |
-| `m2_curriculo` | Currículo y Pensum | ⚪ inactivo | todos |
-| `m3_cuadrante` | Cuadrante y Horarios | ⚪ inactivo | todos |
+| `m2_curriculo` | Currículo y Pensum | 🟢 activo | todos |
+| `m3_cuadrante` | Cuadrante y Horarios | 🟢 activo | todos |
 | `m4_inscripciones` | Inscripciones y Cupos | ⚪ inactivo | todos |
 | `m5_archivos` | Almacenamiento (R2) | ⚪ inactivo | todos |
 | `m6_asistencia` | Asistencia | ⚪ inactivo | todos |
@@ -514,15 +514,15 @@ administrador real: ni el admin puede insertar una traza a mano.
 
 **`m9` (Certificados/QR) no se siembra:** quedó descartado del alcance.
 
-Solo están encendidos los módulos que **existen de verdad**. Encender los demás
-haría que la UI prometiera pantallas que no están construidas.
+Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo` y
+`m3_cuadrante`. Los demás (m4…m8) siguen apagados hasta que se construyan.
 
 ### Semilla de parámetros
 
 | Clave | Tipo | Público | Valor inicial |
 | --- | --- | --- | --- |
 | `inscripciones_abiertas` | boolean | ✅ | `true` |
-| `periodo_activo` | string | ✅ | `"2026-1"` |
+| `periodo_activo` | string | ✅ | `"SA26-2"` |
 | `modo_mantenimiento` | boolean | ✅ | `false` |
 | `max_faltas_consecutivas` | number | ❌ | `3` |
 | `bid_ttl_horas` | number | ❌ | `24` |
@@ -851,7 +851,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
-| **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | 🔴 **DECISIÓN PENDIENTE** — no se elige por cuenta propia: afecta a la nomenclatura institucional. Ver `REPORTE_ARIA.md` R-06 |
+| **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1073,12 +1073,10 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    `/cuadrante`— más `/api/v1/mi-horario`. Incluye el código de error nuevo
    `CHOQUE_DE_AGENDA` (409) y la traducción del `23514` de colisión por el texto
    del mensaje. Ver `docs/CONTRATO_API_MODULO3.md`.
-7. **El frontend de M3** — es lo único que falta del módulo: las pantallas de
-   aulas, lapsos, guardias y la rejilla del cuadrante. El backend y el esquema no
-   van a moverse, así que se puede construir contra el contrato sin esperar.
-8. **Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel** cuando sus
-   pantallas existan. El interruptor ya funciona; lo que falta es lo que hay
-   detrás.
+7. ~~**El frontend de M3**~~ — **HECHO (2026-09-15):** rejilla del cuadrante
+   (`CuadranteGrid`), `MiHorarioPanel`, y las pantallas de aulas, lapsos y guardias.
+8. ~~**Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel**~~ — **HECHO
+   (2026-09-15):** la migración `202609180003` los habilita en `system_modules`.
 9. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
    cerrar D9 con una regla de ciclo de vida en R2.
 10. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
@@ -1314,14 +1312,15 @@ el tipo de cosa que sólo se ve cruzando el documento con los datos reales.
 
 ### Lo que queda en el tejado de Lorenzo: D15
 
-**Dos convenciones de período incompatibles.** `system_settings.periodo_activo`
-guarda `"2026-1"`, mientras que los ejemplos del documento usan `"SA26-2"`. La
-Regla 2 compara las dos cadenas, así que **con la base como está hoy nunca
-dispararía**: `'2026-1' <> 'SA26-2'`, y la guarda se considera fuera del período.
+**Dos convenciones de período incompatibles — RESUELTA (2026-09-15).** `system_settings.periodo_activo`
+guarda `"SA26-2"` (fijado por la migración `202609180003`), y `academic_periods` tiene la
+fila correspondiente. La Regla 2 compara las dos cadenas, así que ahora **sí
+dispara**: `periodo_activo` = `academic_periods.code` = `SA26-2`. La guarda
+`exigir_periodo_registrado()` impide que `periodo_activo` nombre un lapso inexistente.
 
-No se elige por cuenta propia: es nomenclatura institucional y afecta también a
-`sections.period_code`. Está documentado como R-06 en `REPORTE_ARIA.md` y como
-D15 en §6. Hasta que se decida, la Regla 2 está implementada pero inerte.
+Decidido por el equipo (R-06 / D15): el lapso vigente del INCES es `SA26-2`. Está
+documentado como R-06 en `REPORTE_ARIA.md` y como D15 en §6. La Regla 2 está
+implementada y activa.
 
 ---
 
@@ -1507,7 +1506,7 @@ lectura obligatoria antes de tocar esos triggers.**
 | Aulas y zonas | El inventario del CFS es un dato institucional. **No se siembra** (R-18) |
 | Guardias y clases | Dependen de las aulas y del cuadrante real |
 | Fechas del lapso | El centro no las ha cargado. `start_date`/`end_date` son nulas **a propósito** (R-17) |
-| Nombre del lapso | Sólo se sembró `2026-1`, **leído de `system_settings`**, no escrito a mano |
+| Nombre del lapso | Sólo se sembró `SA26-2`, **leído de `system_settings` (fijado por la migración 202609180003)**, no escrito a mano |
 
 Mientras `classrooms` esté vacía, el cuadrante no se puede usar —una clase sin
 aula no existe— y la UI tendrá que decirlo en vez de mostrar un desplegable vacío

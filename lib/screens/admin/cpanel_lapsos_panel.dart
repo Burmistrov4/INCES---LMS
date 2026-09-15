@@ -439,7 +439,7 @@ class _DialogoLapsoState extends State<_DialogoLapso> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(
                   labelText: 'Nombre',
-                  hintText: 'Lapso 2026-1',
+                  hintText: 'Lapso SA26-2',
                   helperText: 'Opcional. Si falta, se muestra el código.',
                 ),
               ),

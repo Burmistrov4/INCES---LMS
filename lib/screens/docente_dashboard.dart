@@ -63,7 +63,7 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
     ),
   ];
 
-  static const String _periodoActivo = '2026-1';
+  static const String _periodoActivo = 'SA26-2';
 
   Future<void> _cerrarSesion() async {
     await _auth.cerrarSesion();
