@@ -1,9 +1,13 @@
 # Contrato de API — Módulo 2 (Currículo y Pensum)
 
-> **Estado:** diseño. Ninguna de estas rutas está implementada todavía, y la
-> migración `202609150001_mod2_curriculo.sql` **no está aplicada** a la nube.
-> Este documento es la especificación a implementar, no una descripción de lo
-> que existe. Lo que existe está en `ESTADO_DEL_SISTEMA.md` §4.
+> **Estado (2026-09-15):** el **esquema está aplicado y verificado** en la nube
+> (8/8 migraciones en el libro mayor, 56/56 comprobaciones del esquema), y las
+> **dos funciones transaccionales que sostienen el asistente están aplicadas y
+> probadas contra el motor real** (`supabase/humo-curriculo.mjs`, 14/14). Las
+> rutas HTTP de este documento están **en construcción**: el diseño está cerrado
+> y verificado, los manejadores todavía no existen. Lo que existe está en
+> `ESTADO_DEL_SISTEMA.md` §9–§11; el porqué de las funciones, en `REPORTE_ARIA.md`
+> R-10.
 
 Base: `/api/v1`. Todo error responde con la forma ya establecida:
 
@@ -70,6 +74,12 @@ export interface Materia {
 export interface EntradaPensum {
   materiaId: string;
   periodo: number;             // >= 1
+}
+
+/** Una entrada del pensum ya agrupada, tal como la devuelve `GET /:id`. */
+export interface GrupoPensum {
+  periodo: number;
+  materias: EntradaPensum[];
 }
 ```
 
@@ -141,9 +151,13 @@ se devuelve página vacía si `desplazamiento >= total`. Es el patrón de
 
 `editable` es la materialización de la **Regla 2**: `false` cuando
 `seccionesActivas > 0`, y la UI deshabilita el reordenamiento antes de que el
-usuario lo intente. `seccionesActivas` hoy devuelve `0` siempre, porque
-`sections.program_id` no existe todavía (deuda D13). **La ruta se implementa con
-el campo puesto a `0` y una nota**, no con un `TODO` que mienta.
+usuario lo intente, en vez de dejarlo chocar contra el `409`.
+
+`seccionesActivas` cuenta las secciones **activas del período vigente**
+(`system_settings.periodo_activo`) que apuntan a ese programa. Es un número real
+desde que D13 añadió `sections.program_id`. Hasta entonces esta ruta tenía que
+devolver `0` y decirlo por escrito: una comprobación que siempre devuelve `false`
+haría creer que la regla estaba activa, que es peor que no tenerla.
 
 **404 `PERFIL_INEXISTENTE`** si el `:id` no es UUID → **400 `PETICION_INVALIDA`**
 (validador `esquemaRutaIdPrograma`, igual que `esquemaRutaIdPerfil`); si es UUID
@@ -153,8 +167,37 @@ y no existe → **404 `NO_ENCONTRADO`**.
 
 ## 5. `POST /api/v1/admin/programas` — el asistente
 
-Una sola petición con todo. Es lo que permite que el constraint trigger diferido
-valide el pensum al confirmar la transacción.
+Una sola petición con todo, ejecutada por la función
+**`public.crear_programa_con_pensum(...)`** dentro de **una sola transacción**.
+
+### Por qué una función y no un insert anidado
+
+PostgREST **no admite insertar un padre con sus hijos en la misma petición**. Se
+comprobó contra la base real el 2026-09-15, no se supuso:
+
+| Prueba | Resultado |
+| --- | --- |
+| `POST /programs` con `program_subjects: [...]` | `PGRST204: Could not find the 'program_subjects' column of 'programs' in the schema cache` |
+| Lo mismo tras `notify pgrst, 'reload schema'` | Idéntico — **no era la caché** |
+| `GET /programs?select=*,program_subjects(*)` | **HTTP 200** — la relación existe |
+
+Es decir: **se puede leer anidado, pero no escribir anidado.** Y PostgREST no
+expone transacciones entre peticiones: cada petición es su propia transacción.
+
+Sin función, el asistente tendría que hacer tres llamadas —crear en borrador,
+insertar el pensum, publicar—. Cada paso intermedio es un estado válido, así que
+los triggers no se quejarían, pero **un fallo entre el segundo y el tercero deja
+un programa a medio armar**, que es justo lo que este contrato quiere evitar.
+
+La función se declara **`security invoker`**, y eso no es un detalle: con
+`security definer` correría con los privilegios de su dueño y **se saltaría la
+RLS**, de modo que cualquier autenticado podría escribir programas. El relato
+completo está en `ESTADO_DEL_SISTEMA.md` §11 y en `REPORTE_ARIA.md` R-10.
+
+El repositorio llama a la función por `supabase.rpc('crear_programa_con_pensum',
+{ … })` y **nunca hace un `insert` directo** sobre `programs` ni sobre
+`program_subjects`: si lo hiciera, se saltaría la atomicidad que la función
+existe para dar.
 
 **Body** (`esquemaCrearPrograma`, `.strict()`):
 
@@ -235,8 +278,9 @@ trigger existe para atrapar.
 
 ## 7. `PATCH /api/v1/admin/programas/:id/pensum`
 
-Reemplaza el pensum completo. **Es un reemplazo, no un parche**: el cliente manda
-el estado final y el servidor calcula la diferencia. Un `PATCH` incremental
+Reemplaza el pensum completo, ejecutado por la función
+**`public.reemplazar_pensum(...)`**. **Es un reemplazo, no un parche**: el cliente
+manda el estado final y la función calcula la diferencia. Un `PATCH` incremental
 obligaría al cliente a saber qué borrar, y el cliente no debería tener esa
 responsabilidad.
 
@@ -246,24 +290,55 @@ responsabilidad.
 { "pensum": [ { "materiaId": "3f2b…", "periodo": 2 } ] }
 ```
 
-**En una transacción:** insertar lo nuevo, actualizar el `period_order` de lo que
-cambió y borrar lo que ya no está. El borrado es la única operación del módulo
-que necesita `DELETE` a nivel de tabla, y por eso `program_subjects` es la única
-de las tres tablas con ese `GRANT`.
+**En una transacción**, la función hace tres cosas en este orden:
+
+1. **Borra** lo que ya no está en el pensum nuevo.
+2. **Reordena** lo que cambió de período.
+3. **Inserta** lo nuevo.
+
+El orden no cambia la atomicidad —un fallo lo deshace todo— pero sí cambia qué
+error ve el administrador primero: el más explicativo, que es el del borrado.
+
+Importa además por otra razón: el trigger de la Regla 2 está acotado a
+`update of period_order, program_id or delete`. **Insertar no lo dispara**, porque
+añadir una materia a un pensum en uso es legítimo; quitar o reordenar, sí. La
+función respeta ese reparto en vez de borrar todo y volver a insertar, que
+bloquearía hasta el guardado más inocente.
+
+### La Regla 2 ya está activa: esto es lo que cambió
+
+Hasta que D13 se resolvió, esta ruta no podía comprobar nada, porque la condición
+dependía de `sections.program_id` y esa columna no existía. **Ya existe**, el
+trigger está aplicado y la regla se cumple de verdad. La nota de honestidad que
+antes decía «mientras D13 no se resuelva» ya no aplica: se cumplió.
+
+Eso obliga a distinguir dos errores que la base lanza con el **mismo código**,
+`23514`:
+
+| Regla | Qué significa | HTTP | Código |
+| --- | --- | --- | --- |
+| Regla 1 | Los datos están mal: una carrera activa se quedaría sin materias | **400** | `RESTRICCION_VIOLADA` |
+| Regla 2 | No es un dato inválido: hay un **conflicto con el estado actual** | **409** | `PENSUM_EN_USO` |
+
+Se distinguen leyendo el mensaje del trigger (`esBloqueoPorPensumEnUso`), porque
+cambiar el código de error habría exigido una migración nueva sobre triggers ya
+aplicados, y **una migración aplicada no se edita nunca**. Una prueba ancla el
+texto real copiado de la migración, y el humo contra la base comprueba que sigue
+coincidiendo.
+
+Si el mensaje cambiara y la detección fallara, el peor caso es un `400` en vez de
+un `409`: **la operación se sigue bloqueando**, porque la invariante la impone el
+trigger, no el traductor. El `409` existe para que el cliente pueda ofrecer
+«archiva esas secciones primero» en vez de un error genérico.
 
 **Errores:**
 
 | Código | HTTP | Cuándo |
 | --- | --- | --- |
 | `PETICION_INVALIDA` | 400 | Pensum vacío, materia repetida |
-| `RESTRICCION_VIOLADA` | 400 | El reemplazo dejaría el programa activo sin materias |
-| `PENSAM_*` | — | **Pendiente:** el 409 de la Regla 2 (secciones activas) necesita `sections.program_id` (D13). Hasta entonces la regla no se puede comprobar y la ruta no debe fingir que sí |
-
-> **Nota de honestidad para el TEG.** Mientras D13 no se resuelva, esta ruta
-> permite reordenar el pensum de un programa en uso. La regla está escrita en la
-> migración y aquí, y su ausencia es una decisión registrada, no un olvido. La
-> alternativa —implementar una comprobación que siempre devuelve `false`— sería
-> peor: haría creer que la regla está activa.
+| `RESTRICCION_VIOLADA` | 400 | El reemplazo dejaría el programa activo sin materias (Regla 1) |
+| `PENSUM_EN_USO` | 409 | Hay secciones activas del período vigente usando el programa (Regla 2) |
+| `REFERENCIA_INVALIDA` | 400 | Algún `materiaId` no existe en `subjects` |
 
 ---
 
@@ -305,7 +380,7 @@ función pura, probada sin montar HTTP ni repositorios.
 ```ts
 // backend/src/dominio/reglas-curriculo.ts
 
-/** Un pensum agrupado por período, con los períodos ordenados y sin huecos. */
+/** Un pensum agrupado por período, con los períodos ordenados y sin grupos vacíos. */
 export function agruparPensum(entradas: EntradaPensum[]): GrupoPensum[];
 
 /**
@@ -316,27 +391,53 @@ export function materiaRepetida(entradas: EntradaPensum[]): string | null;
 
 /**
  * Decide si el pensum se puede tocar. `seccionesActivas > 0` bloquea.
- * Hoy recibe siempre 0 porque sections.program_id no existe (D13): la función
- * se escribe y se prueba igual, para que el día que M3 llegue sólo cambie el
- * repositorio.
+ * El número es real desde que D13 añadió `sections.program_id`; la función vive
+ * aparte para que el repositorio sea lo único que cambie si la fuente de esa
+ * cuenta cambia.
  */
 export function pensumEditable(seccionesActivas: number): boolean;
+
+/**
+ * Distingue la Regla 2 de la Regla 1 dentro del mismo código `23514`, leyendo el
+ * mensaje del trigger. Es la única función del módulo que mira un texto de la
+ * base, y existe porque cambiar el código habría exigido una migración sobre
+ * triggers ya aplicados, que son inmutables.
+ */
+export function esBloqueoPorPensumEnUso(mensaje: string): boolean;
 ```
 
 `agruparPensum` se prueba con un caso que importa: períodos `[1, 2, 5]` deben
 devolver **tres** grupos, no cinco con dos vacíos. Un `CURSO_LIBRE` con
 `periodo: 1` devuelve un solo grupo.
 
+`esBloqueoPorPensumEnUso` se prueba con el **texto literal del trigger copiado de
+la migración**, no con uno inventado: si el mensaje de la base cambiara, esa
+prueba es la que avisa. Y el humo contra la base real lo vuelve a comprobar.
+
 ---
 
-## 10. Qué falta antes de implementar
+## 10. Estado de los prerrequisitos
 
-1. **D12** — decidir si `programs` absorbe a `cursos`. Afecta al formulario
-   público de inscripción y a `aspirantes.curso_seleccionado`.
-2. **D13** — decidir el rediseño de `sections`. Sin `sections.program_id`, la
-   Regla 2 no se puede implementar y la cabecera del cuadrante de M3 queda
-   ambigua (una materia puede estar en varios programas).
-3. **Aplicar la migración** y, en el mismo paso, añadir `programs`, `subjects` y
-   `program_subjects` al arreglo `esperadas` de `verificar-esquema.mjs`.
-4. **Declarar las 7 rutas** en la lista esperada de `test/openapi.test.ts`: el
-   test obliga a que ninguna ruta quede sin documentar.
+Los cuatro bloqueantes que este documento listaba **están resueltos**:
+
+| # | Prerrequisito | Estado |
+| --- | --- | --- |
+| 1 | **D12** — decidir si `programs` absorbe a `cursos` | ✅ **Resuelto.** `programs` es la única fuente de verdad y `cursos` pasó a ser una vista de compatibilidad (`security_invoker`). Cero cambios en Flutter |
+| 2 | **D13** — rediseñar `sections` | ✅ **Resuelto.** `sections` tiene `program_id`, y por eso la Regla 2 se pudo implementar como trigger |
+| 3 | **Aplicar la migración** y añadir las tablas al verificador | ✅ **Resuelto.** 8/8 migraciones en el libro mayor y 56/56 comprobaciones del esquema |
+| 4 | **Declarar las 7 rutas** en `test/openapi.test.ts` | ⏳ Se hace **junto con los manejadores**: ese test obliga a que ninguna ruta quede sin documentar, así que declararlas antes de que existan sería declarar rutas inventadas |
+
+**Lo que falta, y en este orden:**
+
+1. El repositorio `CurriculoSupabase`, que llama a las dos funciones por
+   `supabase.rpc(...)` y traduce la Regla 2 con `esBloqueoPorPensumEnUso`.
+2. Los siete manejadores bajo `/api/v1/admin/`.
+3. Documentar las siete rutas en `src/http/openapi.ts` y regenerar el artefacto
+   (`npm run openapi`).
+4. Declarar las siete rutas en la lista esperada de `test/openapi.test.ts`.
+
+Las dos funciones que sostienen el asistente **ya están aplicadas y probadas
+contra el motor real**. `supabase/humo-curriculo.mjs` (14/14) demuestra las dos
+cosas que ninguna prueba con dobles puede demostrar: que con el pensum vacío no
+queda **ni el programa**, y que cuando la Regla 2 bloquea un reordenamiento el
+pensum queda **intacto** — la función se deshace entera, no a medias.
