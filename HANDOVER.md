@@ -32,6 +32,7 @@ git log --oneline -8                                   # los últimos commits
 Los últimos commits, que sí son estables porque son anteriores a este archivo:
 
 ```
+68769fe  feat(modulo3): API backend para gestion de cuadrante, aulas y guardias docentes
 cb20d58  docs(handover): no escribir el SHA dentro del commit que describe
 2f41720  docs(handover): sincronizar el traspaso con el modulo 3 y corregir la fecha
 dfb0a8b  docs(modulo3): contrato de API y verificacion de esquema desplegado
@@ -39,7 +40,6 @@ d676907  fix(modulo3): los envoltorios de trigger anti-colision deben ser securi
 50aed06  feat(modulo3): esquema DDL de cuadrante, aulas, guardias y triggers anti-colision
 3c62c53  docs(handover): modulo 2 aplicado, UI completa y humo real en verde
 ec361ac  feat(modulo2): UI del asistente de curriculo y pensum
-9291e9a  fix(modulo1): garantizar lectura de token desde uri fragment en activacion
 ```
 
 > **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
