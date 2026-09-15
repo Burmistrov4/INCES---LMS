@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/errors/app_exception.dart';
 import '../../core/gateways/cuadrante_gateway.dart';
@@ -426,15 +425,15 @@ class _FilaEspacio extends StatelessWidget {
                     runSpacing: 4,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      _Etiqueta(texto: aula.tipo.etiqueta),
-                      _Etiqueta(
+                      Etiqueta(texto: aula.tipo.etiqueta),
+                      Etiqueta(
                         texto: aula.capacidad == 0
                             // Cero no es «desconocido»: es «sin cupo declarado»,
                             // y decir «0 puestos» haría pensar en un aula vacía.
                             ? 'Sin cupo declarado'
                             : '${aula.capacidad} puestos',
                       ),
-                      if (archivada) const _Etiqueta(texto: 'Archivado'),
+                      if (archivada) const Etiqueta(texto: 'Archivado'),
                     ],
                   ),
                 ],
@@ -477,33 +476,6 @@ class _FilaEspacio extends StatelessWidget {
         TipoAula.aula => Icons.meeting_room_outlined,
         TipoAula.zona => Icons.route_outlined,
       };
-}
-
-class _Etiqueta extends StatelessWidget {
-  const _Etiqueta({required this.texto});
-
-  final String texto;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        border: Border.all(color: theme.colorScheme.outline),
-        borderRadius: BorderRadius.circular(5),
-      ),
-      child: Text(
-        texto,
-        style: GoogleFonts.inter(
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
 }
 
 /// Formulario de alta y edición de un espacio.

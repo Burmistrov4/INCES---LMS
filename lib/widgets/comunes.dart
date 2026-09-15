@@ -879,6 +879,51 @@ class PanelVacio extends StatelessWidget {
 //  Utilidades
 // -----------------------------------------------------------------------------
 
+/// Etiqueta pequeña de fila: tipo, cupo, estado, rango de fechas.
+///
+/// Vive aquí y no en cada panel porque los tres catálogos del cPanel —espacios,
+/// lapsos y guardias— pintan la misma fila de datos secundarios bajo el título,
+/// y tres copias del «mismo» widget se desvían en cuanto alguien ajusta una.
+///
+/// [destacada] la tiñe con el color primario. Se usa para el dato que hay que
+/// ver primero —el lapso vigente—, no para decorar: si todas destacan, ninguna
+/// destaca.
+class Etiqueta extends StatelessWidget {
+  const Etiqueta({super.key, required this.texto, this.destacada = false});
+
+  final String texto;
+  final bool destacada;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: destacada
+            ? theme.colorScheme.primary.withValues(alpha: 0.12)
+            : null,
+        border: Border.all(
+          color:
+              destacada ? theme.colorScheme.primary : theme.colorScheme.outline,
+        ),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        texto,
+        style: GoogleFonts.inter(
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          color: destacada
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
 /// Formatea una fecha en algo legible sin depender de `intl`.
 String formatearFechaHora(DateTime? fecha) {
   if (fecha == null) return '—';

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/errors/app_exception.dart';
 import '../../core/gateways/cuadrante_gateway.dart';
@@ -235,14 +234,14 @@ class _FilaLapso extends StatelessWidget {
                     runSpacing: 4,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      _Etiqueta(texto: 'Código ${periodo.codigo}'),
+                      Etiqueta(texto: 'Código ${periodo.codigo}'),
                       // Las dos insignias son distintas a propósito: son dos
                       // cosas distintas, y llamar «activo» a las dos es lo que
                       // hacía imposible saber qué lapso se está dictando.
                       if (periodo.vigente)
-                        _Etiqueta(texto: 'Vigente', destacada: true),
-                      _Etiqueta(texto: periodo.activo ? 'Abierto' : 'Cerrado'),
-                      _Etiqueta(texto: _rangoDeFechas(periodo)),
+                        const Etiqueta(texto: 'Vigente', destacada: true),
+                      Etiqueta(texto: periodo.activo ? 'Abierto' : 'Cerrado'),
+                      Etiqueta(texto: _rangoDeFechas(periodo)),
                     ],
                   ),
                 ],
@@ -292,41 +291,6 @@ class _FilaLapso extends StatelessWidget {
     if (inicio != null && fin != null) return '$inicio → $fin';
     if (inicio != null) return 'Desde $inicio';
     return 'Hasta $fin';
-  }
-}
-
-class _Etiqueta extends StatelessWidget {
-  const _Etiqueta({required this.texto, this.destacada = false});
-
-  final String texto;
-  final bool destacada;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: destacada
-            ? theme.colorScheme.primary.withValues(alpha: 0.12)
-            : null,
-        border: Border.all(
-          color: destacada ? theme.colorScheme.primary : theme.colorScheme.outline,
-        ),
-        borderRadius: BorderRadius.circular(5),
-      ),
-      child: Text(
-        texto,
-        style: GoogleFonts.inter(
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-          color: destacada
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
   }
 }
 
