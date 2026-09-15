@@ -299,6 +299,44 @@ comprobar(
   triggerPensum.map((t) => t.tgname).join(', ') || 'ninguno',
 );
 
+// Las dos funciones del asistente (202609170001). Aquí no basta con que
+// existan: lo que hay que comprobar es que **no** son un agujero.
+//
+// `prosecdef` es `true` cuando la función es SECURITY DEFINER, es decir, cuando
+// corre con los privilegios de su dueño. Una función DEFINER que escribe en
+// `programs` se saltaría la RLS por completo: cualquier autenticado podría
+// crear programas sin ser admin. Se declaran `security invoker` a propósito, y
+// esta comprobación es la que impide que un cambio futuro lo rompa en silencio.
+const funcionesRpc = await consultar(
+  'select p.proname, p.prosecdef, ' +
+    "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede, " +
+    "has_function_privilege('authenticated', p.oid, 'EXECUTE') as autenticado_puede " +
+    'from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' " +
+    "and p.proname in ('crear_programa_con_pensum', 'reemplazar_pensum') " +
+    'order by p.proname;',
+);
+comprobar(
+  'las dos funciones del asistente existen',
+  funcionesRpc.length === 2,
+  funcionesRpc.map((f) => f.proname).join(', ') || 'ninguna',
+);
+comprobar(
+  'son security INVOKER (con DEFINER se saltarían la RLS)',
+  funcionesRpc.length > 0 && funcionesRpc.every((f) => f.prosecdef === false),
+  funcionesRpc.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', '),
+);
+comprobar(
+  'anon NO puede ejecutar las funciones del asistente',
+  funcionesRpc.length > 0 && funcionesRpc.every((f) => f.anon_puede === false),
+  funcionesRpc.map((f) => `${f.proname}=${f.anon_puede ? 'PUEDE' : 'no'}`).join(', '),
+);
+comprobar(
+  'authenticated sí puede ejecutarlas (la RLS decide si es admin)',
+  funcionesRpc.length > 0 && funcionesRpc.every((f) => f.autenticado_puede === true),
+  funcionesRpc.map((f) => `${f.proname}=${f.autenticado_puede ? 'sí' : 'NO'}`).join(', '),
+);
+
 console.log(
   `\n  ${fallos === 0 ? '✓ Esquema verificado sin fallos.' : `✗ ${fallos} comprobaciones fallidas.`}\n`,
 );

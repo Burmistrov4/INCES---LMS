@@ -788,6 +788,137 @@ async function main() {
   }
   check('archivar las secciones desbloquea el pensum (la salida documentada)', trasArchivar);
 
+  seccion('16. Las dos funciones del asistente (RPC de M2)');
+
+  // Estas funciones existen porque PostgREST no admite insertar un padre con
+  // sus hijos en la misma petición (comprobado contra la base real: PGRST204).
+  // Aquí se prueba lo que ninguna otra capa puede probar: que la transacción
+  // deshace TODO cuando la Regla 1 rechaza el pensum.
+
+  const MAT_RPC = '55555555-5555-5555-5555-555555555555';
+  const MAT_RPC2 = '66666666-6666-6666-6666-666666666666';
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours) values
+       ('${MAT_RPC}',  'RPC-I',  'Materia de RPC I',  48),
+       ('${MAT_RPC2}', 'RPC-II', 'Materia de RPC II', 48)`,
+  );
+
+  // --- seguridad: las funciones no pueden ser un agujero -------------------
+  const defs = (
+    await db.query(
+      "select proname, prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname = 'public' and proname in ('crear_programa_con_pensum', 'reemplazar_pensum')",
+    )
+  ).rows;
+  check('existen las dos funciones del asistente', defs.length === 2, `hay ${defs.length}`);
+  check(
+    'son security INVOKER (con DEFINER se saltarían la RLS)',
+    defs.length > 0 && defs.every((f) => f.prosecdef === false),
+    defs.map((f) => `${f.proname}=${f.prosecdef}`).join(', '),
+  );
+
+  // `anon` no debe poder ejecutarlas. Sin el `revoke` explícito, PostgreSQL
+  // concede EXECUTE a PUBLIC por defecto y esto fallaría.
+  const anonPuede = (
+    await db.query(
+      "select has_function_privilege('anon', p.oid, 'EXECUTE') as puede from pg_proc p " +
+        "join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname = 'public' and proname = 'crear_programa_con_pensum'",
+    )
+  ).rows[0];
+  check('anon NO puede ejecutar la función del asistente', anonPuede?.puede === false);
+
+  // --- el camino feliz: programa activo + pensum en una sola llamada -------
+  const creado = (
+    await db.query(
+      `select public.crear_programa_con_pensum(
+         'RPC-01', 'Carrera por función', 'CARRERA', false, true,
+         '[{"materiaId":"${MAT_RPC}","periodo":1}]'::jsonb
+       ) as id`,
+    )
+  ).rows[0].id;
+  check('la función devuelve el id del programa', typeof creado === 'string' && creado.length > 0);
+
+  const activo = (
+    await db.query(`select is_active, type from public.programs where id = '${creado}'`)
+  ).rows[0];
+  check('el programa nació ACTIVO y la Regla 1 lo aceptó', activo?.is_active === true);
+  const pensumCreado = (
+    await db.query(`select count(*)::int as n from public.program_subjects where program_id = '${creado}'`)
+  ).rows[0].n;
+  check('el pensum se insertó en la misma llamada', pensumCreado === 1, `${pensumCreado} fila(s)`);
+
+  // --- LA PRUEBA DE ATOMICIDAD --------------------------------------------
+  // Con el pensum vacío, la Regla 1 rechaza al confirmar. Lo que importa no es
+  // sólo que falle: es que NO quede el programa. Si la función no fuera
+  // transaccional, el `insert into programs` sobreviviría al fallo.
+  await esperaError('pensum vacío: la función falla', () =>
+    db.query(
+      `select public.crear_programa_con_pensum(
+         'RPC-02', 'No debe existir', 'CARRERA', false, true, '[]'::jsonb
+       )`,
+    ),
+  );
+  const rastro = (
+    await db.query("select count(*)::int as n from public.programs where code = 'RPC-02'")
+  ).rows[0].n;
+  check(
+    'ATOMICIDAD: el programa NO quedó a medias',
+    rastro === 0,
+    rastro === 0 ? 'cero filas' : `quedaron ${rastro}`,
+  );
+
+  // --- reemplazo: la diferencia se calcula sola ----------------------------
+  await db.query(
+    `select public.reemplazar_pensum(
+       '${creado}',
+       '[{"materiaId":"${MAT_RPC}","periodo":3},{"materiaId":"${MAT_RPC2}","periodo":1}]'::jsonb
+     )`,
+  );
+  const trasReemplazo = (
+    await db.query(
+      `select subject_id, period_order from public.program_subjects where program_id = '${creado}' order by period_order`,
+    )
+  ).rows;
+  check('el reemplazo deja 2 materias', trasReemplazo.length === 2, `${trasReemplazo.length} fila(s)`);
+  check(
+    'reordenó la que cambió de período (1 -> 3)',
+    trasReemplazo.find((f) => f.subject_id === MAT_RPC)?.period_order === 3,
+  );
+  check('insertó la que faltaba', trasReemplazo.some((f) => f.subject_id === MAT_RPC2));
+
+  await db.query(
+    `select public.reemplazar_pensum('${creado}', '[{"materiaId":"${MAT_RPC2}","periodo":1}]'::jsonb)`,
+  );
+  const trasQuitar = (
+    await db.query(`select count(*)::int as n from public.program_subjects where program_id = '${creado}'`)
+  ).rows[0].n;
+  check('borró la que sobraba', trasQuitar === 1, `${trasQuitar} fila(s)`);
+
+  // --- Regla 2 a través de la función -------------------------------------
+  // Es el camino real: el administrador reordena desde la API y quien bloquea
+  // es el trigger, no la función. Si el trigger no abortara la función, la
+  // operación habría quedado a medias.
+  await db.exec(
+    `insert into public.sections (program_id, subject_id, period_code, name, max_capacity, is_active)
+     values ('${creado}', '${MAT_RPC2}', (select valor #>> '{}' from public.system_settings where clave = 'periodo_activo'), 'R1', 20, true)`,
+  );
+  await esperaError('Regla 2: la función no puede reordenar un pensum en uso', () =>
+    db.query(
+      `select public.reemplazar_pensum('${creado}', '[{"materiaId":"${MAT_RPC2}","periodo":5}]'::jsonb)`,
+    ),
+  );
+  const intacto = (
+    await db.query(
+      `select period_order from public.program_subjects where program_id = '${creado}' and subject_id = '${MAT_RPC2}'`,
+    )
+  ).rows[0].period_order;
+  check(
+    'Regla 2: el período quedó INTACTO tras el bloqueo (la función se deshizo)',
+    intacto === 1,
+    `period_order = ${intacto}`,
+  );
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +

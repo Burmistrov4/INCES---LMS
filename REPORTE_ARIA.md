@@ -187,6 +187,60 @@ lea `programs` directamente.
 
 ---
 
+## R-10 · El contrato pide "una transacción" y PostgREST no puede darla
+
+**Contradicción.** `docs/CONTRATO_API_MODULO2.md` §5 dice que el asistente
+construye el pensum *en una transacción*, y §7 pide lo mismo para el reemplazo
+del pensum. La arquitectura que se dio por supuesta es la de un servidor con
+acceso a la base y control de transacciones.
+
+**Lo que dice el código.** El backend no habla con PostgreSQL: habla con
+PostgREST a través de `supabase-js`. Y PostgREST **no expone transacciones entre
+peticiones**: cada petición es su propia transacción. La forma de conseguir
+atomicidad dentro de una petición sería un *insert anidado*.
+
+**La medición, que es lo que decide.** Se probó contra la base real:
+
+| Prueba | Resultado |
+| --- | --- |
+| `POST /programs` con `program_subjects: [...]` | `PGRST204: Could not find the 'program_subjects' column of 'programs' in the schema cache` |
+| Lo mismo tras `notify pgrst, 'reload schema'` | Idéntico — **no era la caché** |
+| `GET /programs?select=*,program_subjects(*)` | **HTTP 200** — la relación existe y PostgREST la conoce |
+
+Conclusión medida: **se puede leer anidado, pero no escribir anidado.**
+
+**Resolución — gana el código.** Se implementaron las dos operaciones como
+funciones de PostgreSQL (`crear_programa_con_pensum`, `reemplazar_pensum`) en
+`supabase/migrations/202609170001_mod2_rpc_curriculo.sql`, llamadas por
+PostgREST. Es el mecanismo que el proyecto **ya usaba** para la lógica que debe
+ser atómica (`precheck_aspirante`, `link_pending_aspirante`), así que no
+introduce una arquitectura nueva: aplica la existente.
+
+Las dos funciones son `security invoker` a propósito: con `security definer` se
+saltarían la RLS y cualquier autenticado podría escribir programas.
+
+**Alternativa descartada, y por qué.** Sin tocar la base se podía hacer una
+secuencia de tres llamadas (crear en borrador → insertar pensum → publicar). Cada
+paso intermedio es un estado válido, así que los triggers no se quejan. Se
+descartó porque **un fallo entre el segundo y el tercero deja un programa a medio
+armar**, que es justo lo que el contrato quiere evitar. La barrera de la base
+seguiría intacta, pero el administrativo se encontraría un borrador sin
+explicación.
+
+**Verificación.** Humo contra el PostgREST real: la `CARRERA` activa con pensum se
+crea en una llamada; con el pensum vacío la función falla con `23514` y **no deja
+ni el programa** — atomicidad demostrada, no argumentada.
+
+**Consecuencia para el documento.** `docs/CONTRATO_API_MODULO2.md` §5, §7 y §10
+siguen describiendo el diseño anterior a D13 y sin las funciones. Debe
+actualizarse: la ruta existe, pero su implementación pasa por dos RPC.
+
+| ID | Contradicción | Resolución | Estado |
+| --- | --- | --- | --- |
+| R-10 | El contrato pide una transacción; PostgREST no la puede dar | Dos funciones RPC | ✅ Resuelta (el documento debe actualizarse) |
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -200,3 +254,4 @@ lea `programs` directamente.
 | R-07 | `curso_seleccionado` por nombre | Diferida a D14 | ⏳ Abierta, sin urgencia (0 filas) |
 | R-08 | `sections` de Fase 0 era un stub | Rediseñada completa | ✅ Resuelta |
 | R-09 | `cursos` vs `programs` (D12) | Vista de compatibilidad | ✅ Resuelta |
+| R-10 | "Una transacción" que PostgREST no da | Dos funciones RPC | ✅ Resuelta |

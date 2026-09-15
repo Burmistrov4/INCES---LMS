@@ -44,11 +44,11 @@ de M2 aplicadas y verificadas el **2026-09-15**
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **96 / 96** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13) |
-| **Migraciones en la nube** | **7 / 7** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **52 / 52** comprobaciones (`supabase/verificar-esquema.mjs`) |
-| **Libro mayor de migraciones (D10)** | 7 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 13 tablas + la vista `cursos`, con RLS activo en las 4 nuevas (ver §9 y §10) |
+| Validador SQL contra PostgreSQL real (pglite) | **110 / 110** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente) |
+| **Migraciones en la nube** | **8 / 8** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **56 / 56** comprobaciones (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 8 versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 13 tablas + la vista `cursos`, con RLS activo en las 4 nuevas (ver §9, §10 y §11) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
 | Documento OpenAPI | OpenAPI 3.1.0 · **15 rutas · 24 esquemas** |
@@ -67,16 +67,16 @@ de M2 aplicadas y verificadas el **2026-09-15**
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las siete migraciones se
+**La base de datos ya está aplicada y verificada.** Las ocho migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **13 tablas** con RLS activo, **1 vista** de compatibilidad (`cursos`, D12),
-**11 funciones**, **15 triggers** y **29 políticas RLS**, más 9 módulos
+**13 funciones**, **15 triggers** y **29 políticas RLS**, más 9 módulos
 sembrados, 8 parámetros y los 5 cursos — que desde la migración de D12 viven
 dentro de `programs` como `CURSO_LIBRE`.
 
 > **Estas cifras están medidas, no estimadas.** Salen de
-> `supabase/verificar-esquema.mjs` (52/52) y de consultas directas al catálogo,
+> `supabase/verificar-esquema.mjs` (56/56) y de consultas directas al catálogo,
 > hechas **después** de aplicar. Es la lección de D11: cuando una migración se
 > aplica, se vuelve a contar en vez de confiar en lo que decía el documento.
 
@@ -386,8 +386,10 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `audit_config_change()` | Trigger | Escribe en `config_audit_log` cada cambio de módulo o parámetro |
 | `proteger_modulo_critico()` | Trigger | **Cortacircuitos:** impide apagar o borrar `m0_cpanel` |
 | `proteger_ultimo_admin()` | Trigger | **Cortacircuitos (D8):** impide degradar, desactivar o borrar al último administrador activo. Usa un bloqueo de transacción para cerrar la carrera entre dos degradaciones simultáneas |
-| `exigir_pensum_no_vacio()` | **Constraint trigger diferido** en `programs` | **Regla 1 de M2:** un programa `CARRERA` no puede quedar activo sin materias. Es diferido a propósito: la comprobación corre al **confirmar la transacción**, y eso es lo que permite que el asistente de M2 mande programa y pensum en **una sola petición** mientras un `insert` suelto sin materias falla |
+| `exigir_pensum_de_programa()` | **Constraint trigger diferido**, en `programs` **y** en `program_subjects` | **Regla 1 de M2:** una carrera `CARRERA` activa no puede quedarse sin materias. Es diferido a propósito: la comprobación corre al **confirmar la transacción**, y eso es lo que permite que el asistente cree el programa y su pensum de una vez. Los dos triggers cubren los dos caminos al mismo estado inválido: publicar un programa vacío, y vaciarle el pensum a uno ya publicado |
 | `proteger_pensum_en_uso()` | Trigger en `program_subjects` | **Regla 2 de M2:** bloquea cambiar el `period_order` o quitar materias cuando hay secciones activas del período vigente usando ese programa. Falla abierto si no hay período declarado (guarda de integridad, no barrera) |
+| `crear_programa_con_pensum(...)` | **RPC** (`security invoker`) | El asistente de M2: crea el programa y su pensum en **una sola transacción**. Existe porque PostgREST no admite insertar un padre con sus hijos en la misma petición (comprobado: `PGRST204`). Ver §11 |
+| `reemplazar_pensum(...)` | **RPC** (`security invoker`) | Reemplazo transaccional del pensum: borra lo que sobra, reordena lo que cambia e inserta lo nuevo. La Regla 2 la aplican los triggers, no esta función |
 
 ### Políticas RLS
 
@@ -709,7 +711,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *(Aquellas 5 migraciones eran las de entonces; hoy el repositorio tiene 7, ver §10)* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *(Aquellas 5 migraciones eran las de entonces; hoy el repositorio tiene 8, ver §10 y §11)* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -795,7 +797,7 @@ npm test              # 171 pruebas, incluidas las del módulo R2 y las de OpenA
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 52 comprobaciones
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 56 comprobaciones
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
@@ -807,9 +809,9 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
 | `flutter test` (110) | La lógica del cliente | El SQL, la API, la red |
-| `supabase/tests` (96) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `supabase/tests` (110) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
 | `npm test` (171) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (52) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `verificar-esquema.mjs` (56) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 
@@ -829,7 +831,7 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las siete migraciones**, y ejecuta 96 aserciones
+aplica el shim de Supabase y **las ocho migraciones**, y ejecuta 110 aserciones
 sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, y la resolución de D12/D13
 (la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
@@ -863,8 +865,8 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (52/52) |
-| Libro mayor de migraciones | ✅ 7/7 con checksum (D10 resuelta) |
+| Base de datos en la nube | ✅ Migrada y verificada (56/56) |
+| Libro mayor de migraciones | ✅ 8/8 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
@@ -882,7 +884,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
 2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
-   el libro mayor marca 7/7 y la verificación independiente del esquema da 52/52.
+   el libro mayor marca 8/8 y la verificación independiente del esquema da 56/56.
 3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
@@ -900,7 +902,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 2. ~~Aplicar las migraciones `202609150001` y `202609160001`~~ — **hecho** el
    2026-09-15, y `verificar-esquema.mjs` actualizado: ahora comprueba las 13
    tablas, la vista `cursos` (con `security_invoker`), las columnas de M2 y el
-   trigger de la Regla 2. 52/52.
+   trigger de la Regla 2. 56/56.
 3. **Implementar las rutas de M2** (`/api/v1/admin/programas`, `/materias`) y el
    asistente de tres pasos en Flutter. Contrato propuesto en §9.
 4. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
@@ -923,7 +925,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 `supabase/migrations/202609150001_mod2_curriculo.sql` (las tres tablas) y
 `supabase/migrations/202609160001_resolucion_d12_d13.sql` (las deudas)—: el
 validador de SQL los prueba en cada corrida (96/96), y el esquema desplegado ya
-los tiene, verificado con 52/52 comprobaciones independientes. Lo que falta es
+los tiene, verificado con 56/56 comprobaciones independientes. Lo que falta es
 la API y la interfaz, no el esquema.
 
 ### Las tres tablas
@@ -1140,4 +1142,79 @@ dispararía**: `'2026-1' <> 'SA26-2'`, y la guarda se considera fuera del perío
 No se elige por cuenta propia: es nomenclatura institucional y afecta también a
 `sections.period_code`. Está documentado como R-06 en `REPORTE_ARIA.md` y como
 D15 en §6. Hasta que se decida, la Regla 2 está implementada pero inerte.
+
+---
+
+## 11. Por qué el asistente de M2 necesita funciones en la base
+
+**Archivo: `supabase/migrations/202609170001_mod2_rpc_curriculo.sql`.** Aplicado
+y verificado el 2026-09-15.
+
+### El problema, encontrado midiendo y no suponiendo
+
+El contrato de M2 pide que el asistente cree el programa y su pensum **en una
+transacción**. La forma natural en PostgREST sería un *insert anidado*: mandar el
+programa con sus materias dentro, en una sola petición.
+
+**Se probó contra la base real, y no funciona.** Tres mediciones, en este orden:
+
+| Qué se probó | Resultado |
+| --- | --- |
+| `POST /programs` con `program_subjects: [...]` | **`PGRST204: Could not find the 'program_subjects' column of 'programs' in the schema cache`** |
+| Lo mismo tras `notify pgrst, 'reload schema'` | El mismo error: **no era la caché** |
+| `GET /programs?select=*,program_subjects(*)` (lectura anidada) | **HTTP 200.** La relación existe y PostgREST la conoce |
+
+Es decir: **se puede leer anidado, pero no escribir anidado.** Y PostgREST no
+expone transacciones entre peticiones — cada petición es su propia transacción.
+
+### Por qué no se resolvió con tres llamadas
+
+La alternativa sin tocar la base era una secuencia: crear el programa en
+borrador, insertar el pensum, publicar. Funciona, y cada paso intermedio es un
+estado válido, así que los triggers no se quejan.
+
+Se descartó por una razón concreta: **un fallo entre el paso 2 y el 3 deja un
+programa a medio armar**, que es exactamente lo que el contrato quiere evitar. La
+barrera de la base seguiría intacta —nunca se confirmaría un estado inválido—
+pero el administrativo se encontraría un borrador con materias a medias y sin
+explicación.
+
+### La solución: dos funciones, una por operación
+
+Se usa el mecanismo que el proyecto ya empleaba para la lógica que debe ser
+atómica (`precheck_aspirante`, `link_pending_aspirante`): una función de
+PostgreSQL llamada por PostgREST.
+
+| Función | Qué hace |
+| --- | --- |
+| `crear_programa_con_pensum(...)` | Inserta el programa y recorre el pensum en un bucle. Devuelve el `id` |
+| `reemplazar_pensum(...)` | Borra lo que sobra, reordena lo que cambió e inserta lo nuevo |
+
+Las dos son **`security invoker`, y eso no es un detalle**: con `security
+definer` correrían con los privilegios de su dueño y se saltarían la RLS, de modo
+que cualquier usuario autenticado podría escribir programas. Con `invoker`, las
+políticas de `programs` y `program_subjects` se aplican a quien llama. Hay cuatro
+comprobaciones en `verificar-esquema.mjs` que lo vigilan, incluida la de que
+`anon` **no** puede ejecutarlas.
+
+Ninguna de las dos reimplementa las reglas de negocio: sólo ordenan las
+escrituras para que los triggers las juzguen. Si la Regla 2 bloquea un
+reordenamiento, el `raise` aborta la función entera y no queda nada a medias.
+
+### Lo que el humo real demostró
+
+Contra el PostgREST de la nube, no contra un doble:
+
+- Una `CARRERA` **activa** con su pensum se crea en **una sola llamada**, y el
+  constraint trigger diferido la acepta.
+- Con el pensum vacío, la función falla con `23514` y **no deja ni el programa**.
+  Esa es la atomicidad de verdad: un doble en memoria no la puede demostrar.
+- `reemplazar_pensum` añade, reordena y borra calculando la diferencia sola.
+
+### Una lección operativa que hay que recordar
+
+Al crear tablas o funciones nuevas, **la caché de esquema de PostgREST no se
+entera sola**. Durante el reconocimiento, el insert anidado falló en parte por
+eso. Si una ruta nueva responde `PGRST204` o `404` sobre un objeto que existe,
+antes de tocar el código: `notify pgrst, 'reload schema'`.
 
