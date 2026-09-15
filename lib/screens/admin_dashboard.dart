@@ -11,6 +11,7 @@ import 'admin/cpanel_modulos_panel.dart';
 import 'admin/cpanel_parametros_panel.dart';
 import 'admin/cpanel_invitaciones_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
+import 'admin/cpanel_cuadrante_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
@@ -83,7 +84,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       icono: Icons.calendar_month_outlined,
       titulo: 'Cuadrante y Horarios',
       categoria: 'Control de aulas',
-      disponible: false,
+      disponible: true,
     ),
     ItemNavegacion(
       icono: Icons.fact_check_outlined,
@@ -161,6 +162,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Gestión académica', 'Programas Académicos'],
           child: CpanelProgramasPanel(),
+        );
+      case 'Cuadrante y Horarios':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Control de aulas', 'Cuadrante y Horarios'],
+          child: CpanelCuadrantePanel(),
         );
       default:
         return Padding(

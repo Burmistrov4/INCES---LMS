@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'mi_horario_panel.dart';
 
 /// Panel del docente.
 ///
@@ -58,7 +59,7 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       icono: Icons.calendar_month_outlined,
       titulo: 'Mi horario',
       categoria: 'Recursos',
-      disponible: false,
+      disponible: true,
     ),
   ];
 
@@ -102,6 +103,14 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
     }
 
     final item = _items[_seleccionada];
+
+    if (item.titulo == 'Mi horario') {
+      return ContenidoSeccion(
+        migas: ['Inicio', item.categoria, item.titulo],
+        child: MiHorarioPanel(),
+      );
+    }
+
     return ContenidoSeccion(
       migas: ['Inicio', item.categoria, item.titulo],
       child: PanelVacio(
