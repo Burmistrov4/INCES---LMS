@@ -7,40 +7,60 @@
 
 ---
 
-## ⚠️ Estado del repositorio: hay 3 commits sin subir
+## ✅ Estado del repositorio: limpio y sincronizado
 
-**Hay trabajo local que no está en GitHub.** El working tree tiene, además,
-cambios sin commitear. No hagas `git checkout` a ciegas.
-
-```
-HEAD        e7164de  feat(supabase): libro mayor de migraciones con checksums (resuelve D10)
-             c6dddb5  fix(cors): alinear el origen por defecto con el puerto del frontend (8080)
-             83e1e43  test(modulo1): humo de integracion del canal de invitacion
-origin/main c6a4fe1  ← 3 commits por detrás
-```
-
-`git push origin main` **falla** en este entorno: el *credential helper* de git no
-devuelve credencial y no hay `GITHUB_TOKEN` ni `~/.git-credentials`, así que git
-pide usuario y contraseña por consola y aborta con
-`fatal: could not read Username for 'https://github.com': terminal prompts disabled`.
-**Lo corre Lorenzo desde su máquina.** No es un problema del repositorio.
-
-Sin commitear al redactar esto (trabajo del 2026-09-14):
+**Todo el trabajo está en GitHub.** El working tree está limpio y `main` coincide
+exactamente con `origin/main`.
 
 ```
- M ESTADO_DEL_SISTEMA.md                        ← D11 resuelta, cifras sincronizadas
- M supabase/tests/validate.mjs                  ← 17 aserciones nuevas de M2
- M supabase/verificar-esquema.mjs               ← arreglo del falso positivo + libro mayor
-?? docs/CONTRATO_API_MODULO2.md                 ← contrato de M2 (diseño)
-?? supabase/migrations/202609150001_mod2_curriculo.sql  ← M2, NO aplicada a la nube
+HEAD = origin/main = 506a40054aec1a2f9cee7f48e750588c971431e2
 ```
 
-Los commits anteriores (`004923a`, 55 archivos, +8.511 / −1.158) contienen todo el
-Módulo 1 y el overhaul de UI, y sí están en `origin/main`.
+Verificado con `git ls-remote origin refs/heads/main` — la fuente externa, no el
+ref local — y con `git rev-list --left-right --count origin/main...HEAD` → `0 0`.
+
+```
+506a400  feat(modulo2): diseno de curriculo y pensum validado en pglite (66/66)
+e7164de  feat(supabase): libro mayor de migraciones con checksums (resuelve D10)
+c6dddb5  fix(cors): alinear el origen por defecto con el puerto del frontend (8080)
+83e1e43  test(modulo1): humo de integracion del canal de invitacion
+c6a4fe1  docs(handover): migracion ya aplicada y footgun de apply-migrations
+```
+
+> **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
+> sesiones con `fatal: could not read Username for 'https://github.com': terminal
+> prompts disabled`: el *credential helper* no devolvía credencial y no había
+> `GITHUB_TOKEN` ni `~/.git-credentials`. **El diagnóstico era correcto pero la
+> conclusión no:** no era un problema del repositorio ni del remoto, era del
+> entorno de ejecución, y se resolvió fuera de él. Antes de declarar un push
+> «imposible», comprueba si el entorno cambió: `GIT_TERMINAL_PROMPT=0 git push`
+> falla rápido en vez de colgarse cinco minutos esperando una consola que no existe.
 
 Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
 `.gitignore`, así que **ninguna credencial entró al commit**. `backend/.env.example`
 sí se versiona a propósito (es la plantilla documentada, sin valores reales).
+`.workbuddy-ai/` también está ignorado: la memoria del proyecto no viaja al repo.
+
+### ✅ Migración de M2 en el repositorio, sin aplicar en la nube
+
+`supabase/migrations/202609150001_mod2_curriculo.sql` está versionada, y
+**deliberadamente no aplicada**:
+
+```
+$ node supabase/apply-migrations.mjs --check
+  aplicada   202609100001_init.sql
+  aplicada   202609120001_phase1_onboarding.sql
+  aplicada   202609120002_phase3_admin_core.sql
+  aplicada   202609120003_proteger_ultimo_admin.sql
+  aplicada   202609130001_invitaciones_docente.sql
+  PENDIENTE  202609150001_mod2_curriculo.sql
+
+  1 pendiente(s), 0 con deriva.
+```
+
+Ese «1 pendiente» es el estado correcto mientras D12 y D13 sigan abiertas (§2.5).
+El libro mayor lo distingue de un olvido: sabe qué falta y no vuelve a tocar lo
+aplicado.
 
 ---
 
@@ -406,13 +426,13 @@ ESTADO ACTUAL
 - Flutter: 110/110 tests, `flutter analyze` sin incidencias.
 - SQL: 66/66 aserciones en pglite (49 de M1 + 17 de M2).
 - Esquema en la nube: 43/43 comprobaciones. Humo de invitación: 17/17.
-- HEAD en `main` = `e7164de`, **3 commits por delante de `origin/main`** y con
-  cambios sin commitear. Hay que subirlo (bloqueado por credenciales; lo hace
-  Lorenzo). NO hagas `git checkout` a ciegas.
+- HEAD en `main` = `506a400`, idéntico a `origin/main` (verificado con
+  `git ls-remote`). Working tree limpio. No hay nada sin subir.
 - Módulo 1 completo (invitación de docentes + auditoría de accesos) y verificado
   de extremo a extremo contra la base real.
 - Módulo 2: esquema y contrato DISEÑADOS y validados en pglite, **no aplicados a
-  la nube**. Antes de aplicarlo hay que resolver D12 y D13 (ver §2.5).
+  la nube** (1 migración pendiente en el libro mayor). Antes de aplicarla hay que
+  resolver D12 y D13 (ver §2.5).
 - Módulos 3-8: sólo diseño.
 - Deudas abiertas: D7 (verificación de tokens en caché), D9 (URL prefirmada de
   PUT sin límite de tamaño; latente, M5 apagado), D12 (`cursos` vs `programs`),

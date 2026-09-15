@@ -842,16 +842,14 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
 | Contrato OpenAPI 3.1 | ✅ Generado desde Zod, con 9 pruebas de coherencia |
-| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `e7164de` + 1 commit local sin subir, verificado con `git ls-remote` |
+| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `506a400`, idéntico a `origin/main`, verificado con `git ls-remote`. Árbol limpio |
 
 **Lo que queda en su tejado, en orden:**
 
-1. **Subir los commits locales.** `git push origin main` está bloqueado por falta
-   de credenciales de GitHub en este entorno (el *credential helper* no devuelve
-   nada y no hay `GITHUB_TOKEN` ni `~/.git-credentials`). Lo corre Lorenzo.
-2. **Abrir la pantalla de activación en un navegador** con un token real
+1. **Abrir la pantalla de activación en un navegador** con un token real
    (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
+2. **Decidir D12 y D13** (§9) antes de aplicar la migración de M2.
 3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
