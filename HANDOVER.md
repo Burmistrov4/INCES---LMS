@@ -1,7 +1,8 @@
 # HANDOVER — INCES LMS
 
-> Traspaso de mando generado el **2026-09-13** y **revisado el 2026-09-14**. Todo
-> lo que aparece aquí fue verificado contra el repositorio en el momento de
+> Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14** y
+> puesto al día el **2026-09-15** (Módulo 2 completo: base, backend y UI). Todo lo
+> que aparece aquí fue verificado contra el repositorio en el momento de
 > redactarlo. Si algo de este documento contradice al código, **gana el código**:
 > avísame y lo corrijo.
 
@@ -13,18 +14,21 @@
 exactamente con `origin/main`.
 
 ```
-HEAD = origin/main = 506a40054aec1a2f9cee7f48e750588c971431e2
+HEAD = origin/main = ec361ac
 ```
 
-Verificado con `git ls-remote origin refs/heads/main` — la fuente externa, no el
-ref local — y con `git rev-list --left-right --count origin/main...HEAD` → `0 0`.
+Verificado con `git rev-list --left-right --count origin/main...HEAD` → `0 0`.
 
 ```
-506a400  feat(modulo2): diseno de curriculo y pensum validado en pglite (66/66)
-e7164de  feat(supabase): libro mayor de migraciones con checksums (resuelve D10)
-c6dddb5  fix(cors): alinear el origen por defecto con el puerto del frontend (8080)
-83e1e43  test(modulo1): humo de integracion del canal de invitacion
-c6a4fe1  docs(handover): migracion ya aplicada y footgun de apply-migrations
+ec361ac  feat(modulo2): UI del asistente de curriculo y pensum
+9291e9a  fix(modulo1): garantizar lectura de token desde uri fragment en activacion
+c12e9b5  feat(modulo2): repositorios, rutas y traduccion de errores para curriculo
+25f2369  docs(modulo2): actualizar contrato API para reflejar diseno transaccional con RPC
+3b466bd  test(m2): humo de integracion del asistente contra la base real
+3d94dff  feat(m2): tipos y reglas puras del curriculo, con 18 pruebas
+cc1d1a3  feat(m2): las dos escrituras del asistente, como funciones transaccionales
+86ebd1b  feat(m2): aplica el curriculo a la nube y hace autoconsistente el verificador
+5bc1025  feat(m2): resuelve D12 y D13 y cierra el diseno de curriculo (96/96 en pglite)
 ```
 
 > **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
@@ -41,26 +45,33 @@ Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
 sí se versiona a propósito (es la plantilla documentada, sin valores reales).
 `.workbuddy-ai/` también está ignorado: la memoria del proyecto no viaja al repo.
 
-### ✅ Migración de M2 en el repositorio, sin aplicar en la nube
+### ✅ Migración de M2 aplicada en la nube (verificado, no supuesto)
 
-`supabase/migrations/202609150001_mod2_curriculo.sql` está versionada, y
-**deliberadamente no aplicada**:
+Las 8 migraciones están aplicadas. El libro mayor lo confirma:
 
 ```
-$ node supabase/apply-migrations.mjs --check
+$ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
+  Proyecto : twdppwnxlnmxkiejbrei   (ACTIVE_HEALTHY, sa-east-1)
+  Migraciones: 8
+
   aplicada   202609100001_init.sql
   aplicada   202609120001_phase1_onboarding.sql
   aplicada   202609120002_phase3_admin_core.sql
   aplicada   202609120003_proteger_ultimo_admin.sql
   aplicada   202609130001_invitaciones_docente.sql
-  PENDIENTE  202609150001_mod2_curriculo.sql
+  aplicada   202609150001_mod2_curriculo.sql
+  aplicada   202609160001_resolucion_d12_d13.sql
+  aplicada   202609170001_mod2_rpc_curriculo.sql
 
-  1 pendiente(s), 0 con deriva.
+  0 pendiente(s), 0 con deriva.
 ```
 
-Ese «1 pendiente» es el estado correcto mientras D12 y D13 sigan abiertas (§2.5).
-El libro mayor lo distingue de un olvido: sabe qué falta y no vuelve a tocar lo
-aplicado.
+`node supabase/verificar-esquema.mjs` → **56/56 OK, 0 fallos** (comprobado el
+2026-09-15). Incluye las 10 aserciones de M2: `cursos` es vista con
+`security_invoker`, `programs.type`/`is_active`, `program_subjects` con
+`period_order`, `sections.program_id`, los dos constraint triggers, y las dos
+funciones del asistente (`security invoker`, `anon` no puede, `authenticated`
+sí).
 
 ---
 
@@ -70,16 +81,14 @@ aplicado.
 
 | Suite | Resultado | Comando |
 |---|---|---|
-| Backend (vitest) | **171 / 171** en verde · 11 archivos | `cd backend && npm test` |
-| Flutter | **110 / 110** en verde | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **66 / 66** en verde · 6 migraciones | `cd supabase/tests && npm test` |
+| Backend (vitest) | **189 / 189** en verde | `cd backend && npm test` |
+| Flutter | **197 / 197** en verde | `flutter test` |
+| SQL (pglite, PostgreSQL real) | **110 / 110** en verde · 8 migraciones | `cd supabase/tests && npm test` |
 
-Desglose backend: `admin.test.ts` (51), `r2` (24), `esquemas` (16), `modulos` (15),
-`autenticacion` (12), `resiliencia` (11), `invitaciones` (9), `openapi` (9),
-`env` (10), `reglas-admin` (10), `salud` (4).
-
-El validador SQL incluye **17 aserciones de M2**, así que la migración de M2 se
-prueba en cada corrida **aunque no esté aplicada a la nube**.
+> **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
+> tocaste. En el cierre de M2, correr los archivos sueltos daba verde y la suite
+> completa destapó **6 fallos** (rótulos en mayúsculas que los tests buscaban en
+> minúsculas, y un `hintText` que `find.text` también encuentra).
 
 ### Compilación y linters
 
@@ -122,6 +131,21 @@ buenos** y avisa; no vacía la lista.
 
 **c) `.docx` conceptual ajustado a 3 roles** — la "Matriz de Roles Estrictos"
 pasó de 4 a los 3 valores reales de Postgres. Ver sección 5.
+
+**d) Módulo 2 completo** — currículo y pensum, de la base a la UI. Dos RPC
+transaccionales, 7 rutas bajo `/api/v1/admin`, OpenAPI regenerado, y el asistente
+de tres pasos en Flutter. Ver §2.5.
+
+**e) Deep link de activación arreglado** — `initialRoute` con `?token=` descartaba
+el token en silencio. Ver §2.4.
+
+**f) Bug de layout pre-existente, silencioso y arreglado.** `ContenidoSeccion`
+envolvía a su hijo en un `SingleChildScrollView`, dándole **altura infinita**:
+`CpanelAuditoriaPanel` y `CpanelAuditoriaAccesosPanel` **crasheaban al abrirse en
+la app real** (usan `Expanded`). Sus tests no lo veían porque montaban el panel en
+el `body` acotado de un `Scaffold`, que **no es como se monta de verdad**.
+Arreglado con `Flexible`, y hay una prueba nueva que los monta **dentro de
+`ContenidoSeccion`** (`test/contenido_seccion_test.dart`).
 
 ---
 
@@ -258,7 +282,7 @@ CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ese proceso, o cambiar `PORT` y ajustar `API_BASE_URL` en `.env.json`. Los tres
 valores (`PORT`, `API_BASE_URL`, `CORS_ORIGINS`) deben contar la misma historia.
 
-### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⏳
+### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⚠️ arreglada, sin navegador
 
 **Mitad-API: VERIFICADA** contra la base real con `node supabase/humo-invitaciones.mjs
 --confirmar` → **17/17 sin fallos**, cero residuo. Cubre lo que las 171 pruebas con
@@ -272,10 +296,30 @@ dobles no podían cubrir:
 - El token es de un solo uso: reutilizarlo se rechaza.
 - El token en claro **no** queda en la base (sólo su SHA-256).
 
-**Mitad-UI: PENDIENTE.** Abrir `http://localhost:8080/#/auth/activate?token=...` en
-el navegador, fijar la contraseña y comprobar que la pantalla lee el token de
-`Uri.base.fragment`. Requiere la alineación de puertos de 2.3. Nunca se ha
-ejecutado esa pantalla en un navegador real.
+**Mitad-UI: el bug de lectura del token está ARREGLADO y cubierto, pero sigue sin
+ejecutarse en un navegador real.**
+
+Había un fallo real y silencioso: `initialRoute: '/auth/activate?token=ABC'`
+**descartaba el token sin decir nada**. Las rutas de `MaterialApp.routes` se
+comparan por **igualdad exacta de cadena**, así que `?token=` no casaba con nada;
+`Navigator.defaultGenerateInitialRoutes` partía la ruta por `/`, empujaba los
+intermedios y, al no resolver el último, **tiraba la pila inicial entera** y caía
+a `/`. El usuario habría visto el login en vez de la pantalla de activación.
+
+Arreglado en `9291e9a`: `lib/core/navegacion.dart` (puro, sin depender de Flutter)
+expone `analizarRuta` / `tokenDeUrl`, y `main.dart` usa `onGenerateRoute`. El
+token se lee de `Uri.base.fragment`. Las 4 pruebas de
+`test/deep_link_activacion_test.dart` montan la **`IncesLmsApp` real** con
+`rutaInicial`, y se comprobó *fail-first*: revirtiendo sólo el router, 2 de las 4
+fallan con el mensaje exacto de Flutter.
+
+**Lo que falta y no se puede fingir:** abrir
+`http://localhost:8080/#/auth/activate?token=…` en un **navegador de verdad**,
+fijar la contraseña y llegar al panel. Este entorno **no puede lanzar Chrome**
+(`reg.exe` lo bloquea) y la herramienta de navegador no soporta Windows, así que
+esa comprobación queda para la máquina de Lorenzo. Montar la app real en una
+prueba de widgets es lo más cerca que se pudo llegar desde aquí — **no es lo
+mismo que un navegador**, y no se debe anotar como verificado en navegador.
 
 > `correoEnviado` sale `false` en el humo, y **es lo esperado**: el remitente de
 > Resend es no bloqueante por diseño (`{ entregado: false }` en vez de excepción),
@@ -301,60 +345,91 @@ falta un catch-all en el hosting. La pantalla lee el token de `Uri.base.fragment
 
 ---
 
-### 2.5 Módulo 2 — diseñado y validado, deliberadamente NO aplicado
+### 2.5 Módulo 2 — aplicado: base, backend y UI completos
 
-**`supabase/migrations/202609150001_mod2_curriculo.sql`** existe, está validado
-contra PostgreSQL real y **no está aplicado a la nube**. El contrato de la API
-está en **`docs/CONTRATO_API_MODULO2.md`**.
+**Base aplicada.** `202609150001_mod2_curriculo.sql`,
+`202609160001_resolucion_d12_d13.sql` y `202609170001_mod2_rpc_curriculo.sql`
+están en la nube: **8/8 aplicadas, 0 deriva** (ver el bloque de arriba).
 
 Tres tablas: `programs`, `subjects` (banco global) y `program_subjects` (pensum,
-muchos-a-muchos). Dos reglas de negocio:
+muchos-a-muchos). Además:
 
-- **Regla 1 — no existen carreras vacías.** Se implementa con un **constraint
-  trigger diferido** (`deferrable initially deferred`): la comprobación corre al
-  confirmar la transacción, no al insertar. Esa es exactamente la propiedad que
-  hace compatible la regla con el `POST` consolidado del asistente de tres pasos
-  que pide el documento de arquitectura. Sin el diferido, las dos exigencias del
-  documento se contradicen entre sí.
-- **Regla 2 — inmutabilidad en uso.** **No implementada, a propósito.** Depende de
-  `sections.program_id`, y esa columna no existe. Se implementa en M3.
+- **D12 resuelta:** `cursos` pasó a ser una **vista** `security_invoker` sobre
+  `programs`, así los cinco cursos sembrados son `CURSO_LIBRE` sin migrar
+  `aspirantes.curso_seleccionado` ni tocar el formulario público de inscripción
+  (que lee `cursos` con `anon` y tiene respaldo local en
+  `AspiranteRepository.cursosRespaldo`).
+- **D13 resuelta:** `sections` ganó **`program_id`**. Sin él, la cabecera del
+  cuadrante (`PERÍODO | ESPECIALIDAD | SECCIÓN`) quedaba ambigua —una materia
+  puede pertenecer a varios programas, que es el punto del M2M— y la Regla 2 no
+  se podía implementar.
 
-**Validación real:** `cd supabase/tests && npm test` → **66/66** (49 de M1 + 17 de
-M2). El validador levanta la migración en pglite aunque no esté en la nube, y las
-17 aserciones nuevas cubren el comportamiento diferido, la unicidad del pensum y
-el RLS por rol.
+Las dos reglas de negocio, **ya implementadas**:
 
-**Antes de aplicarla, en este orden:**
+- **Regla 1 — no existen carreras vacías.** Dos **constraint triggers diferidos**
+  (`deferrable initially deferred`): `programs_exigir_pensum` en `programs`
+  (after insert or update) y `program_subjects_exigir_pensum` en
+  `program_subjects` (after delete or update), ambos sobre la misma función
+  `exigir_pensum_de_programa()`. La comprobación corre al **confirmar** la
+  transacción, no al insertar. Esa es exactamente la propiedad que hace
+  compatible la regla con el `POST` consolidado del asistente de tres pasos: sin
+  el diferido, las dos exigencias del documento se contradicen entre sí.
+- **Regla 2 — inmutabilidad en uso.** `proteger_pensum_en_uso()` bloquea
+  reordenar un pensum cuando hay secciones activas del período vigente.
 
-1. **D12 — `cursos` (Fase 0) y `programs` (M2) son el mismo concepto.** Los cinco
-   cursos sembrados (Herrería, Oratoria, …) son exactamente `CURSO_LIBRE`. La
-   migración **no los toca**: absorberlos implica migrar
-   `aspirantes.curso_seleccionado` (texto libre) y el formulario público de
-   inscripción, que lee `cursos` con `anon` y tiene respaldo local en
-   `AspiranteRepository.cursosRespaldo`.
-2. **D13 — `sections` no es la que M3 necesita.** La actual (`nombre`,
-   `cupo_maximo`, `activa`) no coincide con la del documento (`period_code`,
-   `subject_id`, `name`, `max_capacity`). **Y el `sections` del documento no tiene
-   `program_id`**: como una materia puede pertenecer a varios programas (ese es el
-   punto del M2M), la cabecera del cuadrante
-   (`PERÍODO | ESPECIALIDAD | SECCIÓN`) queda ambigua. **Falta un
-   `sections.program_id` en el diseño del documento.** Sin él tampoco se puede
-   implementar la Regla 2.
-3. **Añadir `programs`, `subjects` y `program_subjects` al arreglo `esperadas` de
-   `verificar-esquema.mjs`** en el mismo paso. Si no, el verificador las reporta
-   como «tablas heredadas» y falla — ya pasó con `schema_migrations`.
+**Las dos lanzan `23514`**, así que se distinguen por el **texto del mensaje**
+(`esBloqueoPorPensumEnUso`). No es un descuido: los triggers ya aplicados son
+inmutables, y **nunca se edita una migración ya corrida**.
 
-**Dos desviaciones del documento, conscientes:**
+**PostgREST no admite insert anidado de uno-a-muchos** (`PGRST204`; se comprobó
+que no era la caché). Sí admite lectura anidada. Por eso las dos escrituras del
+asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
+`security invoker` con `revoke from public, anon`. Ver `REPORTE_ARIA.md` R-10.
 
-- `type` es `text` + `check`, **no `enum`** de Postgres. El documento pide ENUM,
-  pero la convención del proyecto ya está escrita en la migración de M1: «no se
-  usa un enum de Postgres para no atarnos al dialecto».
+**Verificación real, no de dobles:**
+
+| Qué | Resultado |
+|---|---|
+| pglite (PostgreSQL real, 8 migraciones) | **110 / 110** |
+| Esquema en la nube (`verificar-esquema.mjs`) | **56 / 56**, 0 fallos |
+| Backend (vitest) | **189 / 189** |
+| Flutter | **197 / 197** |
+| Humo de M2 contra la base real | **15 / 15**, purga completa |
+
+**El humo de M2 es la prueba que de verdad importa.** Se lanza con
+`node supabase/humo-curriculo.mjs --confirmar` (escribe con códigos `TMP` y purga
+todo, también si falla a mitad). Demuestra lo que un doble en memoria **no
+puede**:
+
+- `crear_programa_con_pensum` publica una CARRERA **activa** con su pensum en
+  **una sola llamada**, y el trigger diferido la acepta.
+- **Atomicidad de verdad:** con el pensum vacío la función falla con `23514` y
+  **no deja el programa a medias** (cero filas).
+- `reemplazar_pensum` calcula la diferencia sola: reordena, inserta y borra.
+- La Regla 2 bloquea un reordenamiento con secciones activas y **el período queda
+  intacto** (`period_order = 1`): la función se deshace entera.
+
+**Desviaciones del documento, conscientes:**
+
+- `type` es `text` + `check`, **no `enum`** de Postgres. La convención del
+  proyecto ya está en la migración de M1: «no se usa un enum de Postgres para no
+  atarnos al dialecto».
 - `is_active` nace en **`false`**, no en `true`. El documento pone `DEFAULT TRUE`,
   pero eso contradice su propia Regla 1: el programa nacería activo y sin
   materias, así que todo `insert` fallaría.
 - Las rutas van bajo `/api/v1/admin/…` (español, y ese prefijo es el que aplica
-  `exigirAdmin`), no `/api/v1/programs/setup` como dice el documento. **El
-  documento debe actualizarse**, o el TEG documentará una ruta que no existe.
+  `exigirAdmin`), no `/api/v1/programs/setup`. **Ya corregido** en
+  `docs/CONTRATO_API_MODULO2.md` (`25f2369`), así que el TEG no documentará una
+  ruta inexistente.
+
+**Lo que queda de M2:** nada de base, backend ni UI. Sólo dos cosas que no se
+pueden cerrar desde este entorno:
+
+1. El **humo de UI en navegador real** (ver 2.4): este entorno no lanza Chrome.
+2. La **convención de período** (R-06 / D15). `period_order` es un **número de
+   orden**, y el nombre visible del período lo pone la UI; nadie ha decidido
+   todavía si el centro numera 1…6 o usa otra cosa. **No se eligió por
+   unilateralidad** — es una decisión del equipo.
 
 ---
 
