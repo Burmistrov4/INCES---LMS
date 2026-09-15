@@ -19,7 +19,7 @@
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real, y **volvió a corregirse el 2026-09-15** (341 backend / 197 Flutter /
+> base real, y **volvió a corregirse el 2026-09-15** (341 backend / 203 Flutter /
 > 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
 > código**: verifica antes de citar una cifra de aquí.
 
@@ -51,7 +51,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **197 / 197** en verde |
+| `flutter test` | **203 / 203** en verde |
 | `npm test` (backend) | **341 / 341** en verde (16 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
@@ -847,7 +847,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 197 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -945,7 +945,7 @@ node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprob
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (197) | La lógica del cliente | El SQL, la API, la red |
+| `flutter test` (203) | La lógica del cliente | El SQL, la API, la red |
 | `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
 | `npm test` (341) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
@@ -959,6 +959,17 @@ node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprob
 > dejó pasar un fallo que hacía inoperable el módulo entero (R-20). La sección
 > 14.8 escribe ahora como `authenticated` con claims de admin para cubrirlo.
 > **Si añades una prueba de trigger, pregúntate como qué rol está escribiendo.**
+
+> **La red de `flutter test` tenía el suyo, y R-22 lo demostró.** Las pruebas de
+> panel montan el panel **donde vive** —dentro de `ContenidoSeccion`, que es lo
+> correcto para el layout y lo que destapó el crash de altura acotada—, pero
+> **ninguna montaba el dashboard**. Así que el **cableado del menú** quedó sin
+> cubrir: `Programas Académicos` tenía su panel construido, probado y enrutado, y
+> su ítem seguía con `disponible: false`, de modo que el `case` era código muerto
+> y ningún administrador podía abrirlo. **Probar el panel donde vive no prueba
+> que se pueda llegar a él: son dos contratos.** `test/menu_alcanzable_test.dart`
+> cubre el segundo leyendo el dashboard como texto, para que no sea un espejo
+> escrito a mano.
 
 Las pruebas de R2 **no tocan la red**: firmar una URL es criptografía local. Por
 eso se verifica el endpoint, la caducidad, los encabezados firmados y el rechazo

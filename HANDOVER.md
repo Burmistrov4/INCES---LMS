@@ -97,7 +97,7 @@ anti-colisión debe ser `DEFINER`** (ver §2.6).
 | Suite | Resultado | Comando |
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
-| Flutter | **197 / 197** en verde | `flutter test` |
+| Flutter | **203 / 203** en verde | `flutter test` |
 | SQL (pglite, PostgreSQL real) | **164 / 164** en verde · 10 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
@@ -410,7 +410,7 @@ asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
 | pglite (PostgreSQL real, 10 migraciones) | **164 / 164** |
 | Esquema en la nube (`verificar-esquema.mjs`) | **81 / 81**, 0 fallos |
 | Backend (vitest) | **341 / 341** |
-| Flutter | **197 / 197** |
+| Flutter | **203 / 203** |
 | Humo de M2 contra la base real | **15 / 15**, purga completa |
 
 **El humo de M2 es la prueba que de verdad importa.** Se lanza con
@@ -604,6 +604,36 @@ comprueba las dos mitades (con nombre y sin nombre), así que el día que se
 implemente A, la segunda aserción falla y obliga a actualizarla: el defecto no
 puede volver a pasar inadvertido.
 
+#### ✅ R-22 — el panel de M2 era inalcanzable desde el menú (resuelta)
+
+Apareció al leer `admin_dashboard.dart` para planificar el frontend de M3.
+
+`Programas Académicos` tenía `disponible: false`, y `AndamiajeApp` **no envuelve
+en `InkWell`** un ítem no disponible. Así que su `case` en el `switch` del cPanel
+era **código muerto**: el panel de M2, su asistente y su prueba existían, y
+**ningún administrador podía abrirlos**. No era una decisión: la bandera la puso
+`004923a` (M1), cuando M2 no existía, y `ec361ac` (UI de M2) añadió el panel sin
+voltearla.
+
+**Por qué no lo vio ninguna prueba:** ninguna montaba el dashboard. Los paneles se
+prueban montados **donde viven** (dentro de `ContenidoSeccion`) —lo correcto para
+el layout— y eso deja el **cableado del menú** sin cubrir. *Probar el panel donde
+vive no prueba que se pueda llegar a él.*
+
+**Arreglado:** la bandera fuera (una línea) + **`test/menu_alcanzable_test.dart`**
+(6 casos). No es un espejo a mano: **lee el dashboard como texto** y exige que las
+secciones disponibles y las ramas del `switch` coincidan **en las dos
+direcciones** (con rama y sin bandera = inalcanzable; sin rama y con bandera =
+abre en blanco), con suelo explícito para que un analizador roto no dé un verde
+hueco. Se verificó que **tiene dientes**: con la bandera restaurada falla
+nombrando la sección.
+
+> **M3 hereda el riesgo.** `Cuadrante y Horarios` y `Mi horario` siguen siendo
+> marcadores `disponible: false`: **hay que levantar la bandera al construirlos**,
+> y el contrato del admin ya falla si se olvida. El dashboard del **docente** aún
+> no está cubierto (su `_contenido()` no usa `switch`): extenderlo al construir
+> `Mi horario`.
+
 #### Deuda D6 cerrada del todo
 
 `test/openapi.test.ts` ya **no coteja contra una lista escrita a mano**. Ahora
@@ -715,7 +745,7 @@ DOCUMENTACIÓN VIVA (léela antes de escribir código)
 ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 -----------------------------------------------------
 - Backend: 341/341 tests, typecheck y eslint limpios.
-- Flutter: 197/197 tests, `flutter analyze` sin incidencias.
+- Flutter: 203/203 tests, `flutter analyze` sin incidencias.
 - SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
 - Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
@@ -750,7 +780,7 @@ Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (341 / 197 / 164).
+   para confirmar que heredas verde (341 / 203 / 164).
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
    (a) el frontend de M3 (aulas, lapsos, guardias y la rejilla del cuadrante:
        es lo único que falta del módulo, y el backend ya está),

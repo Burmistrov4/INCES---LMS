@@ -520,7 +520,7 @@ demostró el fail-first de las cuatro aserciones nuevas.
 ## R-21 · El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL
 
 **Encontrado el 2026-09-15** por `supabase/humo-cuadrante.mjs`, el humo real de
-M3. **No lo podía ver ninguna prueba con dobles**, y ninguna de las 333 del
+M3. **No lo podía ver ninguna prueba con dobles**, y ninguna de las 341 del
 backend lo ve: el doble en memoria devuelve `'Carlos Rondón'` porque el *fixture*
 tiene nombre.
 
@@ -595,6 +595,107 @@ comprobaciones entre ellas:
 
 ---
 
+## R-22 · El panel de M2 estaba construido, probado… e inalcanzable desde el menú
+
+**Encontrado y resuelto el 2026-09-15** al revisar el frontend para planificar
+M3. **No lo veía ninguna de las 197 pruebas de Flutter**, y la razón es la misma
+que el proyecto ya documentó para los paneles: **se prueban donde no viven**.
+
+### Qué pasa
+
+`Programas Académicos` —la sección que abre el asistente de currículo de M2—
+tiene `disponible: false` en el menú del cPanel:
+
+- `lib/screens/admin_dashboard.dart:81`
+
+Y `AndamiajeApp` **no envuelve en `InkWell`** un ítem no disponible:
+
+```dart
+// lib/widgets/andamiaje.dart:428-436
+// Una sección sin construir no es pulsable: llegar a una pantalla vacía es
+// peor que no poder entrar.
+if (!item.disponible) return conTooltip;
+
+return InkWell(onTap: onTap, …);
+```
+
+Consecuencia: el ítem se pinta atenuado, con el icono de obra y el tooltip
+«pendiente de construir», y **el clic no llega nunca a `onSeleccionar`**. Como
+`_seleccionada` sólo cambia por esa vía, el `case 'Programas Académicos'` del
+`switch` (`admin_dashboard.dart:161-165`) es **código muerto**: el panel existe,
+funciona y está probado, pero no hay forma de abrirlo desde la aplicación real.
+
+### Por qué es un resto obsoleto, y no una decisión
+
+El historial lo cierra:
+
+| Commit | Qué hizo |
+| --- | --- |
+| `004923a` — *feat(modulo1)… y overhaul de UI* | **Añadió** el ítem con `disponible: false`. Entonces **M2 no existía**: la bandera era correcta |
+| `ec361ac` — *feat(modulo2): UI del asistente de curriculo y pensum* | **Añadió** `CpanelProgramasPanel`, su `import` y el `case` del `switch`… **y no volteó la bandera** |
+
+Es el mismo patrón que D11 («documentado ≠ desplegado»), un escalón más abajo:
+**construido y probado ≠ alcanzable**.
+
+### Por qué ninguna prueba lo vio
+
+**Ninguna prueba monta `AdminDashboardScreen`.** Las 197 cubren los paneles
+montándolos directamente dentro de `ContenidoSeccion` —que es lo correcto para
+probar el layout, y es justo lo que destapó el crash de altura acotada— pero
+**el cableado del menú queda sin cubrir**. `test/contenido_seccion_test.dart:206`
+monta `CpanelProgramasPanel` a mano; nunca pasa por el dashboard que lo abre.
+
+La lección no es «faltan pruebas de widget», es más fina: **probar el panel donde
+vive no prueba que se pueda llegar a él.** Son dos contratos distintos, y sólo
+uno estaba cubierto.
+
+### Arreglo aplicado
+
+1. **Quitada la bandera** `disponible: false` del ítem `Programas Académicos`
+   (`admin_dashboard.dart`). Una línea.
+2. **Añadida la prueba que faltaba** — `test/menu_alcanzable_test.dart`, 6 casos,
+   y es la parte que importa. No se escribió como un espejo a mano (una lista de
+   títulos copiada en la prueba sólo probaría que la copia coincide consigo
+   misma): **lee `admin_dashboard.dart` como texto** y exige que las secciones
+   disponibles y las ramas del `switch` **coincidan en las dos direcciones** —
+   con rama y sin bandera es inalcanzable (R-22); sin rama y con bandera abre en
+   blanco, que es peor que no poder entrar. Lleva **suelo explícito** (≥8
+   secciones, ≥6 ramas) para que un analizador roto falle en vez de dar un verde
+   hueco, y dos pruebas del propio analizador sobre un texto de forma conocida.
+   Se completa con la **prueba del mecanismo** en `AndamiajeApp`: un ítem no
+   disponible no tiene `InkWell` y su toque no llega a `onSeleccionar`.
+3. **Comprobado que la prueba tiene dientes.** Con la bandera restaurada falla:
+
+   ```
+   Expected: Set:['Módulos del Sistema', …, 'Programas Académicos']
+     Actual: Set:['Módulos del Sistema', …]
+    Which: does not contain 'Programas Académicos'
+   ```
+
+   Una prueba que sólo se ha visto pasar sobre el código ya arreglado no prueba
+   nada.
+
+**Verificación:** `flutter analyze` limpio · **203/203** pruebas Flutter (antes
+197).
+
+> **M3 hereda el mismo riesgo, y la prueba ya lo vigila.** `Cuadrante y Horarios`
+> (`admin_dashboard.dart:83-88`) y `Mi horario` (`docente_dashboard.dart:57-62`)
+> son hoy marcadores `disponible: false`. Al construirlos hay que levantar la
+> bandera, y el contrato de (2) falla si se olvida — en la primera dirección
+> mientras no exista la rama, y en la segunda en cuanto exista. El docente
+> todavía no está cubierto por el contrato (su `_contenido()` no usa `switch`);
+> **hay que extenderlo cuando se construya `Mi horario`**.
+
+> **Nota, del mismo paseo.** Los tres dashboards llevan el período **escrito a
+> mano** (`'2026-1'` en `admin_dashboard.dart:110`, `docente_dashboard.dart:65`,
+> `aspirante_dashboard.dart:103`). El comentario que lo justificaba decía «cuando
+> se construya el módulo de currículo, el período pasará a ser una selección
+> real». M2 ya está, y M3 acaba de añadir `academic_periods` con su `is_active` y
+> la guarda `periodo_activo` (R-12, R-19): **el encabezado ya puede leer el
+> período vigente de verdad** en lugar de repetir una constante.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -620,3 +721,4 @@ comprobaciones entre ellas:
 | R-19 | «Período activo» significa dos cosas | `is_active` (abierto) vs `periodo_activo` (vigente) | ✅ Resuelta (se puede simplificar) |
 | R-20 | Trigger `invoker` + función revocada: módulo inoperable | Envoltorios a `security definer` (migración 202609180002) | ✅ Resuelta y verificada |
 | R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación nunca captura los nombres** | 🔴 **DECISIÓN PENDIENTE** (alcance de M1) |
+| R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |
