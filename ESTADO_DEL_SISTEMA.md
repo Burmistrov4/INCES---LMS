@@ -43,11 +43,11 @@
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **66 / 66** aserciones en verde (49 de M1 + 17 de M2) |
+| Validador SQL contra PostgreSQL real (pglite) | **96 / 96** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13) |
 | **Migraciones en la nube** | **5 / 5** registradas en `schema_migrations` |
 | **Verificación independiente del esquema en la nube** | **43 / 43** comprobaciones (`supabase/verificar-esquema.mjs`) |
 | **Libro mayor de migraciones (D10)** | 5 versiones aplicadas con checksum SHA-256 válido |
-| **Migración de M2 en el repositorio** | 6.º archivo, **pendiente a propósito** — diseñado y validado en pglite, no aplicado a la nube (ver §9) |
+| **Migraciones de M2 en el repositorio** | Archivos **6.º y 7.º**, **pendientes a propósito** — diseñadas y validadas en pglite, no aplicadas a la nube (ver §9 y §10) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
 | Documento OpenAPI | OpenAPI 3.1.0 · **15 rutas · 24 esquemas** |
@@ -66,12 +66,20 @@
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las cinco migraciones se
-aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
-comprobó después, consultando el catálogo de PostgreSQL por separado: 11 tablas
-con RLS activo (las 8 originales más `teacher_invitations`, `auth_logs` y el
-libro mayor `schema_migrations`), los 6 triggers y funciones que sostienen las
-invariantes, 9 módulos sembrados, 8 parámetros y 5 cursos.
+**La base de datos ya está aplicada y verificada.** Las cinco migraciones que
+componen el esquema desplegado se aplicaron contra el proyecto real
+`twdppwnxlnmxkiejbrei` y el resultado se comprobó después, consultando el
+catálogo de PostgreSQL por separado: 11 tablas con RLS activo (las 8 originales
+más `teacher_invitations`, `auth_logs` y el libro mayor `schema_migrations`),
+los 6 triggers y funciones que sostienen las invariantes, 9 módulos sembrados,
+8 parámetros y 5 cursos.
+
+> **Cinco aplicadas, siete escritas.** El repositorio contiene además
+> `202609150001_mod2_curriculo.sql` y `202609160001_resolucion_d12_d13.sql`
+> (§9 y §10): validados contra PostgreSQL real, **todavía no aplicados a la
+> nube**. Cuando se apliquen, el esquema desplegado sube a 14 tablas (las tres de
+> M2 más la vista `cursos`) y estas cifras hay que **volver a medirlas, no
+> estimarlas** — es la lección de D11.
 
 **El libro mayor de migraciones (D10) ya está en uso.** `schema_migrations`
 guarda una fila por migración aplicada con su checksum SHA-256. Eso convierte
@@ -687,9 +695,11 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14 |
-| **D12** | `cursos` (Fase 0) y `programs` (M2) son el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ⏳ **Abierta** — hay que decidir si `programs` absorbe a `cursos` antes de M3. Ver §9 |
-| **D13** | El `sections` actual (`nombre`, `cupo_maximo`, `activa`) no coincide con el que exige el M3 del documento: `period_code`, `subject_id`, `name`, `max_capacity` | ⏳ **Abierta** — el M3 necesita una migración que rediseñe `sections`, y esa migración es destructiva |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *(Aquellas 5 migraciones eran las de entonces; hoy el repositorio tiene 7, ver §10)* |
+| **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
+| **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
+| **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
+| **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | 🔴 **DECISIÓN PENDIENTE** — no se elige por cuenta propia: afecta a la nomenclatura institucional. Ver `REPORTE_ARIA.md` R-06 |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -783,7 +793,7 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
 | `flutter test` (110) | La lógica del cliente | El SQL, la API, la red |
-| `supabase/tests` (66) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `supabase/tests` (96) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
 | `npm test` (171) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (43) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
@@ -805,11 +815,14 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las seis migraciones**, y ejecuta 66 aserciones
+aplica el shim de Supabase y **las siete migraciones**, y ejecuta 96 aserciones
 sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
-integridad, y las dos reglas de negocio de M2. **La migración de M2 se valida
-aquí aunque no esté aplicada en la nube**: el validador la levanta en un
-PostgreSQL real y comprueba que el trigger diferido hace lo que dice hacer.
+integridad, las dos reglas de negocio de M2, y la resolución de D12/D13
+(la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
+en las dos direcciones). **Las dos migraciones de M2 se validan aquí aunque no
+estén aplicadas en la nube**: el validador las levanta en un PostgreSQL real y
+comprueba que el trigger diferido de la Regla 1 y el trigger de la Regla 2 hacen
+lo que dicen hacer.
 
 ### Lo que la prueba de humo comprueba
 
@@ -842,14 +855,21 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
 | Contrato OpenAPI 3.1 | ✅ Generado desde Zod, con 9 pruebas de coherencia |
-| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` = `506a400`, idéntico a `origin/main`, verificado con `git ls-remote`. Árbol limpio |
+| Repositorio en GitHub | ✅ `Burmistrov4/INCES---LMS` — `main` sincronizado con `origin/main`, verificado con `git ls-remote`. Árbol limpio |
+
+> **Por qué aquí no hay un SHA.** Este documento viaja *dentro* del commit que
+> describe, así que cualquier hash escrito en él nace ya obsoleto — es la misma
+> trampa que produjo D11. La fuente real es `git ls-remote origin refs/heads/main`;
+> cuando se necesita el SHA, se pregunta a git, no a este archivo.
 
 **Lo que queda en su tejado, en orden:**
 
 1. **Abrir la pantalla de activación en un navegador** con un token real
    (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
-2. **Decidir D12 y D13** (§9) antes de aplicar la migración de M2.
+2. **Aplicar las dos migraciones de M2 a la nube** (§10). El diseño ya está
+   cerrado y D12/D13 ya están resueltas; falta correr
+   `node supabase/apply-migrations.mjs` y volver a verificar el esquema.
 3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
    módulo está construido y probado; sólo está apagado.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
@@ -863,11 +883,11 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 ### Luego: Fase 4 — M2 Currículo y M3 Cuadrante
 
-1. **Decidir D12** (`cursos` vs `programs`) y **D13** (rediseño de `sections`). Las
-   dos son decisiones de datos, no de código, y condicionan M2 y M3. Ver §9.
-2. **Aplicar `202609150001_mod2_curriculo.sql`** y, en el mismo paso, añadir
-   `programs`, `subjects` y `program_subjects` a `esperadas` en
-   `verificar-esquema.mjs`. **No aplicar antes de resolver D12.**
+1. ~~Decidir D12 y D13~~ — **hecho** el 2026-09-15. Ver §10.
+2. **Aplicar las migraciones `202609150001` y `202609160001`** y, en el mismo
+   paso, añadir `programs`, `subjects` y `program_subjects` a `esperadas` en
+   `verificar-esquema.mjs`. El orden importa: la segunda migración consume
+   `programs`, así que va después.
 3. **Implementar las rutas de M2** (`/api/v1/admin/programas`, `/materias`) y el
    asistente de tres pasos en Flutter. Contrato propuesto en §9.
 4. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
@@ -885,11 +905,12 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 ## 9. Módulo 2 — Currículo y Pensum: diseño entregado, sin aplicar
 
-**Estado: diseñado y validado contra PostgreSQL real, NO aplicado a la nube.**
-El archivo existe (`supabase/migrations/202609150001_mod2_curriculo.sql`) y el
-validador de SQL lo aplica y lo prueba en cada corrida, pero la base de la nube
-todavía no lo tiene. Es deliberado: M2 abre después de cerrar la mitad de
-interfaz de M1 y de resolver D12.
+**Estado: diseñado, validado contra PostgreSQL real, y con D12/D13 ya resueltas
+(§10). Pendiente de aplicar a la nube.**
+Son dos archivos — `supabase/migrations/202609150001_mod2_curriculo.sql` (las
+tres tablas) y `supabase/migrations/202609160001_resolucion_d12_d13.sql` (las
+deudas) — y el validador de SQL los aplica y los prueba en cada corrida, pero la
+base de la nube todavía no los tiene. Es lo primero de la lista de §8.
 
 ### Las tres tablas
 
@@ -918,10 +939,17 @@ lo que hace que las dos cosas sean compatibles.
 
 **Regla 2 — inmutabilidad en uso.** No se puede cambiar el `period_order` de un
 pensum ni quitarle materias si ya hay secciones activas del período vigente
-usando ese programa. **No se puede implementar todavía**: la condición depende de
-`sections.program_id`, y `sections` no tiene esa columna (es D13). Se implementa
-en la migración de M3, cuando el vínculo exista. Mientras tanto la regla queda
-escrita aquí y en el encabezado de la migración, no a medias en el código.
+usando ese programa. **Implementada** en `202609160001`, como trigger
+`program_subjects_proteger_en_uso` sobre `program_subjects`. Dependía de
+`sections.program_id`, que es justo lo que añadió D13; mientras esa columna no
+existió, la regla no era escribible. Detalle en §10.
+
+Una salvedad que hay que decir en voz alta: **la regla falla abierta si
+`system_settings.periodo_activo` está vacío.** Es una guarda de integridad, no
+una barrera de seguridad — la misma decisión que se tomó con el modo
+mantenimiento (D5). Si el período no está declarado, no hay «período vigente»
+contra el que comparar, y bloquear todo sería peor que dejar pasar un cambio que
+el administrativo puede deshacer.
 
 ### Decisiones de diseño, y de dónde salen
 
@@ -952,21 +980,150 @@ Ninguna ruta borra: archivar es `is_active = false`, para no romper históricos.
 Las siete rutas quedan documentadas en OpenAPI por construcción, y
 `test/openapi.test.ts` obliga a declararlas en la lista esperada.
 
-### Deuda que este diseño abre, y hay que cerrar antes de M3
+### Deuda que este diseño abrió — y su cierre
 
-- **D12 — `cursos` contra `programs`.** Son el mismo concepto. Los cinco cursos
-  sembrados (`Herrería`, `Oratoria`, …) son exactamente `CURSO_LIBRE`. La
-  migración **no los toca**: absorberlos implica migrar
-  `aspirantes.curso_seleccionado` (texto libre) y el formulario público de
-  inscripción, que hoy lee `cursos` con `anon` y tiene una lista de respaldo en
-  `AspiranteRepository.cursosRespaldo`. Es una decisión consciente, no un
-  olvido.
-- **D13 — `sections` no es la que M3 necesita.** La actual tiene `nombre` y
-  `cupo_maximo`; el documento pide `period_code`, `subject_id`, `name` y
-  `max_capacity`. Además, la cabecera del cuadrante del documento
-  (`PERÍODO | ESPECIALIDAD | SECCIÓN`) necesita llegar a `programs`, y el
-  `sections` del documento **sólo tiene `subject_id`**: como una materia puede
-  pertenecer a varios programas (ese es el punto del M2M), la especialidad
-  quedaría ambigua. **Falta un `sections.program_id` en el diseño del documento.**
-  Sin él, la Regla 2 tampoco se puede implementar.
+Las dos deudas que este diseño destapó quedaron resueltas el 2026-09-15 en
+`202609160001_resolucion_d12_d13.sql`. El relato completo está en §10; aquí sólo
+queda el enlace:
+
+- **D12 — `cursos` contra `programs`.** ✅ **Resuelta.** `programs` es la única
+  fuente de verdad y `cursos` pasó a ser una vista de compatibilidad, para no
+  dejar la app rota entre la migración y el cambio en Flutter.
+- **D13 — `sections` no era la que M3 necesita.** ✅ **Resuelta.** Rediseñada
+  completa, con `program_id`, y la Regla 2 implementada sobre ella.
+
+Queda **D14** abierta (fila en §6): `aspirantes.curso_seleccionado` guarda el
+nombre del curso como texto libre, así que renombrar un programa rompe la
+referencia de quien lo eligió. La corrección es una columna `program_id` con FK
+y toca el formulario público de M1; `aspirantes` tiene 0 filas, así que no
+corre prisa.
+
+---
+
+## 10. Resolución de D12 y D13 (2026-09-15)
+
+**Archivo: `supabase/migrations/202609160001_resolucion_d12_d13.sql`.**
+Validado contra PostgreSQL real (pglite) con **96/96** comprobaciones (eran 66
+antes de esta migración). Las contradicciones que aparecieron al cruzar el
+documento de M2 con el código base están documentadas una por una en
+`REPORTE_ARIA.md` (R-01 … R-09).
+
+### Antes de escribir una línea: reconocimiento
+
+Rediseñar `sections` y tocar `cursos` son operaciones destructivas, así que lo
+primero fue **medir el daño real contra la base de la nube**, no suponerlo:
+
+| Objeto | Filas | Conclusión |
+| --- | --- | --- |
+| `cursos` | 5 | Tiene datos: se migran **antes** de soltar la tabla |
+| `sections` | 0 | Sin datos y **sin un solo consumidor en el código** |
+| `enrollments` | 0 | Nada que reasignar al soltar el FK |
+| `aspirantes` | 0 | El texto libre de `curso_seleccionado` no rompe nada hoy |
+
+También se comprobó el nombre exacto del FK (`enrollments_section_id_fkey`) y que
+ninguna vista dependiera de `sections`. Esa evidencia es la que justifica recrear
+la tabla entera en vez de encadenar parches: con cero filas, una definición única
+y legible vale más que un historial de `alter` que hay que reconstruir de memoria.
+
+### D12 — `cursos` pasa a ser una vista, no una tabla
+
+`cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta
+formativa. Los cinco cursos sembrados — Herrería, Higiene y Manipulación de
+Alimentos, Estética (cejas y pestañas), Oratoria y el Curso Introductorio — son
+exactamente `CURSO_LIBRE`, uno de los dos tipos que M2 modela.
+
+La migración **conserva el `id`** de cada curso al insertarlo en `programs`, le
+asigna un `code` determinista (`CUR-HER-01`, `CUR-HIG-01`, …) y es idempotente
+(`not exists` + `on conflict do nothing`), así que correrla dos veces no duplica
+nada.
+
+En vez de borrar `cursos`, lo convierte en una **vista de compatibilidad**:
+
+```sql
+create view public.cursos with (security_invoker = true) as
+select p.id, p.name as nombre, p.is_active as activo, p.created_at
+from public.programs p where p.type = 'CURSO_LIBRE';
+```
+
+La vista no duplica datos: es una proyección, y `programs` es la única fuente de
+verdad desde ahora. Se eligió la vista por una razón concreta: el único
+consumidor — `SupabaseService.cursosDisponibles()`, que alimenta el desplegable
+del formulario público de inscripción — **sigue funcionando sin tocar una línea
+de Flutter**. Borrar la tabla habría dejado la app rota entre esta migración y el
+cambio en el cliente.
+
+Dos detalles que no son opcionales:
+
+- **`security_invoker = true`.** Sin eso la vista corre con los privilegios de su
+  dueño y se convierte en un agujero de escalada: `anon` vería cursos archivados.
+  Con la opción activa, la RLS de `programs` se aplica a quien consulta. Hay una
+  prueba que lo demuestra en las dos direcciones.
+- **El `drop` es tolerante al tipo.** `drop view if exists` **no** perdona que
+  `cursos` sea una tabla: `if exists` perdona la ausencia, no el tipo
+  (`ERROR: "cursos" is not a view`, código 42809). Por eso el `drop` consulta
+  `pg_class.relkind` y emite el `DROP` correcto según lo que encuentre, de modo
+  que la migración sirve tanto en una base limpia (donde `cursos` es tabla) como
+  en una ya migrada.
+
+### D13 — `sections` rediseñada, y la Regla 2 por fin implementable
+
+El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era la sección que
+M3 necesita y —lo grave— **no tenía `program_id`**. Sin esa columna pasaban dos
+cosas: la cabecera del cuadrante (`PERÍODO | ESPECIALIDAD | SECCIÓN`) quedaba
+ambigua, porque una materia puede pertenecer a varios programas (ese es el punto
+del M2M del pensum), y la Regla 2 de M2 no era comprobable.
+
+La tabla se recrea con `program_id` (NOT NULL, `on delete restrict`),
+`subject_id` (`on delete restrict`), `period_code`, `name`, `max_capacity`,
+`is_active`, y `unique (period_code, subject_id, name)` — la misma materia puede
+abrir `SA`, `SB` y `SC` en el mismo período, pero no dos veces `SA`. Se
+reconstruyen el FK desde `enrollments` (`on delete cascade`), la RLS, los
+permisos (sin `DELETE` para nadie), el trigger de `updated_at` y un índice
+parcial `sections_programa_periodo_idx`.
+
+El `restrict` es deliberado en las dos referencias: una sección abierta es un
+compromiso con los alumnos matriculados, así que ni la materia ni el programa se
+borran mientras exista.
+
+### La Regla 2, implementada como trigger
+
+```sql
+create trigger program_subjects_proteger_en_uso
+before update of period_order, program_id or delete on public.program_subjects
+for each row execute function public.proteger_pensum_en_uso();
+```
+
+El `of period_order, program_id` acota el trigger a los cambios que importan: un
+guardado que no toca esas columnas no dispara nada. La función, por su parte:
+
+- **Falla abierta** si no hay período vigente. Es una guarda de integridad, no una
+  barrera de seguridad: sin período declarado no hay nada con qué comparar, y
+  bloquear todo sería peor que dejar pasar un cambio reversible. Es la misma
+  decisión que se tomó con el modo mantenimiento (D5).
+- **Ignora las actualizaciones que no cambian nada** (`is not distinct from`), para
+  no bloquear un guardado que reescribe los mismos valores.
+- **Comprueba los dos lados** de un movimiento: `old.program_id` y
+  `new.program_id`. Mover un pensum desde un programa en uso también se bloquea.
+- **Falla ruidosamente** con `23514` y un mensaje que nombra el período y la vía
+  de escape, en vez de devolver un error mudo.
+
+### El conflicto de la Regla 1 que hubo que corregir
+
+La Regla 1 («no existen carreras vacías») tal como estaba escrita habría
+bloqueado los cinco cursos migrados: un `CURSO_LIBRE` es un taller corto que
+puede no tener pensum. La corrección **acota la regla a `type = 'CARRERA'`**, y se
+hizo en `202609150001` mientras ese archivo todavía estaba *pendiente* de
+aplicar, es decir, sin violar la inmutabilidad de las migraciones ya corridas. Es
+el tipo de cosa que sólo se ve cruzando el documento con los datos reales.
+
+### Lo que queda en el tejado de Lorenzo: D15
+
+**Dos convenciones de período incompatibles.** `system_settings.periodo_activo`
+guarda `"2026-1"`, mientras que los ejemplos del documento usan `"SA26-2"`. La
+Regla 2 compara las dos cadenas, así que **con la base como está hoy nunca
+dispararía**: `'2026-1' <> 'SA26-2'`, y la guarda se considera fuera del período.
+
+No se elige por cuenta propia: es nomenclatura institucional y afecta también a
+`sections.period_code`. Está documentado como R-06 en `REPORTE_ARIA.md` y como
+D15 en §6. Hasta que se decida, la Regla 2 está implementada pero inerte.
 

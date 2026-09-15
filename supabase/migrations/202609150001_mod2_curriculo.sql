@@ -27,8 +27,8 @@
 --
 --  LAS DOS REGLAS DE NEGOCIO
 --  -------------------------
---  REGLA 1 — No existen carreras vacías.
---    Un programa activo con cero materias es un error del administrativo, no un
+--  REGLA 1 — No existen CARRERAS vacías.
+--    Una CARRERA activa con cero materias es un error del administrativo, no un
 --    estado válido. Se implementa con un **constraint trigger diferido**
 --    (`deferrable initially deferred`): la comprobación corre al CONFIRMAR la
 --    transacción, no al insertar cada fila.
@@ -43,16 +43,20 @@
 --    materias en una transacción POSTERIOR. Para reestructurar, se archiva el
 --    programa y se clona — que es lo que el documento manda de todos modos.
 --
+--    **POR QUÉ SÓLO `CARRERA`.** El documento dice literalmente "no existen
+--    carreras vacías", y un CURSO_LIBRE es otra cosa: un taller corto
+--    ('Oratoria', 'Herrería') que puede no tener malla curricular. Si la regla
+--    cubriera también a los cursos libres, la migración 202609160001 —que
+--    absorbe los 5 cursos de Fase 0 dentro de `programs`— sería imposible de
+--    aplicar: ningún curso libre podría quedar activo sin inventarle una
+--    materia. La regla se acota a lo que el documento pide.
+--
 --  REGLA 2 — Inmutabilidad en uso.
 --    No se puede cambiar el `period_order` de un pensum ni quitarle materias si
 --    ya hay secciones activas del período vigente usando ese programa.
 --
---    **NO SE IMPLEMENTA AQUÍ.** La condición depende de `sections.program_id`, y
---    `sections` no tiene esa columna (deuda D13: el `sections` de Fase 0 no es el
---    que M3 necesita). La regla se implementa en la migración de M3, cuando el
---    vínculo exista. Queda escrita aquí para que no se pierda, no a medias en el
---    código.
---
+--    **SE IMPLEMENTA EN 202609160001**, que es donde existe `sections.program_id`
+--    (deuda D13: el `sections` de Fase 0 no era el que M3 necesita).
 --
 --  DECISIONES DE DISEÑO, Y DE DÓNDE SALEN
 --  --------------------------------------
@@ -195,11 +199,14 @@ comment on column public.program_subjects.period_order is
 
 
 -- ---------------------------------------------------------------------------
--- 4. Regla 1 — No existen carreras vacías (constraint trigger DIFERIDO)
+-- 4. Regla 1 — No existen CARRERAS vacías (constraint trigger DIFERIDO)
 -- ---------------------------------------------------------------------------
 -- Diferido a propósito: la comprobación corre al confirmar la transacción, así
 -- que el asistente puede insertar el programa y su pensum en el mismo lote y
 -- pasar la validación. Ver el encabezado del archivo.
+--
+-- Sólo mira las CARRERA. Un CURSO_LIBRE puede no tener pensum: es un taller
+-- corto, no un plan de estudios. Ver "LAS DOS REGLAS DE NEGOCIO" arriba.
 create or replace function public.exigir_pensum_de_programa()
 returns trigger
 language plpgsql
@@ -209,6 +216,7 @@ as $$
 declare
   v_programa uuid;
   v_activo   boolean;
+  v_tipo     text;
   v_materias integer;
 begin
   -- De qué programa hay que comprobar el pensum. La columna cambia de nombre
@@ -223,8 +231,10 @@ begin
 
   -- Si el programa ya no existe (se está borrando en esta misma transacción),
   -- no hay nada que exigirle. `not found` cubre ese caso.
-  select is_active into v_activo from public.programs where id = v_programa;
-  if not found or v_activo is not true then
+  select is_active, type into v_activo, v_tipo
+  from public.programs where id = v_programa;
+
+  if not found or v_activo is not true or v_tipo <> 'CARRERA' then
     return null;
   end if;
 
@@ -236,7 +246,7 @@ begin
     -- 23514 -> el backend lo traduce a RESTRICCION_VIOLADA (400), que es lo
     -- correcto: es un dato que no cumple una regla del sistema, no una caída.
     raise exception
-      'Un programa activo no puede quedarse sin materias. Añada al menos una al pensum o póngalo en borrador (is_active = false).'
+      'Una carrera activa no puede quedarse sin materias. Añada al menos una al pensum o póngala en borrador (is_active = false).'
       using errcode = '23514';
   end if;
 

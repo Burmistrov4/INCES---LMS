@@ -426,10 +426,17 @@ async function main() {
     db.exec("insert into public.programs (code, name, type) values ('TIPO-1', 'X', 'DIPLOMADO')"),
   );
 
-  const porDefecto = (
-    await db.query("select requires_internship, is_active from public.programs limit 0")
-  ).rows;
-  check('la consulta de control no devuelve filas (aún no hay programas)', porDefecto.length === 0);
+  // Ninguna CARRERA sembrada todavía: `programs` sólo trae los cursos libres que
+  // absorbió la migración de D12. Se comprueba sobre el dato, no sobre una
+  // consulta vacía: `select ... limit 0` no prueba absolutamente nada.
+  const carrerasAntes = (
+    await db.query("select count(*)::int as n from public.programs where type = 'CARRERA'")
+  ).rows[0].n;
+  check(
+    'todavía no hay ninguna CARRERA sembrada (sólo cursos libres)',
+    carrerasAntes === 0,
+    `hay ${carrerasAntes}`,
+  );
 
   // --- Regla 1: no existen carreras vacías ---------------------------------
   // El trigger es DIFERIDO: no falla al insertar, falla al CONFIRMAR. Esa es la
@@ -500,13 +507,20 @@ async function main() {
   await db.exec('commit');
 
   // --- RLS ----------------------------------------------------------------
+  // Se afirma sobre la PRESENCIA o AUSENCIA de una fila concreta, no sobre un
+  // recuento: `programs` ya trae los 5 cursos libres que sembró la migración de
+  // D12, y un `length === 1` se rompe en cuanto el catálogo crezca.
   const anonProgramas = await como('anon', null, () =>
     db.query('select code from public.programs order by code'),
   );
   check(
     'anon ve la oferta activa (el formulario de inscripción la necesita)',
-    anonProgramas.rows.length === 1 && anonProgramas.rows[0].code === 'SIST-01',
-    `ve ${anonProgramas.rows.length}`,
+    anonProgramas.rows.some((p) => p.code === 'SIST-01'),
+    `ve ${anonProgramas.rows.length} programas`,
+  );
+  check(
+    'un programa en borrador NO asoma a anon',
+    !anonProgramas.rows.some((p) => p.code === 'BORR-01'),
   );
 
   await esperaError('anon NO tiene acceso al banco de materias', () =>
@@ -520,9 +534,12 @@ async function main() {
   );
 
   const alumnoLee = await como('authenticated', ALUMNO_ID, () =>
-    db.query('select count(*)::int as n from public.programs'),
+    db.query('select code from public.programs'),
   );
-  check('un estudiante sí puede leer la oferta completa', alumnoLee.rows[0].n === 1);
+  check(
+    'un estudiante sí puede leer la oferta completa',
+    alumnoLee.rows.some((p) => p.code === 'SIST-01'),
+  );
 
   // Un borrador no debe asomar al formulario público.
   await db.exec(
@@ -530,18 +547,246 @@ async function main() {
      values ('BORR-01', 'Programa en borrador', 'CURSO_LIBRE', false)`,
   );
   const anonTrasBorrador = await como('anon', null, () =>
-    db.query('select count(*)::int as n from public.programs'),
+    db.query('select code from public.programs'),
   );
   check(
-    'un programa en borrador no asoma a anon',
-    anonTrasBorrador.rows[0].n === 1,
-    `anon ve ${anonTrasBorrador.rows[0].n}`,
+    'sigue sin asomar tras crear más programas',
+    !anonTrasBorrador.rows.some((p) => p.code === 'BORR-01'),
   );
 
   const adminProgramas = await como('authenticated', ADMIN_ID, () =>
-    db.query('select count(*)::int as n from public.programs'),
+    db.query('select code from public.programs'),
   );
-  check('el admin sí ve el borrador', adminProgramas.rows[0].n === 2);
+  check('el admin sí ve el borrador', adminProgramas.rows.some((p) => p.code === 'BORR-01'));
+
+  // ------------------------------ 14. D12 y D13
+  seccion('14. D12 — programs absorbe cursos');
+
+  // `information_schema.tables` INCLUYE las vistas (con table_type='VIEW'), así
+  // que no basta con que la fila exista: hay que mirar el tipo.
+  const tipoCursos = (
+    await db.query(
+      "select table_type from information_schema.tables where table_schema='public' and table_name='cursos'",
+    )
+  ).rows[0]?.table_type;
+  check('cursos YA NO es una tabla base', tipoCursos === 'VIEW', String(tipoCursos));
+  check(
+    'cursos es una vista de compatibilidad',
+    (
+      await db.query(
+        "select count(*)::int as n from information_schema.views where table_schema='public' and table_name='cursos'",
+      )
+    ).rows[0].n === 1,
+  );
+
+  const cursosVista = await db.query('select nombre from public.cursos order by nombre');
+  check(
+    'la vista proyecta los 5 cursos libres de Fase 0',
+    cursosVista.rows.length >= 5,
+    `ve ${cursosVista.rows.length}`,
+  );
+
+  const programasCurso = await db.query(
+    "select code, name, is_active from public.programs where code like 'CUR-%' order by code",
+  );
+  check(
+    'los 5 cursos viven ahora en programs con código institucional',
+    programasCurso.rows.length === 5,
+    `hay ${programasCurso.rows.length}`,
+  );
+  check('y se conservaron activos', programasCurso.rows.every((p) => p.is_active));
+
+  // El fix de la Regla 1: un CURSO_LIBRE activo sin pensum es válido. Si no,
+  // esta misma migración no habría podido aplicarse.
+  let cursoLibreVacioOk = true;
+  try {
+    await db.exec('begin');
+    await db.exec(
+      "insert into public.programs (code, name, type, is_active) values ('CUR-TEST-1', 'Curso libre de prueba', 'CURSO_LIBRE', true)",
+    );
+    await db.exec('commit');
+  } catch {
+    cursoLibreVacioOk = false;
+    await db.exec('rollback');
+  }
+  check('un CURSO_LIBRE activo SIN pensum sí se puede confirmar', cursoLibreVacioOk);
+
+  // Y una CARRERA vacía sigue bloqueada: la regla se acotó, no se desactivó.
+  await db.exec('begin');
+  await db.exec(
+    "insert into public.programs (code, name, type, is_active) values ('CAR-VACIA1', 'Carrera vacía', 'CARRERA', true)",
+  );
+  await esperaError('una CARRERA activa sin pensum SIGUE sin poder confirmarse', () =>
+    db.exec('commit'),
+  );
+
+  // --- RLS de la vista -----------------------------------------------------
+  const anonCursos = await como('anon', null, () => db.query('select nombre from public.cursos'));
+  check(
+    'anon ve los cursos libres activos a través de la vista',
+    anonCursos.rows.length === 6,
+    `ve ${anonCursos.rows.length}`,
+  );
+  check(
+    'security_invoker funciona: un curso libre archivado NO asoma a anon',
+    !anonCursos.rows.some((c) => c.nombre === 'Programa en borrador'),
+  );
+  const authCursos = await como('authenticated', ALUMNO_ID, () =>
+    db.query('select nombre from public.cursos'),
+  );
+  check(
+    'un autenticado sí ve el curso libre en borrador (la vista no lo filtra)',
+    authCursos.rows.some((c) => c.nombre === 'Programa en borrador'),
+  );
+
+  seccion('15. D13 — sections rediseñada + Regla 2 de M2');
+
+  const cols = (
+    await db.query(
+      "select column_name from information_schema.columns where table_schema='public' and table_name='sections' order by column_name",
+    )
+  ).rows.map((c) => c.column_name);
+  check('sections tiene program_id (lo que el documento no tenía)', cols.includes('program_id'));
+  check('sections tiene subject_id', cols.includes('subject_id'));
+  check('sections tiene period_code', cols.includes('period_code'));
+  check('sections tiene max_capacity', cols.includes('max_capacity'));
+  check('sections ya no tiene cupo_maximo', !cols.includes('cupo_maximo'));
+  check('sections ya no tiene nombre', !cols.includes('nombre'));
+
+  check(
+    'RLS sigue activo en sections',
+    (
+      await db.query(
+        "select rowsecurity from pg_tables where schemaname='public' and tablename='sections'",
+      )
+    ).rows[0]?.rowsecurity === true,
+  );
+  check(
+    'el FK enrollments.section_id -> sections se recreó',
+    (
+      await db.query(
+        "select count(*)::int as n from information_schema.table_constraints where constraint_schema='public' and table_name='enrollments' and constraint_name='enrollments_section_id_fkey'",
+      )
+    ).rows[0].n === 1,
+  );
+
+  const PERIODO = (
+    await db.query(
+      "select valor #>> '{}' as p from public.system_settings where clave = 'periodo_activo'",
+    )
+  ).rows[0]?.p;
+  check(
+    'hay un período vigente declarado (sin él la Regla 2 no tiene contra qué comparar)',
+    typeof PERIODO === 'string' && PERIODO.length > 0,
+    String(PERIODO),
+  );
+
+  const SEC_ID = '55555555-5555-5555-5555-555555555555';
+
+  // Sin secciones todavía, el pensum se puede reordenar.
+  let reordenSinUso = true;
+  try {
+    await db.exec(`update public.program_subjects set period_order = 2 where program_id = '${PROG_ID}'`);
+  } catch {
+    reordenSinUso = false;
+  }
+  check('sin secciones activas, reordenar el pensum SÍ se permite', reordenSinUso);
+
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity)
+     values ('${SEC_ID}', '${PROG_ID}', '${MAT_ID}', '${PERIODO}', 'SA', 25)`,
+  );
+  check(
+    'la sección de prueba nace activa',
+    (await db.query(`select is_active from public.sections where id = '${SEC_ID}'`)).rows[0]
+      .is_active === true,
+  );
+
+  await esperaError('con una sección activa, reordenar el pensum se bloquea', () =>
+    db.exec(`update public.program_subjects set period_order = 3 where program_id = '${PROG_ID}'`),
+  );
+  await esperaError('con una sección activa, quitar la materia del pensum se bloquea', () =>
+    db.exec(`delete from public.program_subjects where program_id = '${PROG_ID}'`),
+  );
+
+  // La excepción que evita el falso bloqueo: guardar sin cambiar nada. Un
+  // formulario que falla al pulsar "guardar" sin haber tocado nada es la clase
+  // de comportamiento que hace que la gente desconfíe del sistema.
+  let noOpOk = true;
+  try {
+    await db.exec(
+      `update public.program_subjects set period_order = period_order where program_id = '${PROG_ID}'`,
+    );
+  } catch {
+    noOpOk = false;
+  }
+  check('un UPDATE que no cambia la estructura NO se bloquea', noOpOk);
+
+  // Una sección de OTRO período no bloquea. Para probarlo hay que archivar antes
+  // la del período vigente: si no, la prueba pasaría (o fallaría) por el motivo
+  // equivocado y no diría nada sobre el filtro de período.
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity)
+     values ('66666666-6666-6666-6666-666666666666', '${PROG_ID}', '${MAT_ID}', '2099-9', 'SB', 25)`,
+  );
+  await esperaError('mientras la del período vigente siga activa, sigue bloqueado', () =>
+    db.exec(`update public.program_subjects set period_order = 5 where program_id = '${PROG_ID}'`),
+  );
+
+  await db.exec(`update public.sections set is_active = false where id = '${SEC_ID}'`);
+  let soloOtroPeriodo = true;
+  try {
+    await db.exec(`update public.program_subjects set period_order = 5 where program_id = '${PROG_ID}'`);
+  } catch {
+    soloOtroPeriodo = false;
+  }
+  check('una sección de OTRO período no bloquea el pensum', soloOtroPeriodo);
+
+  // La misma sección no se puede abrir dos veces para la misma materia y
+  // período, aunque la existente esté archivada: el nombre identifica la
+  // sección, y dos 'SA' del mismo lapso serían la misma sección dos veces.
+  await esperaError('la misma sección no se duplica para materia y período', () =>
+    db.exec(
+      `insert into public.sections (program_id, subject_id, period_code, name, max_capacity)
+       values ('${PROG_ID}', '${MAT_ID}', '${PERIODO}', 'SA', 25)`,
+    ),
+  );
+
+  // Mover una materia entre programas: si el DESTINO está en uso también se
+  // bloquea. Comprobar sólo el origen dejaría ese agujero abierto.
+  const PROG2 = '77777777-7777-7777-7777-777777777777';
+  const MAT2 = '88888888-8888-8888-8888-888888888888';
+  await db.exec('begin');
+  await db.exec(
+    `insert into public.programs (id, code, name, type, is_active)
+     values ('${PROG2}', 'SIST-02', 'Analisis de Sistemas II', 'CARRERA', true)`,
+  );
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours)
+     values ('${MAT2}', 'BD-I', 'Bases de Datos I', 96)`,
+  );
+  await db.exec(
+    `insert into public.program_subjects (program_id, subject_id, period_order)
+     values ('${PROG2}', '${MAT2}', 1)`,
+  );
+  await db.exec('commit');
+  await db.exec(
+    `insert into public.sections (program_id, subject_id, period_code, name, max_capacity)
+     values ('${PROG2}', '${MAT2}', '${PERIODO}', 'SA', 25)`,
+  );
+  await esperaError('mover una materia a un programa EN USO también se bloquea', () =>
+    db.exec(`update public.program_subjects set program_id = '${PROG2}' where program_id = '${PROG_ID}'`),
+  );
+
+  // Archivar la sección es la salida que documenta la migración.
+  await db.exec(`update public.sections set is_active = false where program_id = '${PROG_ID}'`);
+  let trasArchivar = true;
+  try {
+    await db.exec(`update public.program_subjects set period_order = 4 where program_id = '${PROG_ID}'`);
+  } catch {
+    trasArchivar = false;
+  }
+  check('archivar las secciones desbloquea el pensum (la salida documentada)', trasArchivar);
 
   // ---------------------------------------------------------------- resumen
   console.log(
