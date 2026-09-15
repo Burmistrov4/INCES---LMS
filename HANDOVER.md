@@ -15,7 +15,9 @@
 > cerró capturando `nombres`/`apellidos` en la invitación de docente y pasándolos a
 > `user_metadata`; y R-06 se resolvió fijando `periodo_activo = "SA26-2"` y
 > habilitando `m2_curriculo`/`m3_cuadrante` (migración `202609180003`). Backend
-> 341/341, Flutter 307/307, SQL 164/164.
+> 341/341, Flutter 307/307, SQL 165/165 (12 migraciones). La batería SQL
+(`supabase/tests/validate.mjs`) se corrigió para reflejar el periodo `SA26-2` y los
+módulos M2/M3 habilitados: 165 aserciones en verde contra PostgreSQL real (pglite).
 
 ---
 
@@ -99,7 +101,7 @@ anti-colisión debe ser `DEFINER`** (ver §2.6).
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
 | Flutter | **307 / 307** en verde | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **164 / 164** en verde · 10 migraciones | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **165 / 165** en verde · 12 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
 > tocaste. En el cierre de M2, correr los archivos sueltos daba verde y la suite
@@ -408,7 +410,7 @@ asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
 
 | Qué | Resultado |
 |---|---|
-| pglite (PostgreSQL real, 10 migraciones) | **164 / 164** |
+| pglite (PostgreSQL real, 12 migraciones) | **165 / 165** |
 | Esquema en la nube (`verificar-esquema.mjs`) | **81 / 81**, 0 fallos |
 | Backend (vitest) | **341 / 341** |
 | Flutter | **307 / 307** |
@@ -747,7 +749,7 @@ ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 -----------------------------------------------------
 - Backend: 341/341 tests, typecheck y eslint limpios.
 - Flutter: 307/307 tests, `flutter analyze` sin incidencias.
-- SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
+- SQL: 165/165 aserciones en pglite, sobre las 12 migraciones.
 - Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
 - HEAD en `main` = `origin/main` (comprueba con
@@ -781,7 +783,7 @@ Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (341 / 307 / 164).
+   para confirmar que heredas verde (341 / 307 / 165).
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
    (a) el frontend de M3 (aulas, lapsos, guardias y la rejilla del cuadrante:
        es lo único que falta del módulo, y el backend ya está),

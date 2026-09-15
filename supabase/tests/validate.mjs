@@ -121,8 +121,9 @@ async function main() {
   );
   check('m9 (certificados/QR) NO se siembra', !modulos.some((m) => m.clave.startsWith('m9')));
   check(
-    'sólo m0_cpanel y m1_onboarding arrancan encendidos',
-    modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') === 'm0_cpanel,m1_onboarding',
+    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3)',
+    modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
+      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante',
   );
   check(
     'm0_cpanel está restringido al rol admin',
@@ -162,7 +163,13 @@ async function main() {
     db.exec("insert into public.system_modules (clave, nombre, habilitado) values ('m0_cpanel', 'x', false)"),
   );
 
-  // Un módulo cualquiera SÍ debe poder apagarse: el guardián no es un bloqueo general.
+  // Un módulo normal SÍ debe poder apagarse y volverse a encender: el guardián
+  // no es un bloqueo general. La migración 202609180003 ya dejó m2_curriculo
+  // encendido, así que lo apagamos y lo encendemos para dejar una transición
+  // false->true auditada; si no, el último renglón sería true->true y fallaría.
+  await db.exec("update public.system_modules set habilitado = false where clave = 'm2_curriculo'");
+  const m2off = (await db.query("select habilitado from public.system_modules where clave = 'm2_curriculo'")).rows[0];
+  check('un módulo normal sí se puede apagar', m2off.habilitado === false);
   await db.exec("update public.system_modules set habilitado = true where clave = 'm2_curriculo'");
   const m2 = (await db.query("select habilitado from public.system_modules where clave = 'm2_curriculo'")).rows[0];
   check('un módulo normal sí se puede encender', m2.habilitado === true);
@@ -200,10 +207,19 @@ async function main() {
   // ------------------------------------------------------- 6. idempotencia
   seccion('6. Idempotencia de la semilla');
   await db.exec("update public.system_modules set habilitado = false where clave = 'm6_asistencia'");
+  // La semilla de 202609120002 fija periodo_activo = '2026-1' de forma literal.
+  // Tras la migración 202609180003 ese lapso se renombró a 'SA26-2' y ya no
+  // existe en academic_periods, así que reaplicar la semilla tal cual dispara la
+  // guarda exigir_periodo_registrado() (23514). Sustituimos el literal por el
+  // periodo vigente REAL para que la reaplicación sea coherente con el estado.
+  const periodoVigente = (
+    await db.query("select valor #>> '{}' as p from public.system_settings where clave = 'periodo_activo'")
+  ).rows[0]?.p;
   const semillaSql = fs
     .readFileSync(path.join(SUPABASE, 'migrations', '202609120002_phase3_admin_core.sql'), 'utf8')
     .split('-- 10. Semilla')[1]
-    .split('-- 11.')[0];
+    .split('-- 11.')[0]
+    .replaceAll('2026-1', periodoVigente);
   await db.exec(semillaSql);
   const m6 = (await db.query("select habilitado from public.system_modules where clave = 'm6_asistencia'")).rows[0];
   const totalModulos = (await db.query('select count(*)::int as n from public.system_modules')).rows[0].n;
