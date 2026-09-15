@@ -19,7 +19,7 @@
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real, y **volvió a corregirse el 2026-09-15** (333 backend / 197 Flutter /
+> base real, y **volvió a corregirse el 2026-09-15** (341 backend / 197 Flutter /
 > 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
 > código**: verifica antes de citar una cifra de aquí.
 
@@ -52,7 +52,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **197 / 197** en verde |
-| `npm test` (backend) | **333 / 333** en verde (16 archivos) |
+| `npm test` (backend) | **341 / 341** en verde (16 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
@@ -63,6 +63,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | **Migraciones de M3 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
+| **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
 | Documento OpenAPI | OpenAPI 3.1.0 · **29 rutas · 62 esquemas** (las 14 de M3 incluidas) |
@@ -846,7 +847,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 333 / 197 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 197 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -928,7 +929,7 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 333 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
+npm test              # 341 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
@@ -937,6 +938,7 @@ SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar mi
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
 node supabase/humo-invitaciones.mjs                                 # 17 comprobaciones (--confirmar escribe)
+node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprobaciones (escribe y purga)
 ```
 
 ### Las tres redes de seguridad, y qué cubre cada una
@@ -945,10 +947,11 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 | --- | --- | --- |
 | `flutter test` (197) | La lógica del cliente | El SQL, la API, la red |
 | `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (333) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `npm test` (341) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
+| `humo-cuadrante.mjs` (53) | El mensaje REAL del trigger, la colisión que cruza dos tablas y la RLS de las vistas por rol | El frontend de M3 |
 
 > **La red de `supabase/tests` tiene un punto ciego, y M3 lo demostró.** Corre
 > como el **dueño** de las tablas, así que **no ve los problemas de privilegios**:
@@ -1433,6 +1436,30 @@ contra un texto inventado.
 > de eso, las rutas montadas dentro de un `app.register(...)` no aparecen y la
 > comparación daría un verde hueco. Esto cierra el punto ciego de D6: añadir una
 > ruta y olvidar documentarla ahora falla.
+
+### El humo real, y lo que encontró
+
+`node supabase/humo-cuadrante.mjs --confirmar` → **53/53, sin residuo**. Escribe
+con el **JWT de un administrador real** (no con la service role key), porque eso
+es lo que hace el backend, así que comprueba de paso las políticas `*_admin_all`
+y el `with check`. Cubre lo que un doble no puede: el mensaje real del trigger
+con el día y el bloque interpolados, la colisión cruzada clase-contra-guardia,
+que el mismo hueco en otro lapso sí se permite, la sintaxis de PostgREST
+—incluido que doblar los paréntesis del `or(...)` **sí** lo rompe—, que
+`PGRST116` existe de verdad al parchear un id ausente, y la RLS por rol a través
+de las vistas `security_invoker`.
+
+> **Encontró R-21: el nombre del docente llega vacío al cuadrante.** El canal de
+> invitación nunca captura `nombres`/`apellidos`, así que `nombre_para_mostrar()`
+> devuelve NULL y la columna del docente queda en blanco. La función está bien
+> escrita; el hueco es del Módulo 1. **Decisión del equipo**, no técnica: ver
+> `REPORTE_ARIA.md` **R-21** y `HANDOVER.md` §2.6.
+
+Y por el otro lado, `backend/test/reglas-cuadrante.test.ts` **lee la migración
+como texto** y comprueba contra ella `turnoDeBloque`, `diaLegible` y
+`esChoqueDeAgenda`. Antes esas pruebas copiaban el mensaje a mano —probaban que
+el detector reconoce **la copia**, no el original—. Ahora los dos lados no pueden
+separarse en silencio.
 
 ### Las cuatro tablas y por qué cada una
 

@@ -517,6 +517,84 @@ demostró el fail-first de las cuatro aserciones nuevas.
 
 ---
 
+## R-21 · El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL
+
+**Encontrado el 2026-09-15** por `supabase/humo-cuadrante.mjs`, el humo real de
+M3. **No lo podía ver ninguna prueba con dobles**, y ninguna de las 333 del
+backend lo ve: el doble en memoria devuelve `'Carlos Rondón'` porque el *fixture*
+tiene nombre.
+
+### Qué pasa
+
+`v_cuadrante_clases.teacher_name` sale **NULL** para un docente real. La columna
+del docente en el cuadrante —y el nombre del profesor en el horario del
+estudiante— quedan en blanco.
+
+### Por qué, con la cadena entera
+
+1. `profiles.nombres` y `apellidos` son `text not null`, **sin valor por
+   defecto**.
+2. `handle_new_user()` inserta `coalesce(v_nombres, '')`, y `v_nombres` sale de
+   `raw_user_meta_data ->> 'nombres'`. **Sin metadatos, guarda `''`** — cadena
+   vacía, no NULL.
+3. El único canal que crea docentes es la invitación, y
+   `crearUsuarioDocente(email, password)` llama a
+   `auth.admin.createUser({ email, password, email_confirm: true })`
+   **sin `user_metadata`**. `POST /auth/activar` sólo acepta `token` y
+   `password` (`esquemaActivarCuenta`), y **no existe ninguna ruta que fije
+   `nombres`/`apellidos`**.
+4. `nombre_para_mostrar()` hace
+   `nullif(btrim(p.nombres || ' ' || p.apellidos), '')`. Con `'' || ' ' || ''`
+   queda `' '`, `btrim` lo deja en `''` y el `nullif` lo convierte en **NULL**.
+
+### Lo que NO es el fallo
+
+- **La función está bien escrita.** El `nullif(btrim(…))` es precisamente lo que
+  evita que la rejilla pinte un espacio en blanco en vez de nada. Se comprobó
+  contra la base real: las columnas contienen `''`, no NULL, y la función las
+  normaliza correctamente.
+- **No es un problema de la RLS ni de `security_invoker`.** La vista resuelve el
+  nombre en cuanto existe: el humo fija `nombres`/`apellidos` a un docente
+  temporal y `teacher_name` sale `'Luisa Márquez'`. El aislamiento por rol
+  también es correcto (el estudiante ve sus secciones y no puede leer
+  `profiles`).
+
+### Dónde está, entonces
+
+**Aguas arriba: nadie captura el nombre del docente.** Es un hueco del **Módulo
+1**, no del 3. M3 construyó la forma de mostrar el nombre (R-14) sobre un dato
+que el canal de alta nunca llena.
+
+### Opciones, y por qué no elijo ninguna
+
+| Opción | Efecto | Quién decide |
+| --- | --- | --- |
+| **A.** Que la invitación (o la activación) pida nombres y apellidos | Arregla la causa. Toca la pantalla de invitación de M1, el `POST /admin/usuarios/invitaciones` y el esquema Zod | **Equipo** — es alcance de M1, no de M3 |
+| **B.** Que `nombre_para_mostrar()` caiga al correo | Haría visible el nombre… y **filtraría el correo del docente a cualquier estudiante**, que es exactamente lo que R-14 evitó | Descartada por diseño |
+| **C.** Que la interfaz muestre «Docente sin nombre» cuando es NULL | No arregla nada, pero deja de ser un hueco mudo | Equipo, y sólo como parche |
+
+**Recomendación: A.** Es la única que arregla la causa, y el coste es un campo
+más en un formulario que ya existe.
+
+> **Lo que sí queda cerrado:** el humo comprueba las dos mitades —que el nombre
+> se resuelve cuando existe, y que sin nombre sale NULL— así que el día que se
+> implemente A, la segunda aserción falla y obliga a actualizarla. El defecto no
+> puede volver a pasar inadvertido.
+
+### Verificación
+
+`node supabase/humo-cuadrante.mjs --confirmar` → **53/53**, con estas dos
+comprobaciones entre ellas:
+
+```
+[OK  ] R-14: la vista resuelve el NOMBRE del docente cuando existe
+[OK  ] R-21: un docente sin `nombres`/`apellidos` da `teacher_name` NULL
+[OK  ] R-21: y sus columnas están VACÍAS (no NULL): `handle_new_user` inserta coalesce(…, '')
+[OK  ] R-21: `nombre_para_mostrar` convierte ese vacío en NULL con nullif(btrim(…)) — la función está bien; el hueco está aguas arriba
+```
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -541,3 +619,4 @@ demostró el fail-first de las cuatro aserciones nuevas.
 | R-18 | «Aula/zona»: una zona no es un aula | Una zona es una fila de `classrooms` | ✅ Resuelta |
 | R-19 | «Período activo» significa dos cosas | `is_active` (abierto) vs `periodo_activo` (vigente) | ✅ Resuelta (se puede simplificar) |
 | R-20 | Trigger `invoker` + función revocada: módulo inoperable | Envoltorios a `security definer` (migración 202609180002) | ✅ Resuelta y verificada |
+| R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación nunca captura los nombres** | 🔴 **DECISIÓN PENDIENTE** (alcance de M1) |

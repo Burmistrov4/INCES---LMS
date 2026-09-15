@@ -3,7 +3,7 @@
 > **Estado (2026-09-15): esquema y backend hechos.** Las **10 migraciones están
 > en el libro mayor**, `verificar-esquema.mjs` pasa **81/81** comprobaciones
 > contra la nube, la batería de `supabase/tests` da **164 aserciones en verde** y
-> la suite del backend **333**. **Las 14 rutas de §1 existen y están
+> la suite del backend **341**. **Las 14 rutas de §1 existen y están
 > documentadas** en `backend/openapi.json`: este documento ya no es sólo un
 > contrato a cumplir, es la descripción de lo construido. Lo que falta de M3 es
 > el **frontend**.
@@ -604,11 +604,49 @@ las políticas existen para acotar. `verificar-esquema.mjs` comprueba el
 | 8 | `verificar-esquema.mjs` | ✅ **81/81** contra la nube |
 | 9 | `supabase/tests` | ✅ **164** aserciones |
 | 10 | Las 14 rutas de §1 | ✅ **Implementadas** (PASO 4) y documentadas en `openapi.json` |
-| 11 | Suite del backend | ✅ **333**, con **80** pruebas nuevas de M3 |
+| 11 | Suite del backend | ✅ **341**, con **88** pruebas nuevas de M3 |
+| 12 | Humo contra la base real | ✅ **53/53** (`supabase/humo-cuadrante.mjs`), sin residuo |
 
 **Lo que falta de M3:** el **frontend** (pantallas de aulas, lapsos, guardias y
 cuadrante). El esquema no va a moverse y las rutas ya existen, así que se puede
 construir contra este contrato sin esperar a nada.
+
+### El humo real (`supabase/humo-cuadrante.mjs`)
+
+Escribe con el **JWT de un administrador real**, no con la service role key,
+porque eso es lo que hace el backend: así comprueba de paso las políticas
+`*_admin_all` y el `with check`. Cubre lo que un doble en memoria no puede:
+
+- **El mensaje real del trigger**, con el día y el bloque ya interpolados. El
+  doble copia ese texto a mano; sólo la base demuestra que la copia es fiel.
+  (`backend/test/reglas-cuadrante.test.ts` cierra el círculo por el otro lado:
+  extrae los `raise exception` **del archivo de migración** y comprueba el
+  detector contra ellos, así que los dos lados no pueden separarse.)
+- **La colisión cruzada**: una clase choca con una **guardia**, que vive en otra
+  tabla. Ningún `unique` podría verlo.
+- **El mismo hueco en otro lapso sí se permite**, que es la razón de que un
+  `unique (teacher_id, day_of_week, block)` habría estado mal.
+- **La sintaxis de PostgREST**: el filtro de tipo (`is_workshop` + `capacity`),
+  el `or(...)` del texto de búsqueda —y que **doblar los paréntesis sí lo
+  rompe**, que es por lo que `filtroIlike` no los añade—.
+- **`PGRST116` existe de verdad** al parchear un id ausente con
+  `Accept: application/vnd.pgrst.object+json`. Sin esa cabecera PostgREST
+  devuelve `200` con `[]` y la traducción a 404 nunca se dispararía.
+- **El guarda de `periodo_activo`**: declarar un lapso que no está en el catálogo
+  es un `23514`.
+- **La RLS por rol a través de las vistas `security_invoker`**: el estudiante ve
+  las clases de SUS secciones y no las demás, no ve guardias, ve el **nombre** del
+  docente… y **no puede leer `profiles`**, que es exactamente por lo que hacía
+  falta `nombre_para_mostrar()`.
+- **`turno` es columna generada**: la calcula la base desde el bloque.
+
+> **Encontró un defecto real: R-21.** `teacher_name` sale **NULL** para un
+> docente de verdad. La cadena es: `crearUsuarioDocente()` llama a
+> `auth.admin.createUser` **sin `user_metadata`** → `handle_new_user` guarda `''`
+> en `nombres`/`apellidos` → `nombre_para_mostrar()` devuelve NULL. La función
+> está bien escrita; **el canal de invitación nunca captura los nombres**, y por
+> eso la columna del docente queda en blanco. Es alcance de M1 y es una decisión
+> del equipo: ver `REPORTE_ARIA.md` **R-21**.
 
 ### Las tres decisiones de implementación que este contrato dejaba abiertas
 

@@ -96,7 +96,7 @@ anti-colisión debe ser `DEFINER`** (ver §2.6).
 
 | Suite | Resultado | Comando |
 |---|---|---|
-| Backend (vitest) | **333 / 333** en verde | `cd backend && npm test` |
+| Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
 | Flutter | **197 / 197** en verde | `flutter test` |
 | SQL (pglite, PostgreSQL real) | **164 / 164** en verde · 10 migraciones | `cd supabase/tests && npm test` |
 
@@ -409,7 +409,7 @@ asistente son **RPC** —`crear_programa_con_pensum` y `reemplazar_pensum`—,
 |---|---|
 | pglite (PostgreSQL real, 10 migraciones) | **164 / 164** |
 | Esquema en la nube (`verificar-esquema.mjs`) | **81 / 81**, 0 fallos |
-| Backend (vitest) | **333 / 333** |
+| Backend (vitest) | **341 / 341** |
 | Flutter | **197 / 197** |
 | Humo de M2 contra la base real | **15 / 15**, purga completa |
 
@@ -546,6 +546,64 @@ cruces: docente-clase, docente-guardia, espacio-clase y espacio-guardia.
 **101 pruebas nuevas:** `test/reglas-cuadrante.test.ts` (20),
 `test/cuadrante.test.ts` (60) y los casos de M3 en `test/esquemas.test.ts`.
 
+#### Humo real del cuadrante: `supabase/humo-cuadrante.mjs` — **53/53**, sin residuo
+
+```bash
+node supabase/humo-cuadrante.mjs              # simulación (no escribe)
+node supabase/humo-cuadrante.mjs --confirmar  # ejecuta (escribe y purga)
+```
+
+Escribe con el **JWT de un administrador real**, no con la service role key,
+porque eso es lo que hace el backend. Cubre lo que un doble no puede: el
+**mensaje real del trigger** con el día y el bloque ya interpolados, la
+**colisión cruzada** clase-contra-guardia, que **el mismo hueco en otro lapso sí
+se permite**, la sintaxis de PostgREST (incluido que **doblar los paréntesis del
+`or(...)` sí lo rompe**), que **`PGRST116` existe de verdad** al parchear un id
+ausente, y la **RLS por rol** a través de las vistas `security_invoker`.
+
+Además, `test/reglas-cuadrante.test.ts` **lee la migración como texto** y
+comprueba contra ella `turnoDeBloque`, `diaLegible` y `esChoqueDeAgenda`. Antes
+esas pruebas copiaban el mensaje a mano —es decir, probaban que el detector
+reconoce **la copia**, no el original—. Ahora, si alguien reescribe un `raise
+exception` o mueve la frontera de turnos, falla. (Esa prueba ya destapó que hay
+**cuatro** `raise exception`, no tres: faltaba el de «la sección no existe».)
+
+#### 🔴 R-21 — el nombre del docente llega vacío al cuadrante (decisión del equipo)
+
+El humo encontró un defecto real, y **no es de M3**:
+
+`v_cuadrante_clases.teacher_name` sale **NULL** para cualquier docente de verdad,
+así que la columna del docente en el cuadrante —y el nombre del profesor en el
+horario del estudiante— quedan **en blanco**.
+
+La cadena, verificada contra la base y contra el código:
+
+1. `profiles.nombres` y `apellidos` son `text not null`, **sin valor por defecto**.
+2. `handle_new_user()` inserta `coalesce(v_nombres, '')` desde
+   `raw_user_meta_data`. **Sin metadatos guarda `''`.**
+3. El único canal que crea docentes es la invitación, y
+   `crearUsuarioDocente(email, password)` llama a `auth.admin.createUser`
+   **sin `user_metadata`**. `POST /auth/activar` sólo acepta `token` y `password`.
+   **No existe ninguna ruta que fije los nombres.**
+4. `nombre_para_mostrar()` hace `nullif(btrim(nombres || ' ' || apellidos), '')`:
+   con `'' || ' ' || ''` queda `' '` → `btrim` → `''` → **NULL**.
+
+**La función está bien escrita** (ese `nullif(btrim(…))` es justo lo que evita
+pintar un espacio en blanco). **El hueco está aguas arriba, en el Módulo 1:** M3
+construyó la forma de mostrar el nombre (R-14) sobre un dato que el alta nunca
+llena.
+
+| Opción | Efecto | Quién decide |
+|---|---|---|
+| **A.** Que la invitación o la activación pidan nombres y apellidos | Arregla la causa. Toca la pantalla de invitación de M1 y su esquema Zod | **Equipo** (alcance de M1) |
+| **B.** Que la función caiga al correo | Filtraría el correo del docente a cualquier estudiante — lo que R-14 evitó | Descartada |
+| **C.** Que la interfaz diga «Docente sin nombre» | No arregla nada; sólo deja de ser un hueco mudo | Parche |
+
+**Recomendación: A.** Detalle completo en `REPORTE_ARIA.md` **R-21**. El humo
+comprueba las dos mitades (con nombre y sin nombre), así que el día que se
+implemente A, la segunda aserción falla y obliga a actualizarla: el defecto no
+puede volver a pasar inadvertido.
+
 #### Deuda D6 cerrada del todo
 
 `test/openapi.test.ts` ya **no coteja contra una lista escrita a mano**. Ahora
@@ -656,7 +714,7 @@ DOCUMENTACIÓN VIVA (léela antes de escribir código)
 
 ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 -----------------------------------------------------
-- Backend: 333/333 tests, typecheck y eslint limpios.
+- Backend: 341/341 tests, typecheck y eslint limpios.
 - Flutter: 197/197 tests, `flutter analyze` sin incidencias.
 - SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
 - Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
@@ -692,7 +750,7 @@ Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (333 / 197 / 164).
+   para confirmar que heredas verde (341 / 197 / 164).
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
    (a) el frontend de M3 (aulas, lapsos, guardias y la rejilla del cuadrante:
        es lo único que falta del módulo, y el backend ya está),
