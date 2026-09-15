@@ -868,6 +868,8 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       const invitacion: InvitacionDocente = {
         id: `inv-${estado.invitaciones.length + 1}`,
         email: entrada.email,
+        nombres: entrada.nombres,
+        apellidos: entrada.apellidos,
         tokenHash: entrada.tokenHash,
         isUsed: false,
         createdAt: new Date().toISOString(),
@@ -886,15 +888,15 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
         i.id === id ? { ...i, isUsed: true } : i,
       );
     },
-    async crearUsuarioDocente(email) {
+    async crearUsuarioDocente(email, _password, nombres, apellidos) {
       revisar('invitaciones.crearUsuarioDocente');
       const id = `usr-${estado.perfiles.length + 1}-${estado.invitaciones.length}`;
       const perfil: Perfil = {
         id,
         email,
         cedula: null,
-        nombres: '',
-        apellidos: '',
+        nombres,
+        apellidos,
         rol: 'estudiante',
         activo: true,
       };

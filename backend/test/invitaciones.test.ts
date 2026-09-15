@@ -47,7 +47,7 @@ describe('invitación de docentes — administrador', () => {
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
       headers: conToken(TOKEN_ADMIN),
-      payload: { email: 'profesor@inces.test' },
+      payload: { email: 'profesor@inces.test', nombres: 'Profesor', apellidos: 'Invitado' },
     });
 
     expect(respuesta.statusCode).toBe(200);
@@ -76,7 +76,7 @@ describe('invitación de docentes — administrador', () => {
     const respuesta = await arnés.app.inject({
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
-      payload: { email: 'x@inces.test' },
+      payload: { email: 'x@inces.test', nombres: 'Equis', apellidos: 'Usuario' },
     });
     expect(respuesta.statusCode).toBe(401);
   });
@@ -87,7 +87,7 @@ describe('invitación de docentes — administrador', () => {
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
       headers: conToken(TOKEN_ALUMNO),
-      payload: { email: 'x@inces.test' },
+      payload: { email: 'x@inces.test', nombres: 'Equis', apellidos: 'Usuario' },
     });
     expect(respuesta.statusCode).toBe(403);
   });
@@ -98,7 +98,7 @@ describe('invitación de docentes — administrador', () => {
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
       headers: conToken(TOKEN_ADMIN),
-      payload: { email: 'no-es-correo' },
+      payload: { email: 'no-es-correo', nombres: 'No', apellidos: 'Correo' },
     });
     expect(respuesta.statusCode).toBe(400);
   });
@@ -111,7 +111,7 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
       headers: conToken(TOKEN_ADMIN),
-      payload: { email: 'nuevo@inces.test' },
+      payload: { email: 'nuevo@inces.test', nombres: 'Nuevo', apellidos: 'Docente' },
     });
     const token = tokenDelEnlace((invitacion.json() as { enlaceActivacion: string }).enlaceActivacion);
 
@@ -128,6 +128,8 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
 
     // La invitación quedó marcada como usada.
     expect(arnés.estado.invitaciones[0]?.isUsed).toBe(true);
+      expect(arnés.estado.perfiles.at(-1)?.nombres).toBe('Nuevo');
+      expect(arnés.estado.perfiles.at(-1)?.apellidos).toBe('Docente');
     // Se registró un acceso exitoso.
     expect(arnés.estado.acceso.some((a) => a.estado === 'SUCCESS')).toBe(true);
   });
@@ -138,7 +140,7 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
       method: 'POST',
       url: '/api/v1/admin/usuarios/invitaciones',
       headers: conToken(TOKEN_ADMIN),
-      payload: { email: 'otro@inces.test' },
+      payload: { email: 'otro@inces.test', nombres: 'Otro', apellidos: 'Docente' },
     });
     const token = tokenDelEnlace((invitacion.json() as { enlaceActivacion: string }).enlaceActivacion);
 
@@ -176,6 +178,10 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
     arnés.estado.invitaciones.push({
       id: 'inv-caducada',
       email: 'caducado@inces.test',
+
+       nombres: 'Caducado',
+
+       apellidos: 'Invitacion',
       tokenHash: hashearToken(token),
       isUsed: false,
       createdAt: new Date(Date.now() - 49 * 3600 * 1000).toISOString(),

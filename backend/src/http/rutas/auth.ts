@@ -68,6 +68,8 @@ export function rutasAuth(app: FastifyInstance, deps: DependenciasRutas): void {
           const idUsuario = await deps.reposAdmin.invitaciones.crearUsuarioDocente(
             invitacion.email,
             password,
+            invitacion.nombres,
+            invitacion.apellidos,
           );
           const perfil = await deps.reposAdmin.perfiles.cambiarRol(idUsuario, 'docente');
           await deps.reposAdmin.invitaciones.marcarUsada(invitacion.id);

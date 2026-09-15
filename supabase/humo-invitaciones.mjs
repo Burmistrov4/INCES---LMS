@@ -189,7 +189,11 @@ try {
     const invitacion = await fetch(`${API}/api/v1/admin/usuarios/invitaciones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenAdmin}` },
-      body: JSON.stringify({ email: CORREO_DOCENTE }),
+      body: JSON.stringify({
+        email: CORREO_DOCENTE,
+        nombres: 'Docente',
+        apellidos: 'De Prueba',
+      }),
     }).then(async (r) => ({ estado: r.status, datos: await r.json().catch(() => null) }));
 
     comprobar('POST /admin/usuarios/invitaciones responde 2xx', invitacion.estado < 300, `estado=${invitacion.estado}`);
@@ -208,6 +212,12 @@ try {
 
     comprobar('POST /auth/activar responde 2xx', activado.estado < 300, `estado=${activado.estado} ${JSON.stringify(activado.datos)?.slice(0, 140)}`);
     comprobar('el perfil queda con rol docente', activado.datos?.perfil?.rol === 'docente', String(activado.datos?.perfil?.rol));
+    // R-21: el nombre capturado al invitar debe llegar a profiles, no quedar en blanco.
+    comprobar(
+      'el perfil recibe los nombres del docente (R-21)',
+      !!activado.datos?.perfil?.nombres && activado.datos?.perfil?.nombres.length > 0,
+      String(activado.datos?.perfil?.nombres),
+    );
     idDocente = activado.datos?.perfil?.id ?? null;
 
     // Reutilizar el token debe fallar: es de un solo uso.
@@ -221,9 +231,14 @@ try {
     // --- 4. Estado en la base, no sólo el 200 ----------------------------
     console.log('\n  4. Estado persistido en la base\n');
 
-    const invit = await pedir(`/rest/v1/teacher_invitations?email=eq.${CORREO_DOCENTE}&select=is_used,token_hash`);
+    const invit = await pedir(`/rest/v1/teacher_invitations?email=eq.${CORREO_DOCENTE}&select=is_used,token_hash,nombres,apellidos`);
     comprobar('is_used = true tras activar', invit.datos?.[0]?.is_used === true, JSON.stringify(invit.datos));
     comprobar('el token en claro NO está en la base', invit.datos?.[0]?.token_hash !== token);
+    comprobar(
+      'la invitación guardó los nombres capturados (R-21)',
+      invit.datos?.[0]?.nombres === 'Docente' && invit.datos?.[0]?.apellidos === 'De Prueba',
+      JSON.stringify(invit.datos?.[0]),
+    );
 
     const trazas = await pedir(`/rest/v1/auth_logs?email=eq.${CORREO_DOCENTE}&select=estado`);
     const exitos = (trazas.datos ?? []).filter((f) => f.estado === 'SUCCESS').length;

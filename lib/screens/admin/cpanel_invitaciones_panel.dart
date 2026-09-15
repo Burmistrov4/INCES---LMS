@@ -28,7 +28,11 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
       widget.repositorio ?? InvitacionRepository();
 
   final _formKey = GlobalKey<FormState>();
+  final _nombresController = TextEditingController();
+  final _apellidosController = TextEditingController();
   final _emailController = TextEditingController();
+  final _nombresFocus = FocusNode();
+  final _apellidosFocus = FocusNode();
   final _emailFocus = FocusNode();
 
   bool _isLoading = false;
@@ -37,7 +41,11 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
 
   @override
   void dispose() {
+    _nombresController.dispose();
+    _apellidosController.dispose();
     _emailController.dispose();
+    _nombresFocus.dispose();
+    _apellidosFocus.dispose();
     _emailFocus.dispose();
     super.dispose();
   }
@@ -52,7 +60,11 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
       _invitacion = null;
     });
 
-    final resultado = await _repo.invitarDocente(_emailController.text);
+    final resultado = await _repo.invitarDocente(
+      _emailController.text,
+      _nombresController.text,
+      _apellidosController.text,
+    );
 
     // El estado de carga se libera ANTES de comprobar `mounted`: al revés, un
     // desmontaje durante la petición dejaría el botón bloqueado para siempre.
@@ -93,52 +105,106 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
         const SizedBox(height: 24),
         Form(
           key: _formKey,
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _emailController,
-                  focusNode: _emailFocus,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.send,
-                  onFieldSubmitted: (_) => _enviar(),
-                  style: theme.textTheme.bodyMedium,
-                  decoration: const InputDecoration(
-                    labelText: 'Correo del docente',
-                    prefixIcon: Icon(Icons.mail_outline, size: 20),
-                    hintText: 'nombre@dominio.edu.ve',
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _nombresController,
+                      focusNode: _nombresFocus,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) =>
+                          FocusScope.of(context).requestFocus(_apellidosFocus),
+                      style: theme.textTheme.bodyMedium,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombres',
+                        prefixIcon: Icon(Icons.person_outline, size: 20),
+                        hintText: 'Ej. José María',
+                      ),
+                      validator: (valor) {
+                        if ((valor?.trim() ?? '').isEmpty) {
+                          return 'Ingresa el nombre del docente.';
+                        }
+                        return null;
+                      },
+                    ),
                   ),
-                  validator: (valor) {
-                    final texto = valor?.trim() ?? '';
-                    if (texto.isEmpty) {
-                      return 'Ingresa el correo del docente.';
-                    }
-                    if (!RegExp(r'^[\w\.\-\+]+@[\w\-]+(\.[\w\-]+)+$')
-                        .hasMatch(texto)) {
-                      return 'Formato de correo no válido.';
-                    }
-                    return null;
-                  },
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _apellidosController,
+                      focusNode: _apellidosFocus,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) =>
+                          FocusScope.of(context).requestFocus(_emailFocus),
+                      style: theme.textTheme.bodyMedium,
+                      decoration: const InputDecoration(
+                        labelText: 'Apellidos',
+                        prefixIcon: Icon(Icons.person_outline, size: 20),
+                        hintText: 'Ej. Pérez García',
+                      ),
+                      validator: (valor) {
+                        if ((valor?.trim() ?? '').isEmpty) {
+                          return 'Ingresa los apellidos del docente.';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              SizedBox(
-                height: 48,
-                child: FilledButton.icon(
-                  onPressed: _isLoading ? null : _enviar,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.send_outlined, size: 18),
-                  label: const Text('Enviar invitación'),
-                ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _emailController,
+                      focusNode: _emailFocus,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.send,
+                      onFieldSubmitted: (_) => _enviar(),
+                      style: theme.textTheme.bodyMedium,
+                      decoration: const InputDecoration(
+                        labelText: 'Correo del docente',
+                        prefixIcon: Icon(Icons.mail_outline, size: 20),
+                        hintText: 'nombre@dominio.edu.ve',
+                      ),
+                      validator: (valor) {
+                        final texto = valor?.trim() ?? '';
+                        if (texto.isEmpty) {
+                          return 'Ingresa el correo del docente.';
+                        }
+                        if (!RegExp(r'^[\w\.\-\+]+@[\w\-]+(\.[\w\-]+)+$')
+                            .hasMatch(texto)) {
+                          return 'Formato de correo no válido.';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    height: 48,
+                    child: FilledButton.icon(
+                      onPressed: _isLoading ? null : _enviar,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_outlined, size: 18),
+                      label: const Text('Enviar invitación'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

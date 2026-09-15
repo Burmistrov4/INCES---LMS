@@ -216,7 +216,7 @@ export function rutasAdmin(app: FastifyInstance, deps: DependenciasRutas): void 
       // --- Invitaciones de docentes -------------------------------------------
 
       admin.post('/usuarios/invitaciones', async (request) => {
-        const { email } = esquemaCorreoInvitacion.parse(request.body);
+        const { email, nombres, apellidos } = esquemaCorreoInvitacion.parse(request.body);
 
         // El token se genera en el servidor; el cliente sólo manda el correo. Se
         // guarda SU HUELLA en la base, nunca el token en claro.
@@ -226,6 +226,8 @@ export function rutasAdmin(app: FastifyInstance, deps: DependenciasRutas): void 
 
         const invitacion = await reposDe(request).invitaciones.crear({
           email,
+          nombres,
+          apellidos,
           tokenHash,
           expiresAt: expiraEn,
         });

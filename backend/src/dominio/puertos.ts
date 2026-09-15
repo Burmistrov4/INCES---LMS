@@ -136,6 +136,10 @@ export interface PuertaInvitacionesDocente {
    */
   crear(entrada: {
     email: string;
+    /** Nombre(s) del docente, capturado por el administrador (R-21). */
+    nombres: string;
+    /** Apellido(s) del docente, capturado por el administrador (R-21). */
+    apellidos: string;
     tokenHash: string;
     /** Instante ISO de caducidad (ahora + 48 h). */
     expiresAt: string;
@@ -155,8 +159,17 @@ export interface PuertaInvitacionesDocente {
    * service_role, que es el único con permiso para `auth.admin.createUser`.
    * El disparador `handle_new_user` crea la fila `profiles` (rol `estudiante`),
    * y el endpoint la promueve a `docente` a continuación.
+   *
+   * `nombres`/`apellidos` se pasan en `user_metadata` para que `handle_new_user`
+   * los vuelque a `profiles` y `nombre_para_mostrar()` deje de devolver NULL
+   * (R-21). Sin ellos, el docente quedaría sin nombre en el cuadrante.
    */
-  crearUsuarioDocente(email: string, password: string): Promise<string>;
+  crearUsuarioDocente(
+    email: string,
+    password: string,
+    nombres: string,
+    apellidos: string,
+  ): Promise<string>;
 }
 
 export interface PuertaAuditoriaAcceso {

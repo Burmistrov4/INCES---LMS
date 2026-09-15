@@ -13,7 +13,7 @@ class _GatewayFalso implements InvitacionGateway {
   String? passwordRecibido;
 
   @override
-  Future<InvitacionDocente> invitarDocente(String email) async {
+  Future<InvitacionDocente> invitarDocente(String email, String nombres, String apellidos) async {
     if (lanzar) throw const AppException.validacion('error simulado');
     return InvitacionDocente(
       email: email,
@@ -38,20 +38,20 @@ void main() {
   group('InvitacionRepository', () {
     test('rechaza correo vacío', () async {
       final repo = InvitacionRepository(gateway: _GatewayFalso());
-      final r = await repo.invitarDocente('  ');
+      final r = await repo.invitarDocente('  ', 'N', 'A');
       expect(r.isFailure, isTrue);
       expect(r.errorOrNull?.type, AppErrorType.validacion);
     });
 
     test('rechaza formato de correo inválido', () async {
       final repo = InvitacionRepository(gateway: _GatewayFalso());
-      final r = await repo.invitarDocente('no-es-correo');
+      final r = await repo.invitarDocente('no-es-correo', 'N', 'A');
       expect(r.isFailure, isTrue);
     });
 
     test('invita con correo válido', () async {
       final repo = InvitacionRepository(gateway: _GatewayFalso());
-      final r = await repo.invitarDocente('profesor@inces.gob.ve');
+      final r = await repo.invitarDocente('profesor@inces.gob.ve', 'José', 'Pérez');
       expect(r.isSuccess, isTrue);
       expect(r.valueOrNull?.correoEnviado, isTrue);
     });
@@ -59,7 +59,7 @@ void main() {
     test('propaga el error del gateway como Failure', () async {
       final g = _GatewayFalso()..lanzar = true;
       final repo = InvitacionRepository(gateway: g);
-      final r = await repo.invitarDocente('profesor@inces.gob.ve');
+      final r = await repo.invitarDocente('profesor@inces.gob.ve', 'José', 'Pérez');
       expect(r.isFailure, isTrue);
     });
 

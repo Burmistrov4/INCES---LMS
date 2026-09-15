@@ -121,12 +121,26 @@ export const esquemaListadoAcceso = z.object({
 });
 
 /**
- * Invitación de un docente: el administrador sólo aporta el correo. El token se
- * genera en el servidor; el cliente nunca lo toca.
+ * Invitación de un docente: el administrador aporta el correo y el nombre real
+ * del profesor. El token se genera en el servidor; el cliente nunca lo toca.
+ *
+ * `nombres`/`apellidos` son OBLIGATORIOS (R-21): sin ellos, `profiles` queda en
+ * blanco y `nombre_para_mostrar()` devuelve NULL en el cuadrante. Con
+ * `.strict()` se rechaza cualquier campo de más a propósito.
  */
 export const esquemaCorreoInvitacion = z
   .object({
     email: z.string().email('El correo del docente no es válido.'),
+    nombres: z
+      .string()
+      .trim()
+      .min(1, 'El nombre del docente no puede estar vacío.')
+      .max(100, 'El nombre no puede pasar de 100 caracteres.'),
+    apellidos: z
+      .string()
+      .trim()
+      .min(1, 'Los apellidos del docente no pueden estar vacíos.')
+      .max(100, 'Los apellidos no pueden pasar de 100 caracteres.'),
   })
   .strict();
 

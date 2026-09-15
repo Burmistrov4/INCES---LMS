@@ -65,6 +65,10 @@ export interface EntradaAuditoria {
 export interface InvitacionDocente {
   id: string;
   email: string;
+  /** Nombre(s) del docente, capturado por el administrador al invitar (R-21). */
+  nombres: string;
+  /** Apellido(s) del docente, capturado por el administrador al invitar (R-21). */
+  apellidos: string;
   tokenHash: string;
   isUsed: boolean;
   createdAt: string;

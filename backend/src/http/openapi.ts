@@ -225,7 +225,17 @@ const CuerpoCambioRol = z
   .openapi('CuerpoCambioRol');
 
 const CuerpoCorreoInvitacion = z
-  .object({ email: z.string().email() })
+  .object({
+    email: z.string().email().openapi({
+      description: 'Correo del docente invitado.',
+    }),
+    nombres: z.string().min(1).max(100).openapi({
+      description: 'Nombre(s) del docente, capturado por el administrador (R-21).',
+    }),
+    apellidos: z.string().min(1).max(100).openapi({
+      description: 'Apellido(s) del docente, capturado por el administrador (R-21).',
+    }),
+  })
   .strict()
   .openapi('CuerpoCorreoInvitacion');
 
@@ -1267,9 +1277,11 @@ export function construirRegistro(): OpenAPIRegistry {
     path: '/api/v1/admin/usuarios/invitaciones',
     summary: 'Invita a un docente por correo (token de un solo uso)',
     description:
-      'El administrador aporta el correo. El servidor genera un token, guarda SOLO su ' +
-      'huella en la base y envía el enlace de activación. El enlace también se devuelve ' +
-      'en la respuesta para poder probar el flujo aunque el correo no llegue.',
+      'El administrador aporta el correo y el nombre real del docente (nombres y ' +
+      'apellidos). El servidor genera un token, guarda SOLO su huella en la base y ' +
+      'envía el enlace de activación. El enlace también se devuelve en la respuesta ' +
+      'para poder probar el flujo aunque el correo no llegue. Los nombres viajan en ' +
+      'user_metadata al activar, así el cuadrante muestra el nombre del docente (R-21).',
     security: [{ bearerAuth: [] }],
     request: {
       body: {

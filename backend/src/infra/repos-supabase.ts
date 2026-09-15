@@ -186,6 +186,8 @@ function aInvitacion(fila: Fila): InvitacionDocente {
   return {
     id: textoObligatorio(fila.id),
     email: textoObligatorio(fila.email),
+    nombres: textoObligatorio(fila.nombres),
+    apellidos: textoObligatorio(fila.apellidos),
     tokenHash: textoObligatorio(fila.token_hash),
     isUsed: booleano(fila.is_used, false),
     createdAt: textoObligatorio(fila.created_at),
@@ -798,12 +800,20 @@ class InvitacionesSupabase implements PuertaInvitacionesDocente {
   constructor(private readonly cliente: SupabaseClient) {}
 
   async crear(
-    entrada: { email: string; tokenHash: string; expiresAt: string },
+    entrada: {
+      email: string;
+      nombres: string;
+      apellidos: string;
+      tokenHash: string;
+      expiresAt: string;
+    },
   ): Promise<InvitacionDocente> {
     const respuesta = await this.cliente
       .from(TABLA_INVITACIONES)
       .insert({
         email: entrada.email,
+        nombres: entrada.nombres,
+        apellidos: entrada.apellidos,
         token_hash: entrada.tokenHash,
         expires_at: entrada.expiresAt,
       })
@@ -834,14 +844,22 @@ class InvitacionesSupabase implements PuertaInvitacionesDocente {
     if (respuesta.error) throw traducirError(respuesta.error, 'marcar invitación usada');
   }
 
-  async crearUsuarioDocente(email: string, password: string): Promise<string> {
+  async crearUsuarioDocente(
+    email: string,
+    password: string,
+    nombres: string,
+    apellidos: string,
+  ): Promise<string> {
     // `auth.admin.createUser` usa la service_role (el cliente que viaja aquí en el
     // camino de activación). `email_confirm: true` deja la cuenta activa de una:
     // el profesor fija su contraseña en este mismo paso, no necesita otro correo.
+    // `nombres`/`apellidos` van en `user_metadata`: `handle_new_user` los vuelca a
+    // `profiles`, así `nombre_para_mostrar()` ya no devuelve NULL (R-21).
     const { data, error } = await this.cliente.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
+      user_metadata: { nombres, apellidos },
     });
 
     if (error) {

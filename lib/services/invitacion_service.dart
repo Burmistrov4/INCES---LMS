@@ -18,10 +18,18 @@ class BackendInvitacionGateway implements InvitacionGateway {
       SupabaseService.instance.auth.currentSession?.accessToken;
 
   @override
-  Future<InvitacionDocente> invitarDocente(String email) async {
+  Future<InvitacionDocente> invitarDocente(
+    String email,
+    String nombres,
+    String apellidos,
+  ) async {
     final respuesta = await _api.post(
       '/api/v1/admin/usuarios/invitaciones',
-      cuerpo: {'email': email},
+      cuerpo: {
+        'email': email,
+        'nombres': nombres,
+        'apellidos': apellidos,
+      },
       token: _tokenSesion,
     );
     return InvitacionDocente.fromJson(respuesta);

@@ -17,7 +17,11 @@ class InvitacionRepository {
 
   static final RegExp _patronEmail = RegExp(r'^[\w\.\-\+]+@[\w\-]+(\.[\w\-]+)+$');
 
-  Future<Result<InvitacionDocente>> invitarDocente(String email) {
+  Future<Result<InvitacionDocente>> invitarDocente(
+    String email,
+    String nombres,
+    String apellidos,
+  ) {
     return Result.guard(() async {
       final correo = email.trim();
       if (correo.isEmpty) {
@@ -28,7 +32,15 @@ class InvitacionRepository {
           'El correo no tiene un formato válido.',
         );
       }
-      return _gateway.invitarDocente(correo);
+      final nombresLimpios = nombres.trim();
+      final apellidosLimpios = apellidos.trim();
+      if (nombresLimpios.isEmpty) {
+        throw const AppException.validacion('Ingresa el nombre del docente.');
+      }
+      if (apellidosLimpios.isEmpty) {
+        throw const AppException.validacion('Ingresa los apellidos del docente.');
+      }
+      return _gateway.invitarDocente(correo, nombresLimpios, apellidosLimpios);
     });
   }
 

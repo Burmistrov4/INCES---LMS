@@ -245,7 +245,7 @@ class _AccesoVacio implements AuditoriaAccesoGateway {
 /// si algún día se llamara, la prueba lo diría en vez de fingir que funciona.
 class _InvitacionSinUso implements InvitacionGateway {
   @override
-  Future<InvitacionDocente> invitarDocente(String email) =>
+  Future<InvitacionDocente> invitarDocente(String email, String nombres, String apellidos) =>
       throw UnimplementedError('No se usa en una prueba de layout.');
 
   @override
