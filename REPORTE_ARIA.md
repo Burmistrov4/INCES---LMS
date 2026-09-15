@@ -287,6 +287,157 @@ leer la implementación de `.or()` antes de dar por hecho el fallo.
 
 ---
 
+## R-12 · `academic_periods` convierte la divergencia silenciosa de R-06 en una violación ruidosa
+
+**Gravedad: alta (la levanta). Refina R-06, no la cierra.**
+
+R-06 describe el peor fallo posible: `sections.period_code` y
+`system_settings.periodo_activo` son dos cadenas comparadas por igualdad exacta, y
+si no coinciden **la Regla 2 nunca dispara y no avisa**.
+
+El requisito de M3 pide `academic_periods` (`code`, `start_date`, `end_date`,
+`is_active`). Eso da por fin un **registro** contra el que comparar:
+
+- `sections.period_code` pasa a ser **FK** contra `academic_periods.code`. Ya no
+  se puede crear una sección con un lapso inventado.
+- Un **guarda** sobre `system_settings` rechaza un `periodo_activo` que no nombre
+  un período registrado. Si alguien escribe `SA26-2` mientras el registro sólo
+  tiene `2026-1`, **falla al guardar**, no dentro de seis meses.
+
+**Lo que esto NO decide:** cuál es la nomenclatura. `academic_periods` hace que el
+código sea **dato administrable**, pero el valor sigue siendo una decisión de
+coordinación del INCES (¿`2026-1` o `SA26-2`?). Se siembra `2026-1` —el valor que
+ya está en producción— para no romper nada, y el administrador renombra o añade
+desde el panel cuando el centro decida.
+
+> La diferencia importa: antes, elegir mal la convención producía un sistema que
+> decía «todo bien» sin proteger nada. Ahora produce un error de guardado. Se
+> cambia un fallo mudo por uno que se ve. **R-06 sigue abierta como decisión.**
+
+---
+
+## R-13 · Las colisiones cruzan DOS tablas, y una restricción `unique` no puede cubrirlo
+
+**Gravedad: alta. Es el corazón del requisito 4.**
+
+El requisito dice: *un docente o un aula NO pueden estar asignados a dos
+clases/guardias distintas en el mismo bloque*. Léase con cuidado: la colisión es
+**entre** `schedule_slots` y `teacher_duties`, no sólo dentro de cada tabla. Una
+`unique` no puede abarcar dos tablas.
+
+Además, en `schedule_slots` el período **no es una columna**: se deriva de
+`sections.period_code`. Una `unique (teacher_id, day_of_week, block)` sería
+**incorrecta**: bloquearía al mismo docente dando clase el mismo bloque en dos
+lapsos distintos, que es legítimo (el cuadrante del lapso siguiente se planifica
+mientras corre el actual).
+
+**Resolución:** una única función `exigir_agenda_libre()` que consulta **las dos
+tablas**, acotada por período, día y bloque; y dos triggers finos que la llaman.
+Se descartan las `unique` a propósito:
+
+- **Un solo camino de cumplimiento ⇒ un solo mensaje de error.** Con `unique` +
+  trigger habría dos rutas y dos mensajes distintos para el mismo problema, y la
+  traducción de errores del backend tendría que reconocer ambos.
+- **La carrera se cubre con un cerrojo, no con la restricción.**
+  `pg_advisory_xact_lock` sobre (período, día, bloque) serializa las escrituras
+  que podrían chocar. Sin él, dos inserciones simultáneas podrían pasar las dos.
+
+---
+
+## R-14 · `profiles` sólo deja leer el perfil propio: el estudiante no vería el nombre del docente
+
+**Gravedad: media. Rompe la vista del estudiante si no se resuelve.**
+
+El backend no usa la `service_role` para datos personales: usa el **JWT del
+llamante**, así que **RLS es la barrera real** (ver `infra/supabase.ts`, y es
+deliberado). Consecuencia: la política `profiles_read_own` limita `SELECT` a la
+fila propia, y una vista con `security_invoker` que una `profiles` para poner el
+**nombre del docente** devolvería `NULL` para cualquier alumno.
+
+Las salidas malas, descartadas:
+
+- **Relajar `profiles` a `authenticated`.** RLS no filtra por columnas: expondría
+  `cedula` y `email` de todo el mundo. No.
+- **Vista `security_definer`.** Salta la RLS de las tablas base; un error en el
+  `WHERE` deja el horario de todo el centro a la vista de un alumno.
+
+**Resolución:** una función estrecha, `security definer`,
+`nombre_para_mostrar(uuid)` que devuelve **sólo** `nombres || ' ' || apellidos` y
+**sólo** si el destino tiene `rol in ('docente','admin')` y está activo. Nada de
+cédula ni correo. El nombre de un docente es información institucional pública; su
+cédula no.
+
+---
+
+## R-15 · Una guardia sin período vuelve la colisión imprecisa
+
+**Gravedad: media.**
+
+El requisito dice que las guardias son *independientes de si hay clase activa*.
+Eso explica **por qué existen**, no que no pertenezcan a un lapso. Pero no declara
+período para ellas.
+
+Sin período, una guardia del lunes bloque 1 chocaría con una clase del lunes
+bloque 1 **de cualquier lapso**, incluido uno futuro que aún no empieza.
+
+**Resolución:** `teacher_duties.period_code` con FK a `academic_periods`. La
+colisión se acota por período, igual que en `schedule_slots`. Es coherente con el
+resto del modelo y permite planificar el lapso siguiente sin tocar el vigente.
+
+---
+
+## R-16 · «Turno mañana/tarde» y «bloque» son dos formas de decir lo mismo, y pueden contradecirse
+
+**Gravedad: media.**
+
+El requisito 3 habla de *turnos mañana/tarde* y el 4 de *día/bloque horario*. Si
+se guardan como dos columnas independientes, nada impide un turno «MAÑANA» con
+bloque 9 — un dato incoherente que nadie detecta hasta que el cuadrante se ve mal.
+
+**Resolución:** `turno` es una **columna generada** a partir de `block`, mediante
+una función inmutable `turno_de_bloque(block)` compartida por las dos tablas. No
+se puede contradecir porque no se almacena: se deriva. Y si el centro mueve la
+frontera entre mañana y tarde, se cambia en **un** sitio.
+
+> Contrapartida honesta: el corte queda en el código (bloques 1–6 mañana, 7–12
+> tarde) hasta que se decida. Si el centro necesita bloques con horas reales
+> (`07:00–07:45`), el paso siguiente es una tabla `schedule_blocks` administrable.
+> **No se decidió por cuenta propia**: se dejó el mecanismo, no la convención.
+
+---
+
+## R-17 · Las fechas reales del período no se inventan
+
+**Gravedad: baja, pero es una regla de honestidad.**
+
+`academic_periods` necesita `start_date` y `end_date`. El centro **no ha cargado
+esas fechas** en ningún sitio del que yo pueda leerlas.
+
+**Resolución:** las dos columnas son **anulables** y el período sembrado
+(`2026-1`) nace **sin fechas**. Inventarlas —«el lapso 2026-1 va de enero a
+junio»— sería fabricar dato institucional y presentarlo como cargado. El
+administrador las completa desde el panel. Se añade un `check` que exige
+`end_date > start_date` **cuando ambas están presentes**.
+
+---
+
+## R-18 · «Aula/zona»: las zonas no son aulas
+
+**Gravedad: baja. Es de vocabulario.**
+
+El requisito 3 asigna la guardia a *un aula/zona* (`classrooms.id`), pero el
+requisito 1 describe `classrooms` como registro de **aulas y talleres**, con
+`capacity` e `is_workshop`. Una zona (patio, pasillo, entrada) no es ninguna de
+las dos.
+
+**Resolución:** no se inventa una segunda tabla. Una zona se registra como fila de
+`classrooms` con `capacity = 0` e `is_workshop = false`, y su nombre lo dice
+(«Patio central»). Se mantiene **un solo concepto de espacio**, que es lo que hace
+que el trigger de colisión sea uniforme: si hubiera dos tablas de espacios, la
+colisión habría que comprobarla en cuatro sitios en vez de dos.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -302,3 +453,10 @@ leer la implementación de `.or()` antes de dar por hecho el fallo.
 | R-09 | `cursos` vs `programs` (D12) | Vista de compatibilidad | ✅ Resuelta |
 | R-10 | "Una transacción" que PostgREST no da | Dos funciones RPC | ✅ Resuelta |
 | R-11 | El filtro `or` exige paréntesis | Los añade `supabase-js`; no se toca | ✅ Verificada |
+| R-12 | `periodo_activo` podía divergir en silencio (refina R-06) | `academic_periods` + FK + guarda | ✅ Resuelta (la nomenclatura sigue pendiente) |
+| R-13 | La colisión cruza `schedule_slots` y `teacher_duties` | Un trigger compartido + cerrojo | ✅ Resuelta |
+| R-14 | RLS de `profiles` no deja ver el nombre del docente | Función estrecha `nombre_para_mostrar()` | ✅ Resuelta |
+| R-15 | Una guardia sin período hace imprecisa la colisión | `teacher_duties.period_code` | ✅ Resuelta |
+| R-16 | «Turno» y «bloque» podían contradecirse | `turno` generado desde `block` | ✅ Resuelta (frontera provisional) |
+| R-17 | Las fechas del período no se conocen | Anulables; las carga el centro | ✅ Resuelta |
+| R-18 | «Aula/zona»: una zona no es un aula | Una zona es una fila de `classrooms` | ✅ Resuelta |

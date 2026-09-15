@@ -725,6 +725,14 @@ async function main() {
   // Una sección de OTRO período no bloquea. Para probarlo hay que archivar antes
   // la del período vigente: si no, la prueba pasaría (o fallaría) por el motivo
   // equivocado y no diría nada sobre el filtro de período.
+  //
+  // M3 exige que el lapso esté REGISTRADO: `sections.period_code` es ahora una
+  // FK contra `academic_periods`. El período ficticio se registra aquí, que es
+  // justo lo que haría el administrador antes de abrir una sección en él.
+  await db.exec(
+    `insert into public.academic_periods (code, name, is_active)
+     values ('2099-9', 'Lapso futuro de prueba', false)`,
+  );
   await db.exec(
     `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity)
      values ('66666666-6666-6666-6666-666666666666', '${PROG_ID}', '${MAT_ID}', '2099-9', 'SB', 25)`,
@@ -917,6 +925,429 @@ async function main() {
     'Regla 2: el período quedó INTACTO tras el bloqueo (la función se deshizo)',
     intacto === 1,
     `period_order = ${intacto}`,
+  );
+
+  // ------------------------------------------- 14. Módulo 3 — Cuadrante
+  seccion('14. Módulo 3 — Aulas, períodos, guardias y cuadrante');
+
+  const DOC1 = 'd0000001-0000-4000-8000-000000000001';
+  const DOC2 = 'd0000002-0000-4000-8000-000000000002';
+  const AULA_TALLER = 'a0000001-0000-4000-8000-000000000001';
+  const AULA_TEORIA = 'a0000002-0000-4000-8000-000000000002';
+  const SEC_M3 = 'c0000001-0000-4000-8000-000000000001';
+  const SEC_M3B = 'c0000002-0000-4000-8000-000000000002';
+
+  // ------------------------------------------------- 14.1 academic_periods
+  const periodos = (
+    await db.query('select code, is_active from public.academic_periods order by code')
+  ).rows;
+  check(
+    'el lapso vigente quedó registrado por la migración',
+    periodos.some((p) => p.code === PERIODO),
+    `registrados: ${periodos.map((p) => p.code).join(', ')}`,
+  );
+
+  // La FK es lo que convierte R-06 en un error de guardado en vez de una guarda
+  // silenciosa. Se comprueba que de verdad rechaza.
+  await esperaError('la FK rechaza una sección en un lapso no registrado', () =>
+    db.exec(
+      `insert into public.sections (program_id, subject_id, period_code, name, max_capacity)
+       values ('${PROG_ID}', '${MAT_ID}', 'NO-EXISTE', 'SZ', 25)`,
+    ),
+  );
+  const seccionesFantasma = (
+    await db.query("select count(*)::int as n from public.sections where name = 'SZ'")
+  ).rows[0].n;
+  check('la sección del lapso inventado NO se creó', seccionesFantasma === 0);
+
+  // La guarda sobre `periodo_activo`: sin ella, la Regla 2 de M2 dejaría de
+  // proteger sin avisar.
+  await esperaError('la guarda rechaza un periodo_activo que no es un lapso registrado', () =>
+    db.exec(`update public.system_settings set valor = '"2098-8"'::jsonb where clave = 'periodo_activo'`),
+  );
+  const periodoSigue = (
+    await db.query("select valor #>> '{}' as p from public.system_settings where clave = 'periodo_activo'")
+  ).rows[0].p;
+  check('el periodo_activo quedó intacto tras el rechazo', periodoSigue === PERIODO, String(periodoSigue));
+
+  // ----------------------------------------------------- 14.2 classrooms
+  await db.exec(
+    `insert into public.classrooms (id, name, capacity, is_workshop) values
+       ('${AULA_TALLER}', 'Taller de Soldadura Cabina A', 12, true),
+       ('${AULA_TEORIA}', 'Aula Teórica 2', 25, false)`,
+  );
+  check(
+    'se registran aulas y talleres',
+    (await db.query('select count(*)::int as n from public.classrooms')).rows[0].n === 2,
+  );
+
+  // Una zona es una fila con cupo 0 y sin taller (R-18): un solo concepto de
+  // espacio, para que el trigger de colisión tenga un único sitio que mirar.
+  await db.exec(
+    `insert into public.classrooms (name, capacity, is_workshop)
+     values ('Patio central', 0, false)`,
+  );
+  check(
+    'una zona se registra con cupo 0',
+    (await db.query("select capacity from public.classrooms where name = 'Patio central'")).rows[0]
+      .capacity === 0,
+  );
+
+  await esperaError('dos espacios no pueden llamarse igual', () =>
+    db.exec(`insert into public.classrooms (name) values ('Aula Teórica 2')`),
+  );
+  await esperaError('un cupo negativo se rechaza', () =>
+    db.exec(`insert into public.classrooms (name, capacity) values ('Aula Rara', -1)`),
+  );
+
+  // ------------------------------------------------- 14.3 teacher_duties
+  // Dos docentes de prueba. `handle_new_user` crea el perfil al insertar en
+  // `auth.users`; aquí se ajusta el rol, como en el resto del archivo.
+  await db.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${DOC1}', 'docente1@inces.test', '{"nombres":"Luis","apellidos":"Márquez"}'::jsonb),
+      ('${DOC2}', 'docente2@inces.test', '{"nombres":"Carmen","apellidos":"Ríos"}'::jsonb);
+    update public.profiles set rol = 'docente' where id in ('${DOC1}', '${DOC2}');
+  `);
+  check(
+    'los dos docentes de prueba tienen rol docente',
+    (await db.query(`select count(*)::int as n from public.profiles where id in ('${DOC1}','${DOC2}') and rol = 'docente'`))
+      .rows[0].n === 2,
+  );
+
+  // Lunes a sábado, turnos mañana y tarde.
+  await db.exec(
+    `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block) values
+       ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 1, 1),
+       ('${DOC2}', '${AULA_TEORIA}', '${PERIODO}', 6, 8)`,
+  );
+  check(
+    'se asignan guardias de lunes a sábado',
+    (await db.query('select count(*)::int as n from public.teacher_duties')).rows[0].n === 2,
+  );
+
+  // El turno es derivado: no puede contradecir al bloque (R-16).
+  const turnos = (
+    await db.query('select day_of_week, block, turno from public.teacher_duties order by day_of_week, block')
+  ).rows;
+  check(
+    'el turno se deriva del bloque (1 -> MAÑANA, 8 -> TARDE)',
+    turnos[0].turno === 'MAÑANA' && turnos[1].turno === 'TARDE',
+    turnos.map((t) => `b${t.block}=${t.turno}`).join(' '),
+  );
+
+  await esperaError('el domingo (día 7) no es un día de guardia', () =>
+    db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 7, 1)`,
+    ),
+  );
+  await esperaError('el día 0 no existe', () =>
+    db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 0, 1)`,
+    ),
+  );
+  await esperaError('un bloque fuera de rango se rechaza', () =>
+    db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 2, 13)`,
+    ),
+  );
+
+  // -------------------------------------------- 14.4 el trigger anti-colisión
+  const choqueDocente = await esperaError(
+    'un docente no puede tener dos guardias en el mismo bloque',
+    () =>
+      db.exec(
+        `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+         values ('${DOC1}', '${AULA_TEORIA}', '${PERIODO}', 1, 1)`,
+      ),
+  );
+  check(
+    'el choque de docente sale como 23514',
+    choqueDocente?.code === '23514',
+    `código: ${choqueDocente?.code}`,
+  );
+  check(
+    'el mensaje nombra el día y el bloque',
+    /lunes/.test(choqueDocente?.message) && /bloque 1/.test(choqueDocente?.message),
+    choqueDocente?.message,
+  );
+
+  const choqueAula = await esperaError(
+    'un espacio no puede tener dos guardias en el mismo bloque',
+    () =>
+      db.exec(
+        `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+         values ('${DOC2}', '${AULA_TALLER}', '${PERIODO}', 1, 1)`,
+      ),
+  );
+  check(
+    'el choque de espacio también sale como 23514',
+    choqueAula?.code === '23514',
+    `código: ${choqueAula?.code}`,
+  );
+
+  // Las tres cosas que SÍ deben permitirse. Sin estas, un trigger que rechazara
+  // todo pasaría las pruebas de arriba.
+  let mismoDocenteOtroDia = true;
+  try {
+    await db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 2, 1)`,
+    );
+  } catch {
+    mismoDocenteOtroDia = false;
+  }
+  check('el mismo docente SÍ puede el mismo bloque otro día', mismoDocenteOtroDia);
+
+  let mismoDocenteOtroBloque = true;
+  try {
+    await db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '${PERIODO}', 1, 2)`,
+    );
+  } catch {
+    mismoDocenteOtroBloque = false;
+  }
+  check('el mismo docente SÍ puede otro bloque el mismo día', mismoDocenteOtroBloque);
+
+  let mismoDocenteOtroPeriodo = true;
+  try {
+    await db.exec(
+      `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+       values ('${DOC1}', '${AULA_TALLER}', '2099-9', 1, 1)`,
+    );
+  } catch {
+    mismoDocenteOtroPeriodo = false;
+  }
+  check(
+    'el mismo docente SÍ puede el mismo bloque en OTRO lapso (planificar el siguiente)',
+    mismoDocenteOtroPeriodo,
+  );
+
+  // ------------------------------------------- 14.5 el cuadrante y el cruce
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity) values
+       ('${SEC_M3}',  '${PROG_ID}', '${MAT_ID}', '${PERIODO}', 'SC', 25),
+       ('${SEC_M3B}', '${PROG_ID}', '${MAT_ID}', '${PERIODO}', 'SD', 25)`,
+  );
+
+  await db.exec(
+    `insert into public.schedule_slots (id, section_id, teacher_id, classroom_id, day_of_week, block) values
+       ('e0000001-0000-4000-8000-000000000001', '${SEC_M3}',  '${DOC1}', '${AULA_TALLER}', 1, 3),
+       ('e0000002-0000-4000-8000-000000000002', '${SEC_M3B}', '${DOC2}', '${AULA_TEORIA}', 2, 3)`,
+  );
+  check(
+    'se crean clases en el cuadrante',
+    (await db.query('select count(*)::int as n from public.schedule_slots')).rows[0].n === 2,
+  );
+
+  // Las tres colisiones DENTRO del cuadrante.
+  await esperaError('un docente no puede dar dos clases en el mismo bloque', () =>
+    db.exec(
+      `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+       values ('${SEC_M3}', '${DOC1}', '${AULA_TEORIA}', 1, 3)`,
+    ),
+  );
+  // Colisión SÓLO de espacio: DOC2 está libre el lunes bloque 3, pero el Taller
+  // ya lo ocupa DOC1 con la clase de SEC_M3. Si el caso usara también a DOC1,
+  // saltaría por docente y no diría nada sobre el aula.
+  await esperaError('un espacio no puede alojar dos clases en el mismo bloque', () =>
+    db.exec(
+      `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+       values ('${SEC_M3B}', '${DOC2}', '${AULA_TALLER}', 1, 3)`,
+    ),
+  );
+
+  // Y LA CLAVE: el cruce entre las dos tablas. Es lo que el requisito pide y lo
+  // que una restricción `unique` no podría cubrir nunca.
+  const cruceDocente = await esperaError(
+    'CRUCE: una clase no puede caer donde el docente ya tiene guardia',
+    () =>
+      db.exec(
+        `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+         values ('${SEC_M3}', '${DOC2}', '${AULA_TALLER}', 6, 8)`,
+      ),
+  );
+  check(
+    'el cruce guardia/clase de docente sale como 23514',
+    cruceDocente?.code === '23514',
+    `código: ${cruceDocente?.code}`,
+  );
+
+  const cruceAula = await esperaError(
+    'CRUCE: una clase no puede caer donde ya hay guardia en ese espacio',
+    () =>
+      db.exec(
+        `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+         values ('${SEC_M3}', '${DOC1}', '${AULA_TEORIA}', 6, 8)`,
+      ),
+  );
+  check(
+    'el cruce guardia/clase de espacio sale como 23514',
+    cruceAula?.code === '23514',
+    `código: ${cruceAula?.code}`,
+  );
+
+  // Archivar libera el hueco: una guardia inactiva no ocupa a nadie.
+  await db.exec(
+    `update public.teacher_duties set is_active = false
+     where teacher_id = '${DOC2}' and day_of_week = 6 and block = 8`,
+  );
+  let trasArchivarGuardia = true;
+  try {
+    await db.exec(
+      `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+       values ('${SEC_M3}', '${DOC2}', '${AULA_TALLER}', 6, 8)`,
+    );
+  } catch {
+    trasArchivarGuardia = false;
+  }
+  check('archivar la guardia libera el hueco para una clase', trasArchivarGuardia);
+
+  // ------------------------------------------------------ 14.6 RLS por rol
+  const totalDuties = (await db.query('select count(*)::int as n from public.teacher_duties')).rows[0].n;
+  const dutiesDoc1 = (
+    await db.query(`select count(*)::int as n from public.teacher_duties where teacher_id = '${DOC1}'`)
+  ).rows[0].n;
+
+  const veDoc1 = await como('authenticated', DOC1, () =>
+    db.query('select teacher_id from public.teacher_duties'),
+  );
+  check(
+    'un docente ve SÓLO sus guardias',
+    veDoc1.rows.length === dutiesDoc1 && veDoc1.rows.every((r) => r.teacher_id === DOC1),
+    `vio ${veDoc1.rows.length} de ${totalDuties}`,
+  );
+
+  const alumnoVeDuties = await como('authenticated', ALUMNO_ID, () =>
+    db.query('select count(*)::int as n from public.teacher_duties'),
+  );
+  check(
+    'un estudiante no ve ninguna guardia',
+    alumnoVeDuties.rows[0].n === 0,
+    `vio ${alumnoVeDuties.rows[0].n}`,
+  );
+
+  // `anon` no recibe «cero filas» sino un rechazo de privilegio: no se le concedió
+  // SELECT sobre las tablas de agenda. Es la negativa más fuerte de las dos, y
+  // por eso se comprueba el código 42501 y no un recuento.
+  const anonDuties = await esperaError('anon no tiene privilegio sobre las guardias', () =>
+    como('anon', null, () =>
+      db.query('select count(*)::int as n from public.teacher_duties'),
+    ),
+  );
+  check(
+    'el rechazo de anon es de privilegio (42501), no una lista vacía',
+    anonDuties?.code === '42501',
+    `código: ${anonDuties?.code}`,
+  );
+
+  // El docente ve sus clases y no las ajenas.
+  const slotsDoc1 = (
+    await db.query(`select count(*)::int as n from public.schedule_slots where teacher_id = '${DOC1}'`)
+  ).rows[0].n;
+  const veSlotsDoc1 = await como('authenticated', DOC1, () =>
+    db.query('select teacher_id from public.schedule_slots'),
+  );
+  check(
+    'un docente ve SÓLO sus clases',
+    veSlotsDoc1.rows.length === slotsDoc1 && veSlotsDoc1.rows.every((r) => r.teacher_id === DOC1),
+    `vio ${veSlotsDoc1.rows.length}, esperaba ${slotsDoc1}`,
+  );
+
+  // El estudiante ve las clases de las secciones en las que está matriculado, y
+  // ninguna otra. Se matricula sólo en SEC_M3, así que no debe ver las de SEC_M3B.
+  await db.exec(
+    `insert into public.enrollments (student_id, section_id, status)
+     values ('${ALUMNO_ID}', '${SEC_M3}', 'ENROLLED')`,
+  );
+  const veSlotsAlumno = await como('authenticated', ALUMNO_ID, () =>
+    db.query('select section_id from public.schedule_slots'),
+  );
+  check(
+    'un estudiante ve las clases de SU sección',
+    veSlotsAlumno.rows.length >= 1 && veSlotsAlumno.rows.every((r) => r.section_id === SEC_M3),
+    `vio ${veSlotsAlumno.rows.length} clases de secciones: ${[...new Set(veSlotsAlumno.rows.map((r) => r.section_id))].join(', ')}`,
+  );
+
+  const anonSlots = await esperaError('anon no tiene privilegio sobre el cuadrante', () =>
+    como('anon', null, () =>
+      db.query('select count(*)::int as n from public.schedule_slots'),
+    ),
+  );
+  check(
+    'el rechazo de anon sobre el cuadrante también es 42501',
+    anonSlots?.code === '42501',
+    `código: ${anonSlots?.code}`,
+  );
+
+  // El administrador ve todo el cuadrante.
+  const veAdmin = await como('authenticated', ADMIN2_ID, () =>
+    db.query('select count(*)::int as n from public.schedule_slots'),
+  );
+  const totalSlots = (await db.query('select count(*)::int as n from public.schedule_slots')).rows[0].n;
+  check(
+    'el administrador ve el cuadrante completo',
+    veAdmin.rows[0].n === totalSlots,
+    `vio ${veAdmin.rows[0].n} de ${totalSlots}`,
+  );
+
+  // ------------------------------------------- 14.7 vistas de lectura
+  const cuadranteAdmin = await como('authenticated', ADMIN2_ID, () =>
+    db.query('select * from public.v_cuadrante_clases'),
+  );
+  const fila = cuadranteAdmin.rows[0];
+  check(
+    'la vista del cuadrante resuelve materia, sección, espacio y docente',
+    Boolean(fila) && Boolean(fila.subject_name) && Boolean(fila.section_name) &&
+      Boolean(fila.classroom_name) && Boolean(fila.teacher_name),
+    fila ? JSON.stringify(fila) : 'sin filas',
+  );
+  check(
+    'la vista del cuadrante traduce el día',
+    Boolean(fila) && ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'].includes(fila.day_name),
+    fila ? String(fila.day_name) : 'sin filas',
+  );
+
+  // El nombre del docente se resuelve para un ESTUDIANTE aunque no pueda leer
+  // `profiles`: es lo que justifica `nombre_para_mostrar()` (R-14).
+  const cuadranteAlumno = await como('authenticated', ALUMNO_ID, () =>
+    db.query('select teacher_name from public.v_cuadrante_clases'),
+  );
+  check(
+    'un estudiante ve el NOMBRE del docente sin poder leer profiles',
+    cuadranteAlumno.rows.length > 0 && cuadranteAlumno.rows.every((r) => r.teacher_name !== null),
+    JSON.stringify(cuadranteAlumno.rows),
+  );
+
+  const perfilAjeno = await como('authenticated', ALUMNO_ID, () =>
+    db.query(`select count(*)::int as n from public.profiles where id = '${DOC1}'`),
+  );
+  check(
+    'y sigue sin poder leer la fila del docente (la RLS no se relajó)',
+    perfilAjeno.rows[0].n === 0,
+    `vio ${perfilAjeno.rows[0].n}`,
+  );
+
+  const vigente = await como('authenticated', ADMIN2_ID, () =>
+    db.query('select code from public.v_periodo_vigente'),
+  );
+  check(
+    'la vista del lapso vigente devuelve el período activo',
+    vigente.rows.length === 1 && vigente.rows[0].code === PERIODO,
+    JSON.stringify(vigente.rows),
+  );
+
+  const guardiasDoc1 = await como('authenticated', DOC1, () =>
+    db.query('select teacher_id from public.v_cuadrante_guardias'),
+  );
+  check(
+    'la vista de guardias respeta la RLS del docente',
+    guardiasDoc1.rows.length > 0 && guardiasDoc1.rows.every((r) => r.teacher_id === DOC1),
+    `vio ${guardiasDoc1.rows.length}`,
   );
 
   // ---------------------------------------------------------------- resumen
