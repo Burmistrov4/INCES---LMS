@@ -10,14 +10,11 @@ import { crearArnés, conToken, TOKEN_ADMIN, type Arnés } from './support/arnes
  *
  * Generar el documento desde Zod resuelve la mitad del problema: garantiza que
  * los **esquemas** documentados son los que validan de verdad. La otra mitad es
- * que las **rutas** documentadas sean las que existen. Eso no lo puede saber el
- * generador, porque las rutas se registran llamando a Fastify.
+ * que las **rutas** documentadas sean exactamente las que existen. Eso no lo
+ * puede saber el generador, porque las rutas se registran llamando a Fastify.
  *
- * Estas pruebas cierran esa mitad: comparan la lista de rutas reales (sacada de
- * la instancia de Fastify) con la lista documentada. Si alguien añade un
- * endpoint y olvida documentarlo, esto falla y dice cuál. Sin esta red, el
- * documento se iría vaciando de rutas en silencio, que es exactamente el fallo
- * que D6 pretendía evitar.
+ * Estas pruebas cierran esa mitad comparando las dos listas, en las dos
+ * direcciones.
  */
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +26,62 @@ afterEach(async () => {
   await app?.close();
   app = undefined;
 });
+
+/**
+ * Enumera las rutas que la aplicación tiene registradas de verdad.
+ *
+ * Se lee el árbol de `printRoutes({ commonPrefix: false })`, que sólo está
+ * completo **después de `await app.ready()`**: las rutas de M2 y M3 se montan
+ * dentro de un `app.register(...)`, y hasta que Fastify no resuelve el árbol
+ * asíncrono no aparecen. Sin el `ready()`, el árbol muestra sólo las cinco rutas
+ * registradas directamente sobre la instancia y la comparación daría un verde
+ * hueco sobre dos listas incompletas.
+ *
+ * El formato de cada línea es `<sangría>[├|└]── <ruta> (MÉTODO, MÉTODO)`, y la
+ * profundidad la da el número de grupos de cuatro caracteres de la sangría; cada
+ * nivel continúa la ruta del anterior. Se depende de ese formato a propósito: si
+ * una versión de Fastify lo cambiara, la prueba falla en vez de comparar dos
+ * listas vacías y pasar sin haber mirado nada.
+ *
+ * `HEAD` lo añade Fastify solo y `OPTIONS` es el comodín del 404 y del CORS:
+ * ninguno de los dos se documenta ni lo pide un cliente, así que se filtran. El
+ * comodín `*` tampoco es una ruta.
+ */
+function rutasRegistradas(aplicacion: Arnés['app']): string[] {
+  const arbol = aplicacion.printRoutes({ commonPrefix: false });
+  const rutas: string[] = [];
+  /** La ruta completa de cada nivel, para que un hijo sepa a quién colgarse. */
+  const completas: string[] = [];
+
+  for (const linea of arbol.split('\n')) {
+    const coincidencia = /^([│\s]*)[├└]─+ (.*)$/.exec(linea);
+    if (!coincidencia) continue;
+
+    const nivel = (coincidencia[1] ?? '').length / 4;
+    const contenido = coincidencia[2] ?? '';
+
+    const separador = contenido.lastIndexOf(' (');
+    if (separador < 0) continue;
+
+    const segmento = contenido.slice(0, separador);
+    if (segmento === '*') continue;
+
+    const metodos = contenido
+      .slice(separador + 2, -1)
+      .split(', ')
+      .filter((metodo) => metodo !== 'HEAD' && metodo !== 'OPTIONS');
+
+    completas[nivel] = nivel === 0 ? segmento : `${completas[nivel - 1] ?? ''}${segmento}`;
+
+    for (const metodo of metodos) {
+      // Fastify escribe `:param`; OpenAPI, `{param}`.
+      const ruta = (completas[nivel] ?? '').replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+      rutas.push(`${metodo} ${ruta}`);
+    }
+  }
+
+  return rutas.sort();
+}
 
 describe('documento OpenAPI generado (D6)', () => {
   it('declara OpenAPI 3.1, que es lo que se pidió', () => {
@@ -99,44 +152,35 @@ describe('documento OpenAPI generado (D6)', () => {
     }
   });
 
-  it('el número de rutas documentadas coincide con las rutas reales de la app', () => {
-    // Complemento del anterior: si alguien añade una ruta y no la documenta, la
-    // prueba de arriba no lo detecta (sólo mira en una dirección). Esta
-    // comprobación fija el recuento, de modo que añadir una ruta obliga a
-    // actualizar el documento Y este número. Es deliberadamente molesto: es más
-    // barato que un contrato que se queda atrás sin que nadie lo note.
+  it('el documento y la aplicación registran exactamente las mismas rutas', async () => {
+    // Se comparan las dos direcciones a la vez: una ruta documentada que la
+    // aplicación no conoce, y una ruta que la aplicación registra y el documento
+    // no menciona.
+    //
+    // La versión anterior de esta prueba cotejaba contra una lista escrita a
+    // mano, y eso **sólo detectaba el primer caso**: añadir una ruta y olvidar
+    // documentarla pasaba inadvertido, que es justo el fallo que la deuda D6
+    // existe para evitar. Comparar contra las rutas reales cierra las dos.
+    const arnés = crearArnés();
+    app = arnés.app;
+    await arnés.app.ready();
+
     const documento = construirDocumentoOpenApi();
-    const rutas = Object.entries(documento.paths ?? {}).flatMap(([ruta, ops]) =>
-      Object.keys(ops)
-        .filter((m) => m !== 'parameters')
-        .map((m) => `${m.toUpperCase()} ${ruta}`),
-    );
-    expect(rutas.sort()).toEqual(
-      [
-        'GET /api/v1/admin/acceso',
-        'GET /api/v1/admin/auditoria',
-        'GET /api/v1/admin/materias',
-        'GET /api/v1/admin/modulos',
-        'GET /api/v1/admin/parametros',
-        'GET /api/v1/admin/programas',
-        'GET /api/v1/admin/programas/{id}',
-        'GET /api/v1/admin/usuarios',
-        'GET /api/v1/modulos',
-        'GET /api/v1/yo',
-        'GET /openapi.json',
-        'GET /salud',
-        'GET /salud/profundo',
-        'PATCH /api/v1/admin/modulos/{clave}',
-        'PATCH /api/v1/admin/parametros/{clave}',
-        'PATCH /api/v1/admin/programas/{id}',
-        'PATCH /api/v1/admin/programas/{id}/pensum',
-        'PATCH /api/v1/admin/usuarios/{id}/rol',
-        'POST /api/v1/admin/materias',
-        'POST /api/v1/admin/programas',
-        'POST /api/v1/admin/usuarios/invitaciones',
-        'POST /api/v1/auth/activar',
-      ].sort(),
-    );
+    const documentadas = Object.entries(documento.paths ?? {})
+      .flatMap(([ruta, operaciones]) =>
+        Object.keys(operaciones)
+          .filter((metodo) => metodo !== 'parameters')
+          .map((metodo) => `${metodo.toUpperCase()} ${ruta}`),
+      )
+      .sort();
+
+    const reales = rutasRegistradas(arnés.app);
+
+    // Un mínimo sensato: si el árbol se dejara de parsear, `reales` quedaría
+    // vacía y una comparación entre dos listas vacías sería un verde hueco.
+    // `documentadas` no puede estar vacía (hay una prueba que lo comprueba).
+    expect(reales.length).toBeGreaterThan(20);
+    expect(documentadas).toEqual(reales);
   });
 
   it('no declara ninguna ruta sin respuesta de éxito y sin 401 cuando exige sesión', () => {

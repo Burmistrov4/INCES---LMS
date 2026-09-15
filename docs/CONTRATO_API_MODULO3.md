@@ -1,11 +1,17 @@
 # Contrato de API — Módulo 3 (Cuadrante, Horarios, Aulas y Guardias Docentes)
 
-> **Estado (2026-09-15): el esquema está aplicado, verificado y corregido.** Las
-> **10 migraciones están en el libro mayor**, `verificar-esquema.mjs` pasa
-> **81/81** comprobaciones contra la nube y la batería de `supabase/tests` da
-> **164 aserciones en verde**. Las rutas de este documento **todavía no existen**:
-> son el trabajo del PASO 4. Este documento es el contrato que ese paso debe
-> cumplir, no la descripción de algo ya construido.
+> **Estado (2026-09-15): esquema y backend hechos.** Las **10 migraciones están
+> en el libro mayor**, `verificar-esquema.mjs` pasa **81/81** comprobaciones
+> contra la nube, la batería de `supabase/tests` da **164 aserciones en verde** y
+> la suite del backend **333**. **Las 14 rutas de §1 existen y están
+> documentadas** en `backend/openapi.json`: este documento ya no es sólo un
+> contrato a cumplir, es la descripción de lo construido. Lo que falta de M3 es
+> el **frontend**.
+>
+> Dónde vive cada cosa en el backend: `dominio/reglas-cuadrante.ts` (reglas
+> puras) · `dominio/puertos.ts` → `PuertaCuadrante` · `infra/repos-supabase.ts` →
+> `CuadranteSupabase` · `http/esquemas.ts` (Zod) · `http/rutas/cuadrante.ts` ·
+> `http/openapi.ts`.
 >
 > **Aviso importante:** durante la verificación del despliegue se encontró un
 > fallo que dejaba el módulo **inoperable para cualquier usuario real** (las
@@ -597,10 +603,35 @@ las políticas existen para acotar. `verificar-esquema.mjs` comprueba el
 | 7 | Libro mayor de migraciones | ✅ **10/10**, sin deriva |
 | 8 | `verificar-esquema.mjs` | ✅ **81/81** contra la nube |
 | 9 | `supabase/tests` | ✅ **164** aserciones |
-| 10 | Las 14 rutas de §1 | ⏳ **PASO 4** — pendientes |
+| 10 | Las 14 rutas de §1 | ✅ **Implementadas** (PASO 4) y documentadas en `openapi.json` |
+| 11 | Suite del backend | ✅ **333**, con **80** pruebas nuevas de M3 |
 
-**Lo que falta de M3:** el backend (PASO 4) y el frontend. El esquema no va a
-moverse, así que ambos se pueden construir contra este contrato sin esperar.
+**Lo que falta de M3:** el **frontend** (pantallas de aulas, lapsos, guardias y
+cuadrante). El esquema no va a moverse y las rutas ya existen, así que se puede
+construir contra este contrato sin esperar a nada.
+
+### Las tres decisiones de implementación que este contrato dejaba abiertas
+
+Se resolvieron en el PASO 4 y conviene dejarlas escritas, porque no se ven en
+las tablas de rutas:
+
+1. **`GET /cuadrante` devuelve `docentes` con una proyección estrecha**
+   (`id`, `nombres`, `apellidos`) leída de `profiles`. §7 explica por qué el
+   *horario del estudiante* necesita `nombre_para_mostrar()`; eso sigue siendo
+   cierto. Pero un **administrador sí puede leer todos los perfiles**
+   (`profiles_admin_all`, `202609100001_init.sql`), así que la ruta de
+   administración no necesita la función y proyecta sólo lo que la rejilla
+   pinta. Las dos cosas conviven porque resuelven problemas distintos.
+2. **El puerto no tiene ninguna operación de «¿está libre?».** Preguntar antes
+   de escribir es una carrera y, peor, una segunda copia de la regla que se
+   desviaría de la del trigger. La API escribe y **traduce** el `23514` a 409
+   (`CHOQUE_DE_AGENDA`), reutilizando el mensaje del trigger **verbatim**: el
+   trigger ya nombra el día y el bloque, y reconstruir esa frase en TypeScript
+   sería una segunda copia que se desincroniza sola.
+3. **`turno` se lee de la base, no se recalcula.** Es una columna generada;
+   `turnoDeBloque()` sólo actúa como respaldo, para que un cambio futuro en la
+   frontera de turnos (R-16) no pueda hacer que el backend y la base digan cosas
+   distintas.
 
 ### Decisiones abiertas, que no son mías
 

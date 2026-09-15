@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { ErrorApi } from '../dominio/errores.js';
 import { materiaRepetida } from '../dominio/reglas-curriculo.js';
+import {
+  BLOQUE_MAXIMO,
+  DIA_MAXIMO,
+  esFechaISO,
+  rangoDeFechasValido,
+} from '../dominio/reglas-cuadrante.js';
 
 /**
  * Esquemas de validación de entrada.
@@ -324,6 +330,315 @@ export type CrearProgramaEntrada = z.infer<typeof esquemaCrearPrograma>;
 export type ActualizarProgramaEntrada = z.infer<typeof esquemaActualizarPrograma>;
 export type ReemplazarPensumEntrada = z.infer<typeof esquemaReemplazarPensum>;
 export type CrearMateriaEntrada = z.infer<typeof esquemaCrearMateria>;
+
+// --- Módulo 3: cuadrante, aulas y guardias ----------------------------------
+
+/**
+ * Identificador de recurso que viene por la URL.
+ *
+ * Es una fábrica y no cuatro constantes repetidas porque M3 estrena cuatro
+ * recursos —aula, período, guardia y clase— y a partir del tercero copiar el
+ * mismo `.uuid()` cuatro veces deja de ser claridad y pasa a ser cuatro sitios
+ * donde olvidarse del mensaje. El mensaje sigue nombrando el recurso, que es lo
+ * único que cambia entre uno y otro.
+ *
+ * Sin esto, un `id` que no sea UUID viaja hasta Postgres, revienta con `22P02` y
+ * sale como un `500` genérico: un error del cliente disfrazado de fallo del
+ * servidor. Misma razón que `esquemaIdPerfil` y `esquemaIdPrograma`.
+ */
+function idDeRecurso(recurso: string) {
+  return z.string().uuid({
+    message: `El identificador de ${recurso} debe ser un UUID válido.`,
+  });
+}
+
+export const esquemaIdAula = idDeRecurso('espacio');
+export const esquemaIdPeriodo = idDeRecurso('lapso');
+export const esquemaIdGuardia = idDeRecurso('guardia');
+export const esquemaIdClase = idDeRecurso('clase');
+
+/**
+ * Código de un lapso (`varchar(10)` en la base).
+ *
+ * El formato duplica el `check` de `academic_periods` a propósito: Zod da el
+ * mensaje antes de abrir una transacción y nombra el campo; el `check` es la
+ * invariante. Se admite mayúscula y minúscula igual que en la base, porque
+ * rechazar aquí una minúscula bloquearía un dato que la tabla acepta.
+ */
+const codigoPeriodo = z
+  .string()
+  .trim()
+  .min(1, 'El código del lapso no puede estar vacío.')
+  .max(10, 'El código del lapso no puede pasar de 10 caracteres.')
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9-]{0,9}$/,
+    'El código del lapso admite letras, dígitos y guiones, y debe empezar por letra o dígito.',
+  );
+
+/**
+ * Una fecha en formato `AAAA-MM-DD`.
+ *
+ * `esFechaISO` comprueba además que la fecha **exista**: `2026-02-30` tiene la
+ * forma correcta y no es un día. Sin esa comprobación el valor llegaría a
+ * Postgres, que responde `22007` —un código que el traductor no reconoce— y
+ * saldría como un `500` por un dato que el cliente escribió mal.
+ */
+const fechaIso = z
+  .string()
+  .trim()
+  .refine(esFechaISO, {
+    message: 'La fecha debe ser un día real en formato AAAA-MM-DD.',
+  });
+
+/** Las tres formas de espacio. Literales, como `rolSchema` y `tipoProgramaSchema`. */
+export const tipoAulaSchema = z.enum(['TALLER', 'ZONA', 'AULA']);
+
+/** Día de la semana, 1 = lunes … 6 = sábado. El domingo queda fuera (requisito). */
+const diaSchema = z
+  .number()
+  .int('El día debe ser un número entero.')
+  .min(1, 'El día va del 1 (lunes) al 6 (sábado).')
+  .max(DIA_MAXIMO, `El día va del 1 (lunes) al ${DIA_MAXIMO} (sábado).`);
+
+/** Bloque horario dentro de la jornada. */
+const bloqueSchema = z
+  .number()
+  .int('El bloque debe ser un número entero.')
+  .min(1, 'El bloque empieza en 1.')
+  .max(BLOQUE_MAXIMO, `El bloque no puede pasar de ${BLOQUE_MAXIMO}.`);
+
+const nombreAula = z
+  .string()
+  .trim()
+  .min(1, 'El nombre del espacio no puede estar vacío.')
+  .max(80, 'El nombre del espacio no puede pasar de 80 caracteres.');
+
+// --- Aulas ------------------------------------------------------------------
+
+export const esquemaListadoAulas = z.object({
+  busqueda: z.string().trim().min(1).max(80).optional(),
+  tipo: tipoAulaSchema.optional(),
+  activa: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * Alta de un espacio.
+ *
+ * `capacidad` en 0 es válido y significa «sin cupo declarado»: así se registra
+ * una zona de custodia (un pasillo, la entrada del taller). No es lo mismo que
+ * desconocido, que sería no mandarlo — y por eso el valor por defecto es 0 y no
+ * un nulo.
+ */
+export const esquemaCrearAula = z
+  .object({
+    nombre: nombreAula,
+    capacidad: z
+      .number()
+      .int('La capacidad debe ser un número entero.')
+      .min(0, 'La capacidad no puede ser negativa.')
+      .default(0),
+    esTaller: z.boolean().default(false),
+  })
+  .strict();
+
+export const esquemaActualizarAula = z
+  .object({
+    nombre: nombreAula.optional(),
+    capacidad: z.number().int().min(0, 'La capacidad no puede ser negativa.').optional(),
+    esTaller: z.boolean().optional(),
+    activa: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio (nombre, capacidad, esTaller o activa).',
+  });
+
+// --- Períodos ---------------------------------------------------------------
+
+/**
+ * Alta de un lapso.
+ *
+ * `codigo` es la identidad y no se puede cambiar después: `sections.period_code`
+ * apunta a él y los documentos impresos lo citan.
+ */
+export const esquemaCrearPeriodo = z
+  .object({
+    codigo: codigoPeriodo,
+    nombre: z
+      .string()
+      .trim()
+      .min(1, 'El nombre del lapso no puede estar vacío.')
+      .max(120)
+      .optional(),
+    fechaInicio: fechaIso.optional(),
+    fechaFin: fechaIso.optional(),
+  })
+  .strict()
+  .refine((valor) => rangoDeFechasValido(valor.fechaInicio, valor.fechaFin), {
+    path: ['fechaFin'],
+    message: 'La fecha de fin debe ser posterior a la de inicio.',
+  });
+
+/**
+ * Cambios de un lapso. `codigo` no está, por la misma razón que en `programs`.
+ *
+ * `nombre`, `fechaInicio` y `fechaFin` aceptan `null` explícito para poder
+ * **vaciar** un dato: las fechas nacen nulas y el centro las carga cuando las
+ * tiene, así que también tiene que poder dejarlas en blanco si se equivocó.
+ *
+ * La coherencia de fechas sólo se puede comprobar aquí cuando llegan las dos. Si
+ * el cliente manda una sola, la otra vive en la fila y decide el `check` de la
+ * base: `academic_periods_fechas_coherentes`. La regla es la misma en los dos
+ * sitios; lo que cambia es cuánto se ve desde la petición.
+ */
+export const esquemaActualizarPeriodo = z
+  .object({
+    nombre: z.string().trim().min(1).max(120).nullable().optional(),
+    fechaInicio: fechaIso.nullable().optional(),
+    fechaFin: fechaIso.nullable().optional(),
+    activo: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio (nombre, fechaInicio, fechaFin o activo).',
+  })
+  .refine((valor) => rangoDeFechasValido(valor.fechaInicio, valor.fechaFin), {
+    path: ['fechaFin'],
+    message: 'La fecha de fin debe ser posterior a la de inicio.',
+  });
+
+// --- Guardias ---------------------------------------------------------------
+
+export const esquemaCrearGuardia = z
+  .object({
+    docenteId: z.string().uuid({
+      message: 'El docente debe referenciarse por su UUID.',
+    }),
+    aulaId: z.string().uuid({
+      message: 'El espacio debe referenciarse por su UUID.',
+    }),
+    // Obligatorio, y no es un formalismo (R-15): sin período, una guardia del
+    // lunes a primera hora chocaría con las clases de cualquier lapso.
+    periodo: codigoPeriodo,
+    dia: diaSchema,
+    bloque: bloqueSchema,
+    notas: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
+
+export const esquemaActualizarGuardia = z
+  .object({
+    docenteId: z.string().uuid().optional(),
+    aulaId: z.string().uuid().optional(),
+    periodo: codigoPeriodo.optional(),
+    dia: diaSchema.optional(),
+    bloque: bloqueSchema.optional(),
+    notas: z.string().trim().max(500).nullable().optional(),
+    activa: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio para la guardia.',
+  });
+
+export const esquemaListadoGuardias = z.object({
+  periodo: codigoPeriodo.optional(),
+  docenteId: z.string().uuid().optional(),
+  aulaId: z.string().uuid().optional(),
+  dia: z.coerce.number().int().min(1).max(DIA_MAXIMO).optional(),
+  bloque: z.coerce.number().int().min(1).max(BLOQUE_MAXIMO).optional(),
+  activa: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+// --- Cuadrante --------------------------------------------------------------
+
+export const esquemaRejilla = z.object({
+  periodo: codigoPeriodo.optional(),
+  seccionId: z.string().uuid().optional(),
+  docenteId: z.string().uuid().optional(),
+  aulaId: z.string().uuid().optional(),
+  incluirInactivas: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+});
+
+/**
+ * Colocar una clase en la rejilla.
+ *
+ * **`turno` no está, y su ausencia es la regla.** Es una columna generada a
+ * partir de `block`: mandarla sería aceptar un turno que puede contradecir al
+ * bloque, es decir, una agenda que miente. Con `.strict()`, enviarla da un `400`
+ * que nombra el campo en vez de ignorarla en silencio.
+ *
+ * **El período tampoco está**: se deriva de la sección. Aceptarlo del cliente
+ * abriría la puerta a una fila cuya sección pertenece a un lapso mientras la
+ * rejilla se dibuja en otro, y el chequeo de colisiones compararía peras con
+ * manzanas.
+ */
+export const esquemaCrearClase = z
+  .object({
+    seccionId: z.string().uuid({
+      message: 'La sección debe referenciarse por su UUID.',
+    }),
+    docenteId: z.string().uuid({
+      message: 'El docente debe referenciarse por su UUID.',
+    }),
+    aulaId: z.string().uuid({
+      message: 'El espacio debe referenciarse por su UUID.',
+    }),
+    dia: diaSchema,
+    bloque: bloqueSchema,
+  })
+  .strict();
+
+export const esquemaActualizarClase = z
+  .object({
+    seccionId: z.string().uuid().optional(),
+    docenteId: z.string().uuid().optional(),
+    aulaId: z.string().uuid().optional(),
+    dia: diaSchema.optional(),
+    bloque: bloqueSchema.optional(),
+    activa: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio para la clase.',
+  });
+
+/**
+ * Filtro del horario propio.
+ *
+ * Se acepta un lapso distinto del vigente porque un docente planifica el
+ * siguiente mientras dicta el actual, y esa es justo la razón de que exista el
+ * catálogo de lapsos.
+ */
+export const esquemaMiHorario = z.object({
+  periodo: codigoPeriodo.optional(),
+});
+
+export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
+export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
+export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
+export type CrearPeriodoEntrada = z.infer<typeof esquemaCrearPeriodo>;
+export type ActualizarPeriodoEntrada = z.infer<typeof esquemaActualizarPeriodo>;
+export type CrearGuardiaEntrada = z.infer<typeof esquemaCrearGuardia>;
+export type ActualizarGuardiaEntrada = z.infer<typeof esquemaActualizarGuardia>;
+export type ListadoGuardiasEntrada = z.infer<typeof esquemaListadoGuardias>;
+export type RejillaEntrada = z.infer<typeof esquemaRejilla>;
+export type CrearClaseEntrada = z.infer<typeof esquemaCrearClase>;
+export type ActualizarClaseEntrada = z.infer<typeof esquemaActualizarClase>;
+export type MiHorarioEntrada = z.infer<typeof esquemaMiHorario>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.

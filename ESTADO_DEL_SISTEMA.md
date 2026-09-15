@@ -4,22 +4,22 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-15 · **Esquema del Módulo 3 aplicado,
-> verificado y corregido** (cuadrante, aulas, guardias docentes y triggers
-> anti-colisión), y **contrato de API escrito** (`docs/CONTRATO_API_MODULO3.md`).
-> Módulo 1 cerrado y Módulo 2 con backend completo. **D10 resuelta** (libro mayor
-> de migraciones con checksums). Puertos y CORS alineados. Repositorio publicado
-> en GitHub.
+> **Última actualización:** 2026-09-15 · **Módulo 3 con esquema Y backend
+> completos** (cuadrante, aulas, guardias docentes, triggers anti-colisión y las
+> **14 rutas** de `docs/CONTRATO_API_MODULO3.md`). Módulo 1 cerrado y Módulo 2
+> completo. **D10 resuelta** (libro mayor de migraciones con checksums). Puertos y
+> CORS alineados. Repositorio publicado en GitHub.
 >
-> **El Módulo 3 tiene el esquema hecho y el backend pendiente.** Las 14 rutas de
-> `docs/CONTRATO_API_MODULO3.md` están **diseñadas y documentadas, no
-> implementadas**. En la tabla de verificación, «22 rutas» son las que existen de
-> verdad; las de M3 todavía no cuentan.
-
+> **Del Módulo 3 sólo falta el frontend.** Las 14 rutas ya existen, están
+> registradas en Fastify y documentadas en `openapi.json` (el recuento pasó de
+> **22** a **29 rutas** y de **40** a **62 esquemas**). `test/openapi.test.ts`
+> compara ahora el documento contra las rutas **reales** en las dos direcciones,
+> así que una ruta nueva sin documentar ya no puede pasar.
+>
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real, y **volvió a corregirse el 2026-09-15** (232 backend / 197 Flutter /
+> base real, y **volvió a corregirse el 2026-09-15** (333 backend / 197 Flutter /
 > 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
 > código**: verifica antes de citar una cifra de aquí.
 
@@ -41,7 +41,8 @@
 | **Módulo 2 (backend)** | Currículo y Pensum: repositorio, 7 rutas y traducción de errores | ✅ Completo |
 | **Módulo 2 (frontend)** | Asistente de 3 pasos en Flutter | ✅ Completo |
 | **Módulo 3 (esquema)** | Cuadrante, aulas, guardias: 4 tablas, 2 triggers anti-colisión, 3 vistas | ✅ **Aplicado y verificado** |
-| **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ⏳ Pendiente (PASO 4) |
+| **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ✅ **Completo** (PASO 4) |
+| **Módulo 3 (frontend)** | Pantallas de aulas, lapsos, guardias y cuadrante | ⏳ Pendiente |
 | **Fase 4+** | M4 Inscripciones … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-15**;
@@ -51,7 +52,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **197 / 197** en verde |
-| `npm test` (backend) | **232 / 232** en verde (14 archivos) |
+| `npm test` (backend) | **333 / 333** en verde (16 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
@@ -64,7 +65,7 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
-| Documento OpenAPI | OpenAPI 3.1.0 · **22 rutas · 40 esquemas** (las de M3 aún no existen) |
+| Documento OpenAPI | OpenAPI 3.1.0 · **29 rutas · 62 esquemas** (las 14 de M3 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -565,16 +566,37 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 | `GET` | `/api/v1/admin/materias` | Banco global de materias, paginado y con búsqueda |
 | `POST` | `/api/v1/admin/materias` | Registra una materia en caliente (201) |
 
-**22 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+**Rutas de M3** (módulo 3, cuadrante, aulas y guardias — las trece primeras
+`admin`, la última por rol):
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/aulas` | Espacios del centro, paginados (`?tipo=`, `?activa=`, `?busqueda=`) |
+| `POST` | `/api/v1/admin/aulas` | Registra un espacio (201) |
+| `PATCH` | `/api/v1/admin/aulas/:id` | `nombre`, `capacidad`, `esTaller`, `activa`. **Archivar, no borrar** |
+| `GET` | `/api/v1/admin/periodos` | Catálogo de lapsos, con cuál es el vigente |
+| `POST` | `/api/v1/admin/periodos` | Registra un lapso, nace cerrado y no vigente (201) |
+| `PATCH` | `/api/v1/admin/periodos/:id` | `nombre`, fechas, `activo`. El código no se toca |
+| `PUT` | `/api/v1/admin/periodos/:id/vigente` | Declara ese lapso como el vigente |
+| `GET` | `/api/v1/admin/guardias` | Guardias de custodia, paginadas (`?docenteId=`, `?dia=`, `?bloque=`…) |
+| `POST` | `/api/v1/admin/guardias` | Asigna una guardia (201). Choque → **409 `CHOQUE_DE_AGENDA`** |
+| `PATCH` | `/api/v1/admin/guardias/:id` | Mueve o edita una guardia. `activa: false` libera el hueco |
+| `GET` | `/api/v1/admin/cuadrante` | **La rejilla maestra**: clases, guardias, aulas y docentes en una llamada |
+| `POST` | `/api/v1/admin/cuadrante` | Coloca una clase (201). Choque → **409 `CHOQUE_DE_AGENDA`** |
+| `PATCH` | `/api/v1/admin/cuadrante/:id` | Mueve o edita una clase |
+| `GET` | `/api/v1/mi-horario` | **sesión** — Docente: sus clases **y** sus guardias. Estudiante: las de su sección. Un `admin` recibe 403 `PERFIL_SIN_ROL` |
+
+**29 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
 
-> **Las rutas de M3 existen en el papel, no en el código.** Las 14 que describe
-> `docs/CONTRATO_API_MODULO3.md` (§1) están **diseñadas y documentadas**, pero
-> **no implementadas**: no están en `openapi.ts` ni en la lista de
-> `test/openapi.test.ts`, y por eso el recuento sigue siendo 22. Es el PASO 4.
-> No confundir «documentado» con «desplegado» — es la confusión que produjo D11.
+> **El choque de agenda no se comprueba en la API, se traduce.** Ninguna ruta
+> pregunta «¿está libre?» antes de escribir: sería una carrera y, peor, una
+> segunda copia de la regla que se desviaría de la del trigger. La API escribe,
+> el trigger `exigir_agenda_libre()` decide y el repositorio convierte el `23514`
+> en un 409 reutilizando **el mensaje del propio trigger** —que ya nombra el día
+> y el bloque—. Ver `docs/CONTRATO_API_MODULO3.md` §8 y §9.
 
 **Las dos escrituras de M2 no usan `insert`.** `POST /programas` y
 `PATCH /programas/:id/pensum` van por las funciones `crear_programa_con_pensum` y
@@ -618,7 +640,7 @@ registra Fastify. Las dos cosas las cubre `test/openapi.test.ts`:
 | Se comprueba | Por qué |
 | --- | --- |
 | Cada ruta documentada existe y responde (401 si es protegida, 200 si es pública) | Un 404 significaría que se inventó |
-| La lista de rutas coincide exactamente con la esperada | Añadir una ruta obliga a documentarla |
+| **El documento y la aplicación registran exactamente las mismas rutas, en las dos direcciones** | Una ruta documentada que no existe **y** una ruta registrada que nadie documentó. La versión anterior cotejaba contra una lista escrita a mano y sólo detectaba la primera: añadir una ruta y olvidar documentarla pasaba inadvertido. Se comparan contra el árbol real de Fastify, leído con `printRoutes()` **después de `await app.ready()`** — antes de eso, las rutas montadas dentro de un `app.register(...)` no aparecen y la comparación daría un verde hueco |
 | Ninguna operación carece de 200 o de 401 cuando exige sesión | Un contrato sin respuesta de éxito no sirve para generar clientes |
 | Las sondas de salud y `/openapi.json` son las únicas públicas | Una ruta que quedara pública por descuido no pasaría |
 | Lo que sirve `/openapi.json` es idéntico a lo que genera el script | El archivo del repo no puede divergir de lo servido |
@@ -653,7 +675,14 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `AUTO_DEGRADACION` | 409 | Un admin intenta quitarse su propio rol |
 | `ULTIMO_ADMIN` | 409 | El cambio dejaría el sistema sin administradores activos |
 | `INVITACION_YA_USADA` | 409 | El token de invitación ya se consumió |
-| `REGISTRO_DUPLICADO` | 409 | Violación de unicidad (`23505`): correo ya registrado, código repetido |
+| `REGISTRO_DUPLICADO` | 409 | Violación de unicidad (`23505`): correo ya registrado, código repetido, dos aulas con el mismo nombre |
+| `PENSUM_EN_USO` | 409 | Regla 2 de M2: el programa ya tiene secciones activas del lapso vigente. **Se separa de `RESTRICCION_VIOLADA` por el texto del mensaje**, porque los dos triggers lanzan `23514` |
+| `CHOQUE_DE_AGENDA` | 409 | **M3**: el docente o el espacio ya están ocupados en ese día y bloque. El mensaje se reutiliza **verbatim** del trigger, que ya nombra el día y el bloque |
+| `PERFIL_SIN_ROL` | 403 | **M3**: `/api/v1/mi-horario` para un `admin`. No es un fallo —su rol no tiene horario— y por eso no es un 404 ni una lista vacía |
+| `AULA_INEXISTENTE` | 404 | **M3**: el espacio que se quiere editar no existe |
+| `PERIODO_INEXISTENTE` | 404 | **M3**: el lapso que se quiere editar o declarar vigente no existe |
+| `GUARDIA_INEXISTENTE` | 404 | **M3**: la guardia que se quiere mover no existe |
+| `CLASE_INEXISTENTE` | 404 | **M3**: la clase del cuadrante que se quiere mover no existe |
 | `RECURSO_CADUCADO` | 410 | La invitación pasó sus 48 horas |
 | `PETICION_INVALIDA` | 400 | Fallo de validación (Zod, UUID de ruta o tipo de parámetro) |
 | `RESTRICCION_VIOLADA` | 400 | Un `check` de la base rechazó el dato (`23514`) |
@@ -817,7 +846,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
-| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 232 / 197 / 22 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
+| **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 333 / 197 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
@@ -878,7 +907,7 @@ URL de Supabase inexistente, no leyendo el código:
    desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
    navegador es un origen **distinto** de `localhost`).
 
-> El fallo 8 es el motivo por el que existe la prueba de humo. Las 232 pruebas de
+> El fallo 8 es el motivo por el que existe la prueba de humo. Las pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
 > sólo aparecen al hablar con la infraestructura de verdad.
@@ -899,7 +928,7 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 232 pruebas, incluidas las del módulo R2 y las de OpenAPI
+npm test              # 333 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
@@ -916,7 +945,7 @@ node supabase/humo-invitaciones.mjs                                 # 17 comprob
 | --- | --- | --- |
 | `flutter test` (197) | La lógica del cliente | El SQL, la API, la red |
 | `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (232) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `npm test` (333) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
@@ -1024,23 +1053,27 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    faltaba, y ya está con sus pruebas de widget.
 5. ~~Aplicar el esquema de M3~~ — **hecho** el 2026-09-15
    (`202609180001` + la corrección `202609180002`). Ver §12.
-6. **Implementar las 14 rutas de M3** — es el **PASO 4**, y es lo siguiente que
-   toca. El contrato completo está en `docs/CONTRATO_API_MODULO3.md`:
-   `/api/v1/admin/aulas`, `/periodos`, `/guardias`, `/cuadrante` y
-   `/api/v1/mi-horario`. Incluye el código de error nuevo `CHOQUE_DE_AGENDA`
-   (409) y la traducción del `23514` de colisión por el texto del mensaje.
-7. **Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel** cuando sus
+6. ~~Implementar las 14 rutas de M3~~ — **hecho** el 2026-09-15. Las 14 rutas
+   existen y están documentadas en `openapi.json` (29 rutas, 62 esquemas): las 13
+   de administración bajo `/api/v1/admin` —`/aulas`, `/periodos`, `/guardias`,
+   `/cuadrante`— más `/api/v1/mi-horario`. Incluye el código de error nuevo
+   `CHOQUE_DE_AGENDA` (409) y la traducción del `23514` de colisión por el texto
+   del mensaje. Ver `docs/CONTRATO_API_MODULO3.md`.
+7. **El frontend de M3** — es lo único que falta del módulo: las pantallas de
+   aulas, lapsos, guardias y la rejilla del cuadrante. El backend y el esquema no
+   van a moverse, así que se puede construir contra el contrato sin esperar.
+8. **Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel** cuando sus
    pantallas existan. El interruptor ya funciona; lo que falta es lo que hay
    detrás.
-8. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
+9. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
    cerrar D9 con una regla de ciclo de vida en R2.
-9. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
+10. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida
    caducidad, cruza con `enrollments` y registra la asistencia. Tres faltas
    consecutivas disparan el motor de bids de M4. **No se implementa todavía**:
    el esquema de M3 ya existe, pero M4 (bids) no.
-10. **Decidir R-06** (convención de período: `2026-1` frente a `SA26-2`). Ya no
+11. **Decidir R-06** (convención de período: `2026-1` frente a `SA26-2`). Ya no
    deja una guarda inerte —el catálogo `academic_periods`, la FK desde `sections`
    y el trigger de `periodo_activo` hacen imposible la divergencia silenciosa—,
    pero sí decide **cuántos lapsos** acaban existiendo: si la coordinación usa
@@ -1353,14 +1386,53 @@ antes de tocar el código: `notify pgrst, 'reload schema'`.
 
 ---
 
-## 12. Módulo 3 — Cuadrante, aulas y guardias: esquema aplicado
+## 12. Módulo 3 — Cuadrante, aulas y guardias: esquema y backend
 
-**Estado: esquema aplicado, verificado y corregido; backend pendiente (PASO 4).**
-Dos archivos —`supabase/migrations/202609180001_mod3_cuadrante_aulas.sql` (todo
-el diseño) y `supabase/migrations/202609180002_mod3_trigger_agenda_definer.sql`
-(la corrección de R-20)—. El contrato completo de las 14 rutas está en
+**Estado: esquema aplicado, verificado y corregido, y backend completo.** Falta
+el frontend. Dos archivos de esquema
+—`supabase/migrations/202609180001_mod3_cuadrante_aulas.sql` (todo el diseño) y
+`supabase/migrations/202609180002_mod3_trigger_agenda_definer.sql` (la corrección
+de R-20)—. El contrato completo de las 14 rutas está en
 **`docs/CONTRATO_API_MODULO3.md`**, que es el documento que hay que leer antes de
 tocar nada de este módulo.
+
+### El backend (PASO 4, cerrado el 2026-09-15)
+
+Seis piezas, en el mismo reparto hexagonal que M2:
+
+| Pieza | Qué contiene |
+| --- | --- |
+| `dominio/reglas-cuadrante.ts` | Las reglas puras: `turnoDeBloque` (espejo de la función SQL), `diaLegible`, `esChoqueDeAgenda`, `esFechaISO`, `rangoDeFechasValido` |
+| `dominio/tipos.ts` | `Aula`, `Periodo`, `Guardia`, `ClaseCuadrante`, `DocenteResumen`, `RejillaCuadrante`, `MiHorario`… |
+| `dominio/puertos.ts` | `PuertaCuadrante`, con las 13 operaciones. **Sin ninguna de «¿está libre?»**: preguntar antes de escribir es una carrera y una segunda copia de la regla |
+| `infra/repos-supabase.ts` | `CuadranteSupabase`. Escribe contra la tabla y **relee de la vista**; traduce el `23514` de colisión a `CHOQUE_DE_AGENDA` reutilizando el mensaje del trigger |
+| `http/esquemas.ts` | Los esquemas Zod: día 1–6, bloque 1–12, código de lapso, fecha que existe, y el rechazo explícito de `turno` y `periodo` por ser derivados |
+| `http/rutas/cuadrante.ts` | Las 14 rutas, y `http/openapi.ts` su documentación |
+
+**Dos decisiones que conviene conocer antes de leer el código:**
+
+1. **El `turno` se lee, no se recalcula.** Es una columna generada;
+   `turnoDeBloque()` sólo actúa como respaldo. Así, mover la frontera de turnos
+   (R-16) no puede hacer que el backend y la base digan cosas distintas.
+2. **`GET /cuadrante` proyecta `docentes` de `profiles`, y no usa
+   `nombre_para_mostrar()`.** La función sigue siendo necesaria para el horario
+   del **estudiante** (§7 del contrato, R-14), pero un administrador sí puede
+   leer todos los perfiles (`profiles_admin_all`), así que la ruta de
+   administración lee sólo `id`, `nombres`, `apellidos`. Son dos problemas
+   distintos y por eso conviven las dos soluciones.
+
+**Pruebas nuevas: 101.** `test/reglas-cuadrante.test.ts` (20),
+`test/cuadrante.test.ts` (60) y los casos de M3 en `test/esquemas.test.ts`. El
+doble en memoria del arnés reproduce el chequeo cruzado con **los dos mensajes
+verbatim de la migración**, así que `esChoqueDeAgenda` se ejercita de verdad y no
+contra un texto inventado.
+
+> **`test/openapi.test.ts` ya no coteja contra una lista escrita a mano.** Ahora
+> compara el documento contra el árbol **real** de Fastify en las dos
+> direcciones, leído con `printRoutes()` después de `await app.ready()` — antes
+> de eso, las rutas montadas dentro de un `app.register(...)` no aparecen y la
+> comparación daría un verde hueco. Esto cierra el punto ciego de D6: añadir una
+> ruta y olvidar documentarla ahora falla.
 
 ### Las cuatro tablas y por qué cada una
 

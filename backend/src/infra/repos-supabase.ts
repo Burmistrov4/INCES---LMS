@@ -1,18 +1,32 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
+  CambiosAula,
+  CambiosClase,
+  CambiosGuardia,
+  CambiosPeriodo,
   CambiosPrograma,
+  EntradaCrearAula,
+  EntradaCrearClase,
+  EntradaCrearGuardia,
   EntradaCrearMateria,
+  EntradaCrearPeriodo,
   EntradaCrearPrograma,
   OpcionesListadoAcceso,
+  OpcionesListadoAulas,
+  OpcionesListadoGuardias,
   OpcionesListadoMaterias,
   OpcionesListadoProgramas,
   OpcionesListadoUsuarios,
+  OpcionesRejilla,
   PaginaAcceso,
+  PaginaAulas,
+  PaginaGuardias,
   PaginaMaterias,
   PaginaProgramas,
   PaginaUsuarios,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
+  PuertaCuadrante,
   PuertaCurriculo,
   PuertaInvitacionesDocente,
   PuertaModulos,
@@ -26,24 +40,34 @@ import {
   esBloqueoPorPensumEnUso,
   pensumEditable,
 } from '../dominio/reglas-curriculo.js';
+import { esChoqueDeAgenda, turnoDeBloque } from '../dominio/reglas-cuadrante.js';
 import {
   esRol,
   esTipoPrograma,
+  esTurno,
+  type Aula,
   type CambiosModulo,
+  type ClaseCuadrante,
   type DetallePrograma,
+  type DocenteResumen,
   type EntradaAcceso,
   type EntradaAuditoria,
   type EntradaPensum,
   type EstadoAcceso,
+  type Guardia,
   type InvitacionDocente,
   type Materia,
   type MateriaEnPensum,
+  type MiHorario,
   type ModuloSistema,
   type ParametroSistema,
   type Perfil,
+  type Periodo,
   type Programa,
   type ProgramaConTotales,
+  type RejillaCuadrante,
   type Rol,
+  type RolDeHorario,
   type TipoParametro,
 } from '../dominio/tipos.js';
 import {
@@ -253,6 +277,109 @@ function aProgramaConTotales(fila: Fila): ProgramaConTotales {
   };
 }
 
+/**
+ * Turno leído de la base.
+ *
+ * `turno` es una columna generada, así que la base siempre devuelve `MAÑANA` o
+ * `TARDE` y esto no debería degradar nunca. Se degrada igualmente, y **se
+ * recalcula a partir del bloque** en vez de caer a un valor fijo: si algún día
+ * la columna cambiara de forma, un turno recalculado sigue siendo coherente con
+ * el bloque que lo produjo, mientras que un `'MAÑANA'` fijo mentiría en todos
+ * los bloques de la tarde. Misma razón que `rolSeguro` y `aPrograma`.
+ */
+function turnoSeguro(valor: unknown, bloque: number): Guardia['turno'] {
+  return esTurno(valor) ? valor : turnoDeBloque(bloque);
+}
+
+function aAula(fila: Fila): Aula {
+  return {
+    id: textoObligatorio(fila.id),
+    nombre: textoObligatorio(fila.name),
+    capacidad: entero(fila.capacity, 0),
+    esTaller: booleano(fila.is_workshop, false),
+    activa: booleano(fila.is_active, true),
+    creadoEn: textoObligatorio(fila.created_at),
+    actualizadoEn: textoObligatorio(fila.updated_at),
+  };
+}
+
+/**
+ * Período leído de la base, con `vigente` resuelto contra el código en curso.
+ *
+ * `vigente` **no es una columna**: sale de comparar `code` con
+ * `system_settings.periodo_activo`. Se recibe ya resuelto en vez de leerlo aquí
+ * para que una lista de veinte lapsos no dispare veinte consultas al parámetro.
+ */
+function aPeriodo(fila: Fila, codigoVigente: string | null): Periodo {
+  const codigo = textoObligatorio(fila.code);
+  return {
+    id: textoObligatorio(fila.id),
+    codigo,
+    nombre: texto(fila.name),
+    fechaInicio: texto(fila.start_date),
+    fechaFin: texto(fila.end_date),
+    activo: booleano(fila.is_active, false),
+    vigente: codigoVigente !== null && codigo === codigoVigente,
+    creadoEn: textoObligatorio(fila.created_at),
+    actualizadoEn: textoObligatorio(fila.updated_at),
+  };
+}
+
+function aGuardia(fila: Fila): Guardia {
+  const bloque = entero(fila.block, 1);
+  return {
+    id: textoObligatorio(fila.id),
+    docenteId: textoObligatorio(fila.teacher_id),
+    aulaId: textoObligatorio(fila.classroom_id),
+    periodo: textoObligatorio(fila.period_code),
+    dia: entero(fila.day_of_week, 1),
+    bloque,
+    turno: turnoSeguro(fila.turno, bloque),
+    notas: texto(fila.notes),
+    activa: booleano(fila.is_active, true),
+    creadoEn: textoObligatorio(fila.created_at),
+    actualizadoEn: textoObligatorio(fila.updated_at),
+  };
+}
+
+/**
+ * Clase del cuadrante, leída de `v_cuadrante_clases`.
+ *
+ * La vista ya trae los nombres resueltos: la materia, el nombre de la sección,
+ * el del aula y el del docente. El del docente lo resuelve la vista con
+ * `nombre_para_mostrar()`, no un `join` contra `profiles`, porque para un
+ * estudiante la política `profiles_read_own` haría que el `join` devolviera
+ * `NULL` y el horario saldría sin profesor.
+ */
+function aClaseCuadrante(fila: Fila): ClaseCuadrante {
+  const bloque = entero(fila.block, 1);
+  return {
+    id: textoObligatorio(fila.id),
+    seccionId: textoObligatorio(fila.section_id),
+    docenteId: textoObligatorio(fila.teacher_id),
+    aulaId: textoObligatorio(fila.classroom_id),
+    dia: entero(fila.day_of_week, 1),
+    bloque,
+    turno: turnoSeguro(fila.turno, bloque),
+    activa: booleano(fila.is_active, true),
+    periodo: textoObligatorio(fila.period_code),
+    programaId: textoObligatorio(fila.program_id),
+    programa: textoObligatorio(fila.program_name),
+    materiaId: textoObligatorio(fila.subject_id),
+    materia: textoObligatorio(fila.subject_name),
+    seccion: textoObligatorio(fila.section_name),
+    aula: textoObligatorio(fila.classroom_name),
+    docente: textoObligatorio(fila.teacher_name),
+  };
+}
+
+function aDocenteResumen(fila: Fila): DocenteResumen {
+  const nombre = [textoObligatorio(fila.nombres), textoObligatorio(fila.apellidos)]
+    .filter((parte) => parte.length > 0)
+    .join(' ');
+  return { id: textoObligatorio(fila.id), nombre };
+}
+
 // --- repositorios -----------------------------------------------------------
 
 const TABLA_PERFILES = 'profiles';
@@ -266,8 +393,62 @@ const TABLA_MATERIAS = 'subjects';
 const TABLA_PENSUM = 'program_subjects';
 const TABLA_SECCIONES = 'sections';
 
+// --- M3 ---------------------------------------------------------------------
+
+const TABLA_AULAS = 'classrooms';
+const TABLA_PERIODOS = 'academic_periods';
+const TABLA_GUARDIAS = 'teacher_duties';
+const TABLA_CUADRANTE = 'schedule_slots';
+
+/** La vista que resuelve los nombres de una clase sin abrir `profiles`. */
+const VISTA_CLASES = 'v_cuadrante_clases';
+
 /** Clave del parámetro que dice cuál es el período académico vigente. */
 const CLAVE_PERIODO_ACTIVO = 'periodo_activo';
+
+/**
+ * Columnas de cada tabla de M3 que necesita su mapeador.
+ *
+ * Se nombran una sola vez por la misma razón que `COLUMNAS_PERFIL`: aparecen en
+ * varias consultas —la página, el `insert`, el `update`— y una columna que falte
+ * en una de ellas no da error de tipos, se degrada en silencio a cadena vacía.
+ * Mejor una lista y un único sitio donde equivocarse.
+ */
+const COLUMNAS_AULA = 'id,name,capacity,is_workshop,is_active,created_at,updated_at';
+
+const COLUMNAS_PERIODO =
+  'id,code,name,start_date,end_date,is_active,created_at,updated_at';
+
+/**
+ * `turno` va en la lista aunque sea una columna generada.
+ *
+ * Se podría recalcular desde `block` y ahorrarse la columna, pero leerla es lo
+ * que garantiza que el backend y la base dicen lo mismo: si el corte entre
+ * turnos cambiara en `turno_de_bloque()` y aquí se recalculase con una copia, el
+ * desacuerdo no se vería. `turnoSeguro` recae en el cálculo sólo si la columna
+ * llegara con una forma inesperada.
+ */
+const COLUMNAS_GUARDIA =
+  'id,teacher_id,classroom_id,period_code,day_of_week,block,turno,notes,is_active,created_at,updated_at';
+
+/**
+ * Las columnas de `v_cuadrante_clases` que consume `aClaseCuadrante`.
+ *
+ * Va en **una sola línea y sin concatenar** a propósito. El SDK de Supabase
+ * deduce el tipo de la respuesta a partir del literal del `select`, y con una
+ * cadena construida con `+` el tipo se degrada a un error genérico: el
+ * compilador deja de poder comprobar las conversiones y hay que forzarlas. Con
+ * el literal entero, el `select` conserva su forma y los `as Fila` del
+ * repositorio siguen siendo comprobables.
+ */
+const COLUMNAS_CLASE =
+  'id,period_code,program_id,program_name,subject_id,subject_name,section_id,section_name,teacher_id,teacher_name,classroom_id,classroom_name,day_of_week,block,turno,is_active';
+
+/** Columnas de `profiles` que bastan para pintar una fila de la rejilla. */
+const COLUMNAS_DOCENTE_RESUMEN = 'id,nombres,apellidos';
+
+/** Roles que pueden aparecer como docente en la rejilla. */
+const ROLES_DOCENTES: readonly Rol[] = ['docente', 'admin'];
 
 /**
  * Columnas de `programs` que necesita `aPrograma`. Se nombran una sola vez por
@@ -1127,6 +1308,707 @@ class CurriculoSupabase implements PuertaCurriculo {
   }
 }
 
+/** Códigos de «no existe» por recurso, para no repetir literales sueltos. */
+type Recurso = { codigo: string; mensaje: string };
+
+const RECURSO_AULA: Recurso = {
+  codigo: 'AULA_INEXISTENTE',
+  mensaje: 'Ese espacio no existe.',
+};
+
+const RECURSO_PERIODO: Recurso = {
+  codigo: 'PERIODO_INEXISTENTE',
+  mensaje: 'Ese lapso no existe.',
+};
+
+const RECURSO_GUARDIA: Recurso = {
+  codigo: 'GUARDIA_INEXISTENTE',
+  mensaje: 'Esa guardia no existe.',
+};
+
+const RECURSO_CLASE: Recurso = {
+  codigo: 'CLASE_INEXISTENTE',
+  mensaje: 'Esa clase no existe en el cuadrante.',
+};
+
+/**
+ * Cuadrante, aulas y guardias (Módulo 3).
+ *
+ * **Aquí no hay ninguna función de base de datos.** A diferencia de
+ * `CurriculoSupabase`, cada escritura de M3 es una fila en una tabla: no hay
+ * agregado que crear de golpe y PostgREST basta. Las dos escrituras que
+ * necesitan atomicidad en M2 —crear un programa con su pensum y reemplazarlo—
+ * existen porque PostgREST no admite insertar un padre con sus hijos; aquí no
+ * hay hijos.
+ *
+ * Lo que sí vive en la base es la **guarda anti-colisión**. El repositorio no
+ * pregunta «¿está libre?» antes de escribir: preguntar y luego escribir es una
+ * carrera, y la respuesta buena la da la propia escritura a través del trigger.
+ * El único trabajo de esta capa con esa guarda es **traducirla**: un `23514`
+ * cuyo mensaje habla de un docente o un espacio ocupado no es una restricción
+ * violada, es un `409 CHOQUE_DE_AGENDA`.
+ */
+class CuadranteSupabase implements PuertaCuadrante {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  // --- Aulas ----------------------------------------------------------------
+
+  async listarAulas(opciones: OpcionesListadoAulas): Promise<PaginaAulas> {
+    // El total primero, como en todo el proyecto: es lo que permite recortar el
+    // rango y no llegar nunca al 416 de PostgREST, y lo que deja que la pantalla
+    // diga «1 a 25 de 9» sin una consulta de más.
+    const total = await this.contarAulas(opciones);
+
+    if (opciones.desplazamiento >= total) {
+      return { aulas: [], total };
+    }
+
+    const respuesta = await this.consultaDeAulas(opciones)
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(
+        opciones.desplazamiento,
+        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
+      );
+
+    if (respuesta.error) {
+      // Defensa en profundidad ante una carrera entre el recuento y la página.
+      if (esRangoNoSatisfacible(respuesta.error)) {
+        return { aulas: [], total: await this.contarAulas(opciones) };
+      }
+      throw traducirError(respuesta.error, 'listar aulas');
+    }
+
+    const filas = (respuesta.data ?? []) as Fila[];
+    return { aulas: filas.map(aAula), total };
+  }
+
+  /**
+   * La consulta base del listado de aulas, con los filtros ya aplicados.
+   *
+   * El filtro `tipo` se traduce a las dos columnas que lo componen. Las tres
+   * formas son excluyentes y cubren todos los casos, así que ninguna aula se
+   * queda fuera del listado sin que el filtro lo diga.
+   */
+  private consultaDeAulas(opciones: OpcionesListadoAulas, contar = false) {
+    let consulta = contar
+      ? this.cliente.from(TABLA_AULAS).select('id', { count: 'exact', head: true })
+      : this.cliente.from(TABLA_AULAS).select(COLUMNAS_AULA);
+
+    if (opciones.tipo === 'TALLER') {
+      consulta = consulta.eq('is_workshop', true);
+    }
+    if (opciones.tipo === 'ZONA') {
+      consulta = consulta.eq('is_workshop', false).eq('capacity', 0);
+    }
+    if (opciones.tipo === 'AULA') {
+      consulta = consulta.eq('is_workshop', false).gt('capacity', 0);
+    }
+
+    if (opciones.activa !== undefined) consulta = consulta.eq('is_active', opciones.activa);
+    if (opciones.busqueda) consulta = consulta.or(filtroIlike(['name'], opciones.busqueda));
+
+    return consulta;
+  }
+
+  private async contarAulas(opciones: OpcionesListadoAulas): Promise<number> {
+    const respuesta = await this.consultaDeAulas(opciones, true);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'contar aulas');
+
+    if (respuesta.count === null || respuesta.count === undefined) {
+      throw ErrorApi.interno('La base de datos no devolvió el total de espacios.');
+    }
+
+    return respuesta.count;
+  }
+
+  async crearAula(entrada: EntradaCrearAula): Promise<Aula> {
+    const respuesta = await this.cliente
+      .from(TABLA_AULAS)
+      .insert({
+        name: entrada.nombre,
+        capacity: entrada.capacidad,
+        is_workshop: entrada.esTaller,
+      })
+      .select(COLUMNAS_AULA)
+      .single();
+
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error, 'crear aula');
+    return aAula(respuesta.data as Fila);
+  }
+
+  async actualizarAula(id: string, cambios: CambiosAula): Promise<Aula> {
+    const parche: Record<string, unknown> = {};
+    if (cambios.nombre !== undefined) parche.name = cambios.nombre;
+    if (cambios.capacidad !== undefined) parche.capacity = cambios.capacidad;
+    if (cambios.esTaller !== undefined) parche.is_workshop = cambios.esTaller;
+    if (cambios.activa !== undefined) parche.is_active = cambios.activa;
+
+    if (Object.keys(parche).length === 0) {
+      throw ErrorApi.peticionInvalida('No se indicó ningún cambio para el espacio.');
+    }
+
+    const respuesta = await this.cliente
+      .from(TABLA_AULAS)
+      .update(parche)
+      .eq('id', id)
+      .select(COLUMNAS_AULA)
+      .single();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'actualizar aula', RECURSO_AULA);
+    }
+
+    return aAula(respuesta.data as Fila);
+  }
+
+  // --- Períodos -------------------------------------------------------------
+
+  async listarPeriodos(): Promise<Periodo[]> {
+    const vigente = await this.leerPeriodoVigente();
+
+    // Descendente: el lapso más reciente arriba es el que se está usando. El
+    // vigente se marca igualmente con `vigente`, así que el orden es comodidad
+    // y no información.
+    const respuesta = await this.cliente
+      .from(TABLA_PERIODOS)
+      .select(COLUMNAS_PERIODO)
+      .order('code', { ascending: false });
+
+    const filas = desenvolver(respuesta, 'listar períodos') as Fila[];
+    return filas.map((fila) => aPeriodo(fila, vigente));
+  }
+
+  async crearPeriodo(entrada: EntradaCrearPeriodo): Promise<Periodo> {
+    const respuesta = await this.cliente
+      .from(TABLA_PERIODOS)
+      .insert({
+        code: entrada.codigo,
+        name: entrada.nombre,
+        start_date: entrada.fechaInicio,
+        end_date: entrada.fechaFin,
+      })
+      .select(COLUMNAS_PERIODO)
+      .single();
+
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error, 'crear período');
+
+    // Un lapso recién creado **nunca** es el vigente, y no hace falta
+    // preguntarlo: el trigger `exigir_periodo_registrado()` garantiza que
+    // `periodo_activo` nombra un lapso que ya existe, así que insertar su código
+    // chocaría antes con el `unique` y saldría como 409. Preguntarlo costaría
+    // una consulta para confirmar algo que la base ya garantiza.
+    return aPeriodo(respuesta.data as Fila, null);
+  }
+
+  async actualizarPeriodo(id: string, cambios: CambiosPeriodo): Promise<Periodo> {
+    const parche: Record<string, unknown> = {};
+    if (cambios.nombre !== undefined) parche.name = cambios.nombre;
+    if (cambios.fechaInicio !== undefined) parche.start_date = cambios.fechaInicio;
+    if (cambios.fechaFin !== undefined) parche.end_date = cambios.fechaFin;
+    if (cambios.activo !== undefined) parche.is_active = cambios.activo;
+
+    if (Object.keys(parche).length === 0) {
+      throw ErrorApi.peticionInvalida('No se indicó ningún cambio para el lapso.');
+    }
+
+    const respuesta = await this.cliente
+      .from(TABLA_PERIODOS)
+      .update(parche)
+      .eq('id', id)
+      .select(COLUMNAS_PERIODO)
+      .single();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'actualizar período', RECURSO_PERIODO);
+    }
+
+    // Aquí sí hay que leer el vigente: el código del lapso no cambia, así que su
+    // condición de vigente tampoco, pero no viaja en la fila.
+    return aPeriodo(respuesta.data as Fila, await this.leerPeriodoVigente());
+  }
+
+  async declararPeriodoVigente(id: string): Promise<Periodo> {
+    // Se lee primero porque hace falta el `code`: `periodo_activo` guarda el
+    // código, no el id, y es el código lo que citan las secciones.
+    const periodo = await this.periodoPorId(id);
+    if (!periodo) {
+      throw ErrorApi.noEncontrado(RECURSO_PERIODO.codigo, RECURSO_PERIODO.mensaje);
+    }
+
+    const respuesta = await this.cliente
+      .from(TABLA_PARAMETROS)
+      .update({ valor: periodo.codigo })
+      .eq('clave', CLAVE_PERIODO_ACTIVO)
+      .select('clave')
+      .maybeSingle();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'declarar el período vigente');
+    }
+
+    // Sin la fila del parámetro no hay dónde escribir. No es un 404 del cliente:
+    // es que falta una migración, y decirlo así ahorra una tarde de búsqueda.
+    if (!respuesta.data) {
+      throw ErrorApi.interno(
+        'No existe el parámetro "periodo_activo". Aplica las migraciones del sistema.',
+      );
+    }
+
+    return { ...periodo, vigente: true };
+  }
+
+  /** El código del lapso vigente, o `null` si no hay ninguno declarado. */
+  private async leerPeriodoVigente(): Promise<string | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_PARAMETROS)
+      .select('valor')
+      .eq('clave', CLAVE_PERIODO_ACTIVO)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer el período vigente');
+    if (!respuesta.data) return null;
+
+    // `valor` es jsonb: un lapso guardado como número devolvería `2026`, no
+    // `"2026"`. Se acepta sólo texto porque la comparación es por igualdad
+    // exacta de cadena y `2026 !== '2026'` haría que nada fuera vigente sin
+    // avisar. Misma decisión que en `CurriculoSupabase.leerPeriodoActivo`.
+    return texto((respuesta.data as Fila).valor);
+  }
+
+  private async periodoPorId(id: string): Promise<Periodo | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_PERIODOS)
+      .select(COLUMNAS_PERIODO)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer período');
+    if (!respuesta.data) return null;
+
+    return aPeriodo(respuesta.data as Fila, await this.leerPeriodoVigente());
+  }
+
+  // --- Guardias -------------------------------------------------------------
+
+  async listarGuardias(opciones: OpcionesListadoGuardias): Promise<PaginaGuardias> {
+    const total = await this.contarGuardias(opciones);
+
+    if (opciones.desplazamiento >= total) {
+      return { guardias: [], total };
+    }
+
+    // Orden cronológico ascendente: período, día y bloque. Es el orden en el que
+    // se lee una guardia («el lunes a primera hora»), y el `id` desempata para
+    // que dos filas idénticas no intercambien posiciones entre páginas.
+    const respuesta = await this.consultaDeGuardias(opciones)
+      .order('period_code', { ascending: true })
+      .order('day_of_week', { ascending: true })
+      .order('block', { ascending: true })
+      .order('id', { ascending: true })
+      .range(
+        opciones.desplazamiento,
+        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
+      );
+
+    if (respuesta.error) {
+      if (esRangoNoSatisfacible(respuesta.error)) {
+        return { guardias: [], total: await this.contarGuardias(opciones) };
+      }
+      throw traducirError(respuesta.error, 'listar guardias');
+    }
+
+    const filas = (respuesta.data ?? []) as Fila[];
+    return { guardias: filas.map(aGuardia), total };
+  }
+
+  private consultaDeGuardias(opciones: OpcionesListadoGuardias, contar = false) {
+    let consulta = contar
+      ? this.cliente.from(TABLA_GUARDIAS).select('id', { count: 'exact', head: true })
+      : this.cliente.from(TABLA_GUARDIAS).select(COLUMNAS_GUARDIA);
+
+    if (opciones.periodo) consulta = consulta.eq('period_code', opciones.periodo);
+    if (opciones.docenteId) consulta = consulta.eq('teacher_id', opciones.docenteId);
+    if (opciones.aulaId) consulta = consulta.eq('classroom_id', opciones.aulaId);
+    if (opciones.dia !== undefined) consulta = consulta.eq('day_of_week', opciones.dia);
+    if (opciones.bloque !== undefined) consulta = consulta.eq('block', opciones.bloque);
+    if (opciones.activa !== undefined) consulta = consulta.eq('is_active', opciones.activa);
+
+    return consulta;
+  }
+
+  private async contarGuardias(opciones: OpcionesListadoGuardias): Promise<number> {
+    const respuesta = await this.consultaDeGuardias(opciones, true);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'contar guardias');
+
+    if (respuesta.count === null || respuesta.count === undefined) {
+      throw ErrorApi.interno('La base de datos no devolvió el total de guardias.');
+    }
+
+    return respuesta.count;
+  }
+
+  async crearGuardia(entrada: EntradaCrearGuardia): Promise<Guardia> {
+    // `turno` NO se manda: es una columna generada a partir de `block`. Enviarla
+    // sería un error de Postgres, y es justo lo que el `.strict()` de Zod impide
+    // que llegue hasta aquí.
+    const respuesta = await this.cliente
+      .from(TABLA_GUARDIAS)
+      .insert({
+        teacher_id: entrada.docenteId,
+        classroom_id: entrada.aulaId,
+        period_code: entrada.periodo,
+        day_of_week: entrada.dia,
+        block: entrada.bloque,
+        notes: entrada.notas,
+      })
+      .select(COLUMNAS_GUARDIA)
+      .single();
+
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error, 'crear guardia');
+    return aGuardia(respuesta.data as Fila);
+  }
+
+  async actualizarGuardia(id: string, cambios: CambiosGuardia): Promise<Guardia> {
+    const parche: Record<string, unknown> = {};
+    if (cambios.docenteId !== undefined) parche.teacher_id = cambios.docenteId;
+    if (cambios.aulaId !== undefined) parche.classroom_id = cambios.aulaId;
+    if (cambios.periodo !== undefined) parche.period_code = cambios.periodo;
+    if (cambios.dia !== undefined) parche.day_of_week = cambios.dia;
+    if (cambios.bloque !== undefined) parche.block = cambios.bloque;
+    if (cambios.notas !== undefined) parche.notes = cambios.notas;
+    if (cambios.activa !== undefined) parche.is_active = cambios.activa;
+
+    if (Object.keys(parche).length === 0) {
+      throw ErrorApi.peticionInvalida('No se indicó ningún cambio para la guardia.');
+    }
+
+    // Mover una guardia sobre su propio hueco no la rechaza a sí misma: el
+    // trigger excluye la fila que se está actualizando (`not (origen = … and
+    // id = p_id)`). Esa exclusión vive en la función SQL, no aquí.
+    const respuesta = await this.cliente
+      .from(TABLA_GUARDIAS)
+      .update(parche)
+      .eq('id', id)
+      .select(COLUMNAS_GUARDIA)
+      .single();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'actualizar guardia', RECURSO_GUARDIA);
+    }
+
+    return aGuardia(respuesta.data as Fila);
+  }
+
+  // --- Cuadrante ------------------------------------------------------------
+
+  async rejilla(opciones: OpcionesRejilla): Promise<RejillaCuadrante> {
+    const periodo = opciones.periodo ?? (await this.leerPeriodoVigente());
+
+    // Las aulas y los docentes no dependen del lapso, así que se piden siempre
+    // —también cuando no hay ninguno vigente—. Con eso la pantalla puede mostrar
+    // el catálogo y decir «no hay lapso vigente» en vez de quedarse en blanco,
+    // que es indistinguible de «no hay nada configurado».
+    const [aulas, docentes] = await Promise.all([
+      this.listarTodasLasAulas(),
+      this.listarDocentes(),
+    ]);
+
+    if (!periodo) {
+      return { periodo: null, clases: [], guardias: [], aulas, docentes };
+    }
+
+    const [clases, guardias] = await Promise.all([
+      this.clasesDeRejilla(periodo, opciones),
+      this.guardiasDeRejilla(periodo, opciones),
+    ]);
+
+    return { periodo, clases, guardias, aulas, docentes };
+  }
+
+  private async clasesDeRejilla(
+    periodo: string,
+    opciones: OpcionesRejilla,
+  ): Promise<ClaseCuadrante[]> {
+    let consulta = this.cliente
+      .from(VISTA_CLASES)
+      .select(COLUMNAS_CLASE)
+      .eq('period_code', periodo);
+
+    if (opciones.seccionId) consulta = consulta.eq('section_id', opciones.seccionId);
+    if (opciones.docenteId) consulta = consulta.eq('teacher_id', opciones.docenteId);
+    if (opciones.aulaId) consulta = consulta.eq('classroom_id', opciones.aulaId);
+    if (!opciones.incluirInactivas) consulta = consulta.eq('is_active', true);
+
+    const filas = desenvolver(
+      await consulta.order('day_of_week').order('block').order('id'),
+      'leer el cuadrante de clases',
+    ) as Fila[];
+
+    return filas.map(aClaseCuadrante);
+  }
+
+  /**
+   * Las guardias de la rejilla.
+   *
+   * `seccionId` no se aplica: una guardia no pertenece a ninguna sección, es una
+   * presencia en un espacio. Filtrarlas por sección dejaría fuera guardias que
+   * sí ocupan el mismo hueco, y la rejilla volvería a mostrar un cuadro que
+   * parece libre sin estarlo.
+   */
+  private async guardiasDeRejilla(
+    periodo: string,
+    opciones: OpcionesRejilla,
+  ): Promise<Guardia[]> {
+    let consulta = this.cliente
+      .from(TABLA_GUARDIAS)
+      .select(COLUMNAS_GUARDIA)
+      .eq('period_code', periodo);
+
+    if (opciones.docenteId) consulta = consulta.eq('teacher_id', opciones.docenteId);
+    if (opciones.aulaId) consulta = consulta.eq('classroom_id', opciones.aulaId);
+    if (!opciones.incluirInactivas) consulta = consulta.eq('is_active', true);
+
+    const filas = desenvolver(
+      await consulta.order('day_of_week').order('block').order('id'),
+      'leer las guardias del cuadrante',
+    ) as Fila[];
+
+    return filas.map(aGuardia);
+  }
+
+  async crearClase(entrada: EntradaCrearClase): Promise<ClaseCuadrante> {
+    // El período no se manda: lo deriva el trigger de la sección. Mandarlo desde
+    // aquí abriría la puerta a una fila cuya sección es de un lapso y cuya
+    // rejilla se dibuja en otro.
+    const respuesta = await this.cliente
+      .from(TABLA_CUADRANTE)
+      .insert({
+        section_id: entrada.seccionId,
+        teacher_id: entrada.docenteId,
+        classroom_id: entrada.aulaId,
+        day_of_week: entrada.dia,
+        block: entrada.bloque,
+      })
+      .select('id')
+      .single();
+
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error, 'crear clase');
+
+    const id = texto((respuesta.data as Fila).id);
+    if (!id) {
+      throw ErrorApi.interno('La creación de la clase no devolvió un identificador.');
+    }
+
+    // Se vuelve a leer de la VISTA, no de la tabla: la respuesta tiene que traer
+    // los nombres (materia, sección, aula, docente) para que la pantalla pinte
+    // la celda sin una consulta por clase.
+    return this.claseObligatoria(id);
+  }
+
+  async actualizarClase(id: string, cambios: CambiosClase): Promise<ClaseCuadrante> {
+    const parche: Record<string, unknown> = {};
+    if (cambios.seccionId !== undefined) parche.section_id = cambios.seccionId;
+    if (cambios.docenteId !== undefined) parche.teacher_id = cambios.docenteId;
+    if (cambios.aulaId !== undefined) parche.classroom_id = cambios.aulaId;
+    if (cambios.dia !== undefined) parche.day_of_week = cambios.dia;
+    if (cambios.bloque !== undefined) parche.block = cambios.bloque;
+    if (cambios.activa !== undefined) parche.is_active = cambios.activa;
+
+    if (Object.keys(parche).length === 0) {
+      throw ErrorApi.peticionInvalida('No se indicó ningún cambio para la clase.');
+    }
+
+    // La escritura va contra la TABLA y no contra la vista: `v_cuadrante_clases`
+    // une cuatro tablas, así que no es auto-actualizable y un `update` sobre
+    // ella sería un error. La lectura de la respuesta sí va contra la vista.
+    const respuesta = await this.cliente
+      .from(TABLA_CUADRANTE)
+      .update(parche)
+      .eq('id', id)
+      .select('id')
+      .single();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'actualizar clase', RECURSO_CLASE);
+    }
+
+    return this.claseObligatoria(id);
+  }
+
+  /**
+   * Una clase que se acaba de escribir.
+   *
+   * Si la escritura devolvió un `id`, la clase existe: un `null` aquí sería una
+   * violación de invariante —o un problema de permisos sobre la vista—, no un
+   * caso a contemplar. Se falla ruidosamente en vez de devolver un cuerpo vacío
+   * que el cliente tendría que interpretar.
+   */
+  private async claseObligatoria(id: string): Promise<ClaseCuadrante> {
+    const respuesta = await this.cliente
+      .from(VISTA_CLASES)
+      .select(COLUMNAS_CLASE)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer la clase');
+    if (!respuesta.data) {
+      throw ErrorApi.interno(
+        'La clase se guardó pero no se pudo volver a leer. Revisa los permisos de la vista.',
+      );
+    }
+
+    return aClaseCuadrante(respuesta.data as Fila);
+  }
+
+  // --- Lectura por rol ------------------------------------------------------
+
+  async miHorario(
+    rol: RolDeHorario,
+    usuarioId: string,
+    periodo?: string,
+  ): Promise<MiHorario> {
+    const lapso = periodo ?? (await this.leerPeriodoVigente());
+
+    // Sin lapso no hay horario que mostrar, pero tampoco es un error: es un
+    // sistema sin lapso vigente declarado. Se devuelve el rol y `periodo: null`
+    // para que la pantalla pueda decir qué pasa.
+    if (!lapso) return { rol, periodo: null, clases: [], guardias: [] };
+
+    // Para un docente «lo mío» es una columna —`teacher_id = yo`—, así que se
+    // filtra explícitamente: expresa la intención y usa el índice. Para un
+    // estudiante «lo mío» son las secciones en las que está matriculado, que es
+    // una subconsulta que la política `schedule_slots_read_estudiante` ya
+    // resuelve; repetirla aquí sería una segunda copia de la misma regla, y la
+    // segunda copia es la que se desvía.
+    let consultaClases = this.cliente
+      .from(VISTA_CLASES)
+      .select(COLUMNAS_CLASE)
+      .eq('period_code', lapso);
+
+    if (rol === 'docente') consultaClases = consultaClases.eq('teacher_id', usuarioId);
+
+    const clases = (
+      desenvolver(
+        await consultaClases.order('day_of_week').order('block').order('id'),
+        'leer el horario de clases',
+      ) as Fila[]
+    ).map(aClaseCuadrante);
+
+    // Un estudiante no tiene guardias: `teacher_duties` no tiene política para su
+    // rol, así que la consulta devolvería cero filas de todos modos. Se responde
+    // sin ir a la base para que «siempre vacío» sea una decisión del contrato y
+    // no una consecuencia de la RLS.
+    if (rol === 'estudiante') {
+      return { rol, periodo: lapso, clases, guardias: [] };
+    }
+
+    const respuesta = await this.cliente
+      .from(TABLA_GUARDIAS)
+      .select(COLUMNAS_GUARDIA)
+      .eq('period_code', lapso)
+      .eq('teacher_id', usuarioId)
+      .order('day_of_week')
+      .order('block')
+      .order('id');
+
+    const guardias = (
+      desenvolver(respuesta, 'leer el horario de guardias') as Fila[]
+    ).map(aGuardia);
+
+    return { rol, periodo: lapso, clases, guardias };
+  }
+
+  // --- Piezas internas ------------------------------------------------------
+
+  /**
+   * Todas las aulas, activas primero.
+   *
+   * Se devuelven también las archivadas a propósito: una clase o una guardia
+   * pueden apuntar a un aula que se archivó **después** de asignarla, y si la
+   * rejilla no devolviera esa columna, la celda quedaría huérfana sin que nadie
+   * supiera por qué. Con el aula presente, la pantalla puede pintarla como
+   * inactiva y el administrador ve el estado real.
+   */
+  private async listarTodasLasAulas(): Promise<Aula[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_AULAS)
+      .select(COLUMNAS_AULA)
+      .order('is_active', { ascending: false })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'listar los espacios de la rejilla') as Fila[];
+    return filas.map(aAula);
+  }
+
+  /**
+   * Los docentes que pueden aparecer en la rejilla.
+   *
+   * Se leen de `profiles` y no de `nombre_para_mostrar()` porque esta ruta es
+   * sólo de administración y el administrador **sí** puede leer las filas ajenas
+   * (`profiles_admin_all`). La función estrecha existe para el horario del
+   * estudiante, donde `profiles_read_own` bloquearía el `join` y el horario
+   * saldría sin profesor. Aquí se proyectan sólo `id`, `nombres` y `apellidos`:
+   * la RLS es por fila, no por columna, así que pedir la fila entera traería
+   * cédula y correo de todo el claustro sin que nadie los necesite.
+   */
+  private async listarDocentes(): Promise<DocenteResumen[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_PERFILES)
+      .select(COLUMNAS_DOCENTE_RESUMEN)
+      .in('rol', ROLES_DOCENTES as string[])
+      .eq('active', true)
+      .order('apellidos', { ascending: true })
+      .order('nombres', { ascending: true })
+      .order('id', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'listar los docentes') as Fila[];
+    return filas.map(aDocenteResumen);
+  }
+
+  /**
+   * Traduce un fallo de escritura, distinguiendo el **choque de agenda**.
+   *
+   * El trigger lanza `23514`, el mismo código que un `check` corriente, así que
+   * `traducirError` los convertiría a los dos en un `400 RESTRICCION_VIOLADA`.
+   * Para un choque eso no sirve: los datos están bien y lo que no admite la
+   * operación es el estado de la agenda, y el cliente necesita un `409` para
+   * poder decir «ese docente ya está ocupado a esa hora».
+   *
+   * El mensaje del `409` **es el del trigger**, no uno escrito aquí. No es
+   * pereza: el trigger nombra el día y el bloque («…el lunes en el bloque 3»), y
+   * reconstruirlo en TypeScript sería una segunda copia del mensaje que se
+   * desviaría en cuanto alguien retocara la migración. El texto no lleva ningún
+   * dato sensible: lo escribimos nosotros.
+   *
+   * `recurso` convierte el 404 genérico de PostgREST (`PGRST116`, que es lo que
+   * responde un `update` que no toca ninguna fila) en el código concreto del
+   * recurso. Cuesta cero consultas y le dice al cliente qué se equivocó.
+   */
+  private traducirEscritura(
+    error: unknown,
+    contexto: string,
+    recurso?: Recurso,
+  ): ErrorApi {
+    const mensaje = mensajeDe(error);
+
+    if (esChoqueDeAgenda(mensaje)) {
+      return ErrorApi.conflicto('CHOQUE_DE_AGENDA', mensaje, { contexto });
+    }
+
+    const traducido = traducirError(error, contexto);
+
+    if (recurso && traducido.codigo === 'NO_ENCONTRADO') {
+      return ErrorApi.noEncontrado(recurso.codigo, recurso.mensaje);
+    }
+
+    return traducido;
+  }
+}
+
 /** Construye el juego completo de repositorios sobre un cliente dado. */
 export function crearRepositorios(cliente: SupabaseClient): Repositorios {
   return {
@@ -1137,6 +2019,7 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     invitaciones: new InvitacionesSupabase(cliente),
     acceso: new AuditoriaAccesoSupabase(cliente),
     curriculo: new CurriculoSupabase(cliente),
+    cuadrante: new CuadranteSupabase(cliente),
   };
 }
 

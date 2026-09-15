@@ -34,6 +34,10 @@
     {
       "name": "Currículo",
       "description": "Módulo 2: programas de formación, banco de materias y pensum. Requiere rol admin."
+    },
+    {
+      "name": "Cuadrante",
+      "description": "Módulo 3: aulas, lapsos, guardias docentes y la rejilla del cuadrante. Las rutas de administración exigen rol admin; `/api/v1/mi-horario` sirve el horario propio a docentes y estudiantes."
     }
   ],
   "components": {
@@ -1003,6 +1007,683 @@
           "horasAcademicas"
         ],
         "additionalProperties": false
+      },
+      "Aula": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string",
+            "description": "Nombre del espacio. Único en todo el centro: dos iguales harían imposible saber a cuál se refiere el cuadrante."
+          },
+          "capacidad": {
+            "type": "integer",
+            "description": "Cupo del espacio. 0 = sin cupo declarado (zonas, pasillos), que NO es lo mismo que desconocido."
+          },
+          "esTaller": {
+            "type": "boolean",
+            "description": "Junto con `capacidad` decide la forma del espacio: TALLER, AULA o ZONA."
+          },
+          "activa": {
+            "type": "boolean",
+            "description": "false = archivado. Un espacio con clases o guardias no se borra (la FK es `on delete restrict`): se archiva."
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "capacidad",
+          "esTaller",
+          "activa",
+          "creadoEn",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaAulas": {
+        "type": "object",
+        "properties": {
+          "aulas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Aula"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Cuántas filas cumplen el filtro en total, no cuántas se devolvieron."
+          },
+          "limite": {
+            "type": "integer"
+          },
+          "desplazamiento": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aulas",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
+      "RespuestaAula": {
+        "type": "object",
+        "properties": {
+          "aula": {
+            "$ref": "#/components/schemas/Aula"
+          }
+        },
+        "required": [
+          "aula"
+        ]
+      },
+      "CuerpoCrearAula": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "capacidad": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Por defecto 0, que significa «sin cupo declarado» (una zona)."
+          },
+          "esTaller": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "additionalProperties": false
+      },
+      "CuerpoActualizarAula": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "capacidad": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "esTaller": {
+            "type": "boolean"
+          },
+          "activa": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Periodo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codigo": {
+            "type": "string",
+            "description": "Identidad del lapso (p. ej. \"2026-1\"). Es a lo que apuntan las secciones y lo que citan los documentos impresos; no se puede cambiar después de crearlo."
+          },
+          "nombre": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Etiqueta para humanos. Existe porque el código está en disputa (R-06): permite escribir «Lapso 2026-1 (SA26-2)» sin tocar el código."
+          },
+          "fechaInicio": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Anulable A PROPÓSITO: el centro no ha cargado las fechas reales y no se inventan (R-17). La UI debe mostrar «sin fechas cargadas»."
+          },
+          "fechaFin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activo": {
+            "type": "boolean",
+            "description": "«Este lapso está abierto: se puede planificar en él». NO es lo mismo que `vigente`."
+          },
+          "vigente": {
+            "type": "boolean",
+            "description": "«Este es el lapso en curso». Derivado de `system_settings.periodo_activo`; no es una columna. Puede haber varios abiertos y sólo uno vigente."
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "fechaInicio",
+          "fechaFin",
+          "activo",
+          "vigente",
+          "creadoEn",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaPeriodos": {
+        "type": "object",
+        "properties": {
+          "periodos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Periodo"
+            },
+            "description": "Catálogo completo, sin paginar: un centro acumula unos pocos lapsos al año y el desplegable los necesita todos para ofrecer el siguiente."
+          }
+        },
+        "required": [
+          "periodos"
+        ]
+      },
+      "RespuestaPeriodo": {
+        "type": "object",
+        "properties": {
+          "periodo": {
+            "$ref": "#/components/schemas/Periodo"
+          }
+        },
+        "required": [
+          "periodo"
+        ]
+      },
+      "CuerpoCrearPeriodo": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "description": "MAYÚSCULAS o minúsculas, dígitos y guiones, hasta 10 caracteres. Único."
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "fechaInicio": {
+            "type": "string",
+            "description": "AAAA-MM-DD. Opcional: el centro carga las fechas cuando las tiene."
+          },
+          "fechaFin": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo"
+        ],
+        "additionalProperties": false
+      },
+      "CuerpoActualizarPeriodo": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fechaInicio": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` vacía la fecha, que es una intención legítima."
+          },
+          "fechaFin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Guardia": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodo": {
+            "type": "string",
+            "description": "Lapso de la guardia. Obligatorio: sin él, una guardia del lunes a primera hora chocaría con las clases de cualquier lapso (R-15)."
+          },
+          "dia": {
+            "type": "integer",
+            "description": "1 = lunes … 6 = sábado. El domingo queda fuera por requisito."
+          },
+          "bloque": {
+            "type": "integer",
+            "description": "Bloque horario, de 1 a 12."
+          },
+          "turno": {
+            "type": "string",
+            "enum": [
+              "MAÑANA",
+              "TARDE"
+            ],
+            "description": "Turno del bloque. DERIVADO de `block` por `turno_de_bloque()`: sólo viaja de salida, enviarlo es un 400."
+          },
+          "notas": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activa": {
+            "type": "boolean",
+            "description": "false = archivada. Una guardia archivada no ocupa a nadie: el trigger sale antes de comprobar."
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "docenteId",
+          "aulaId",
+          "periodo",
+          "dia",
+          "bloque",
+          "turno",
+          "notas",
+          "activa",
+          "creadoEn",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaGuardias": {
+        "type": "object",
+        "properties": {
+          "guardias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Guardia"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limite": {
+            "type": "integer"
+          },
+          "desplazamiento": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "guardias",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
+      "RespuestaGuardia": {
+        "type": "object",
+        "properties": {
+          "guardia": {
+            "$ref": "#/components/schemas/Guardia"
+          }
+        },
+        "required": [
+          "guardia"
+        ]
+      },
+      "CuerpoCrearGuardia": {
+        "type": "object",
+        "properties": {
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodo": {
+            "type": "string"
+          },
+          "dia": {
+            "type": "integer"
+          },
+          "bloque": {
+            "type": "integer"
+          },
+          "notas": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "docenteId",
+          "aulaId",
+          "periodo",
+          "dia",
+          "bloque"
+        ],
+        "additionalProperties": false
+      },
+      "CuerpoActualizarGuardia": {
+        "type": "object",
+        "properties": {
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodo": {
+            "type": "string"
+          },
+          "dia": {
+            "type": "integer"
+          },
+          "bloque": {
+            "type": "integer"
+          },
+          "notas": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "activa": {
+            "type": "boolean",
+            "description": "false archiva la guardia y libera el hueco: no se borra."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaseCuadrante": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dia": {
+            "type": "integer"
+          },
+          "bloque": {
+            "type": "integer"
+          },
+          "turno": {
+            "type": "string",
+            "enum": [
+              "MAÑANA",
+              "TARDE"
+            ],
+            "description": "Turno del bloque. DERIVADO de `block` por `turno_de_bloque()`: sólo viaja de salida, enviarlo es un 400."
+          },
+          "activa": {
+            "type": "boolean"
+          },
+          "periodo": {
+            "type": "string",
+            "description": "DERIVADO de la sección: la tabla no guarda el período, para no crear una segunda fuente de verdad que pueda desviarse."
+          },
+          "programaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "programa": {
+            "type": "string",
+            "description": "Especialidad de la cabecera de la rejilla. La vista ya lo resuelve, así que la pantalla no necesita una segunda llamada."
+          },
+          "materiaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "materia": {
+            "type": "string"
+          },
+          "seccion": {
+            "type": "string"
+          },
+          "aula": {
+            "type": "string"
+          },
+          "docente": {
+            "type": "string",
+            "description": "Resuelto por `nombre_para_mostrar()`, no por un `join` contra `profiles`: para un estudiante la política `profiles_read_own` haría que el join devolviera NULL y su horario saldría sin profesor (R-14)."
+          }
+        },
+        "required": [
+          "id",
+          "seccionId",
+          "docenteId",
+          "aulaId",
+          "dia",
+          "bloque",
+          "turno",
+          "activa",
+          "periodo",
+          "programaId",
+          "programa",
+          "materiaId",
+          "materia",
+          "seccion",
+          "aula",
+          "docente"
+        ]
+      },
+      "DocenteResumen": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre"
+        ]
+      },
+      "RejillaCuadrante": {
+        "type": "object",
+        "properties": {
+          "periodo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lapso de la rejilla. `null` cuando no hay ninguno vigente y no se pidió uno: las listas de clases y guardias salen vacías, pero `aulas` y `docentes` siguen llenas para que la pantalla pueda decir qué pasa en vez de quedarse en blanco."
+          },
+          "clases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaseCuadrante"
+            }
+          },
+          "guardias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Guardia"
+            }
+          },
+          "aulas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Aula"
+            },
+            "description": "Todas las aulas, activas primero. Se incluyen las archivadas para que una clase asignada antes de archivar su aula no quede en una celda huérfana."
+          },
+          "docentes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocenteResumen"
+            }
+          }
+        },
+        "required": [
+          "periodo",
+          "clases",
+          "guardias",
+          "aulas",
+          "docentes"
+        ]
+      },
+      "RespuestaClase": {
+        "type": "object",
+        "properties": {
+          "clase": {
+            "$ref": "#/components/schemas/ClaseCuadrante"
+          }
+        },
+        "required": [
+          "clase"
+        ]
+      },
+      "CuerpoCrearClase": {
+        "type": "object",
+        "properties": {
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dia": {
+            "type": "integer"
+          },
+          "bloque": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seccionId",
+          "docenteId",
+          "aulaId",
+          "dia",
+          "bloque"
+        ],
+        "additionalProperties": false
+      },
+      "CuerpoActualizarClase": {
+        "type": "object",
+        "properties": {
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "docenteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aulaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dia": {
+            "type": "integer"
+          },
+          "bloque": {
+            "type": "integer"
+          },
+          "activa": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MiHorario": {
+        "type": "object",
+        "properties": {
+          "rol": {
+            "type": "string",
+            "enum": [
+              "docente",
+              "estudiante"
+            ]
+          },
+          "periodo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` cuando no hay lapso vigente declarado. No es un error: es un sistema sin lapso en curso."
+          },
+          "clases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClaseCuadrante"
+            },
+            "description": "Docente: sus clases. Estudiante: las de las secciones en las que está matriculado. El aislamiento lo impone la RLS."
+          },
+          "guardias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Guardia"
+            },
+            "description": "Docente: las suyas. Estudiante: SIEMPRE vacío — las guardias no son información del alumno, y `teacher_duties` no tiene política para su rol."
+          }
+        },
+        "required": [
+          "rol",
+          "periodo",
+          "clases",
+          "guardias"
+        ]
       }
     },
     "parameters": {}
@@ -2778,6 +3459,1384 @@
           },
           "409": {
             "description": "El código de la materia ya existe (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/aulas": {
+      "get": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Listado paginado de espacios (aulas, talleres y zonas)",
+        "description": "Un solo concepto de espacio con tres formas, derivadas de `esTaller` y `capacidad`. No hay una tabla de zonas aparte a propósito: la guardia anti-colisión vigila un único sitio, y con dos tablas habría que duplicar el chequeo y mantener las dos copias de acuerdo.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Texto libre sobre el nombre del espacio. Insensible a mayúsculas."
+            },
+            "required": false,
+            "name": "busqueda",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TALLER",
+                "ZONA",
+                "AULA"
+              ],
+              "description": "Talleres, zonas o aulas. Las tres formas son excluyentes y cubren todos los espacios: ninguna queda fuera del filtro sin que se diga."
+            },
+            "required": false,
+            "name": "tipo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filtra activas (true) o archivadas (false). Ausente = todas. Un valor distinto se rechaza con 400."
+            },
+            "required": false,
+            "name": "activa",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de espacios, ordenados por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAulas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Registra un espacio del centro",
+        "description": "No hay semilla de aulas y es deliberado: inventar el inventario del CFS habría sido fabricar dato institucional (R-18). Hasta que el centro cargue sus espacios, la lista sale vacía y **el cuadrante no se puede usar**, porque una clase sin aula no existe.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearAula"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Espacio registrado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAula"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Nombre en blanco o capacidad negativa (PETICION_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El nombre del espacio ya existe (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/aulas/{id}": {
+      "patch": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Cambia el nombre, el cupo, la forma o el estado de un espacio",
+        "description": "No borra: `activa: false` archiva. La FK de `classrooms` en las dos tablas de agenda es `on delete restrict`, así que borrar un espacio en uso no es posible ni por accidente.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del espacio. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActualizarAula"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Espacio actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAula"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ningún cambio indicado, o un valor fuera de rango.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El espacio no existe (AULA_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El nombre nuevo ya lo usa otro espacio (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/periodos": {
+      "get": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Catálogo de lapsos, con cuál es el vigente",
+        "description": "Sin paginar: un centro acumula unos pocos lapsos al año y el desplegable los necesita todos para ofrecer el siguiente. `activo` y `vigente` son dos cosas distintas y por eso son dos campos.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Todos los lapsos, el más reciente primero.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPeriodos"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Registra un lapso académico",
+        "description": "Da identidad al período: desde M3, `sections.period_code` es una clave ajena contra este catálogo, así que abrir una sección en un lapso inexistente falla al guardar. Eso convierte la divergencia silenciosa de R-06 en un error visible.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearPeriodo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Lapso registrado, cerrado y no vigente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPeriodo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Código con formato inválido, o fecha inexistente como 2026-02-30 (PETICION_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El código del lapso ya existe (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/periodos/{id}": {
+      "patch": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Cambia el nombre, las fechas o el estado de un lapso",
+        "description": "`codigo` no está y no puede estarlo: es la identidad del lapso, `sections.period_code` apunta a él y los documentos impresos lo citan. Cambiar la nomenclatura (R-06) es crear un lapso nuevo y archivar el viejo.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del lapso. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActualizarPeriodo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lapso actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPeriodo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ningún cambio indicado, fechas incoherentes, o un campo de identidad como `codigo` (PETICION_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El lapso no existe (PERIODO_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/periodos/{id}/vigente": {
+      "put": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Declara ese lapso como el vigente",
+        "description": "La ÚNICA forma de mover `system_settings.periodo_activo`, y no se acepta por el PATCH de al lado para que no haya dos caminos que cambien lo mismo. Un trigger rechaza un valor que no corresponda a un lapso registrado: sin esa guarda, la Regla 2 de M2 compararía contra un lapso inexistente y **no protegería nada sin decir nada** (R-06).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del lapso. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lapso declarado vigente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPeriodo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El lapso no existe (PERIODO_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/guardias": {
+      "get": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Listado paginado de guardias de custodia",
+        "description": "Una guardia es una presencia, no una clase: dice quién cubre qué espacio, qué día y qué bloque, independientemente de que haya clase. Orden cronológico ascendente por lapso, día y bloque.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Código del lapso. Sin él, las guardias de todos los lapsos."
+            },
+            "required": false,
+            "name": "periodo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Sólo las guardias de ese docente."
+            },
+            "required": false,
+            "name": "docenteId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Sólo las guardias de ese espacio."
+            },
+            "required": false,
+            "name": "aulaId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "description": "1 = lunes … 6 = sábado."
+            },
+            "required": false,
+            "name": "dia",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12,
+              "description": "Bloque horario."
+            },
+            "required": false,
+            "name": "bloque",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filtra vigentes (true) o archivadas (false). Ausente = todas."
+            },
+            "required": false,
+            "name": "activa",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de guardias.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaGuardias"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Asigna una guardia a un docente",
+        "description": "`periodo` es obligatorio, y no es un formalismo: sin él, una guardia del lunes a primera hora chocaría con las clases de cualquier lapso, incluido uno futuro que todavía no ha empezado (R-15). El `turno` lo calcula la base a partir del bloque y no se manda.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearGuardia"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Guardia creada, con el turno ya derivado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaGuardia"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Día fuera de 1–6, bloque fuera de 1–12, `turno` enviado (PETICION_INVALIDA), o el docente, el espacio o el lapso no existen (REFERENCIA_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CHOQUE_DE_AGENDA: ese docente o ese espacio ya están ocupados en ese bloque, por una clase o por otra guardia.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/guardias/{id}": {
+      "patch": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Mueve o edita una guardia",
+        "description": "Cambiar `dia` o `bloque` es un traslado: el trigger se dispara y el propio registro queda excluido del chequeo, así que mover una guardia sobre su propio hueco no se rechaza a sí misma. `activa: false` la archiva y libera el hueco.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del guardia. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActualizarGuardia"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Guardia actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaGuardia"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ningún cambio indicado, valor fuera de rango o referencia inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La guardia no existe (GUARDIA_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CHOQUE_DE_AGENDA: el destino ya está ocupado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/cuadrante": {
+      "get": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "La rejilla maestra de un lapso, completa en una llamada",
+        "description": "Devuelve clases, guardias, aulas y docentes **juntos**, y no por comodidad: son las cuatro dimensiones de la misma rejilla. Con cuatro peticiones la pantalla puede quedar a medio pintar mostrando una guardia junto a una clase que ya no existe, y el administrador no sabría si es un choque real o una pantalla desactualizada.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Lapso del que se pide la rejilla. Ausente = el vigente."
+            },
+            "required": false,
+            "name": "periodo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Sólo las clases de esa sección. NO filtra las guardias: una guardia no pertenece a ninguna sección."
+            },
+            "required": false,
+            "name": "seccionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Sólo las clases y guardias de ese docente."
+            },
+            "required": false,
+            "name": "docenteId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Sólo las clases y guardias de ese espacio."
+            },
+            "required": false,
+            "name": "aulaId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Incluir clases y guardias archivadas. Por defecto false."
+            },
+            "required": false,
+            "name": "incluirInactivas",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La rejilla del lapso pedido, o la del vigente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejillaCuadrante"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Coloca una clase en la rejilla",
+        "description": "El período no se manda: se deriva de la sección. Aceptarlo del cliente abriría la puerta a una fila cuya sección pertenece a un lapso mientras la rejilla se dibuja en otro, y el chequeo de colisiones compararía peras con manzanas. La respuesta vuelve con los nombres resueltos para que la pantalla pinte la celda sin una consulta por clase.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearClase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Clase colocada, con los nombres resueltos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaClase"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Día o bloque fuera de rango, `turno` o `periodo` enviados (PETICION_INVALIDA), o la sección, el docente o el espacio no existen (REFERENCIA_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CHOQUE_DE_AGENDA: el docente o el espacio ya están ocupados en ese bloque — por una clase **o por una guardia**, que es lo que un `unique` no podría ver.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/cuadrante/{id}": {
+      "patch": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "Mueve o edita una clase del cuadrante",
+        "description": "Cambiar `seccionId` mueve la clase de lapso, y el trigger re-deriva el período de la sección nueva. `activa: false` la archiva en vez de borrarla.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del clase del cuadrante. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActualizarClase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Clase actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaClase"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ningún cambio indicado, valor fuera de rango o referencia inexistente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La clase no existe (CLASE_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CHOQUE_DE_AGENDA: el destino ya está ocupado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mi-horario": {
+      "get": {
+        "tags": [
+          "Cuadrante"
+        ],
+        "summary": "El horario del llamante (docente o estudiante)",
+        "description": "Una sola ruta para los dos roles porque el aislamiento ya lo garantiza la RLS y lo único que cambia es qué filas sobreviven al filtro: el docente ve sus clases y sus guardias, el estudiante las de las secciones en las que está matriculado y nunca guardias. Un `admin` recibe **403 PERFIL_SIN_ROL**: su agenda no existe, y devolverle un horario vacío le haría creer que no tiene ninguna. Si quiere ver la rejilla, la ruta es `/api/v1/admin/cuadrante`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Lapso del que se pide el horario. Ausente = el vigente. Se admite otro porque un docente planifica el siguiente mientras dicta el actual."
+            },
+            "required": false,
+            "name": "periodo",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El horario del llamante en el lapso pedido o en el vigente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MiHorario"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "PERFIL_SIN_ROL: el rol del llamante no tiene horario propio.",
             "content": {
               "application/json": {
                 "schema": {

@@ -10,6 +10,7 @@ import { registrarManejadorDeErrores } from './http/plugins/errores.js';
 import { comprobarMantenimiento } from './http/plugins/modulos.js';
 import { rutasAdmin } from './http/rutas/admin.js';
 import { rutasAuth } from './http/rutas/auth.js';
+import { rutasCuadrante } from './http/rutas/cuadrante.js';
 import { rutasCurriculo } from './http/rutas/curriculo.js';
 import { rutasSalud } from './http/rutas/salud.js';
 import { rutasYo } from './http/rutas/yo.js';
@@ -138,6 +139,7 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   rutasYo(app, depsRutas);
   rutasAdmin(app, depsRutas);
   rutasCurriculo(app);
+  rutasCuadrante(app);
   rutasAuth(app, depsRutas);
 
   return app;

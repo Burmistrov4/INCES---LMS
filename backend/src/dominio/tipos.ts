@@ -224,3 +224,196 @@ export interface DetallePrograma {
   /** `false` cuando la Regla 2 impide tocar el pensum. */
   editable: boolean;
 }
+
+// --- Módulo 3: cuadrante, aulas y guardias ----------------------------------
+
+/**
+ * Turno de un bloque horario.
+ *
+ * Es un valor **derivado**: en la base lo calcula `turno_de_bloque(block)` en una
+ * columna generada, así que nunca se envía, sólo se recibe. Mandarlo en un
+ * `POST`/`PATCH` es un `400` por `.strict()`, y no un campo ignorado en silencio:
+ * aceptar un turno que contradiga al bloque sería aceptar una agenda que miente.
+ */
+export type Turno = 'MAÑANA' | 'TARDE';
+
+export const TURNOS: readonly Turno[] = ['MAÑANA', 'TARDE'];
+
+export function esTurno(valor: unknown): valor is Turno {
+  return typeof valor === 'string' && (TURNOS as readonly string[]).includes(valor);
+}
+
+/**
+ * Las tres formas que puede tener un espacio, **derivadas** de dos columnas.
+ *
+ * No es una columna de la base: sale de cruzar `is_workshop` con `capacity`.
+ * Existe como concepto de API porque el filtro de la pantalla de aulas se elige
+ * entre estas tres, y decir «taller», «aula» o «zona» es más claro que pedir al
+ * usuario que combine dos casillas.
+ *
+ *   · `TALLER` → `is_workshop = true`            (cupo el que sea)
+ *   · `ZONA`   → `is_workshop = false`, `capacity = 0`
+ *   · `AULA`   → `is_workshop = false`, `capacity > 0`
+ *
+ * Las tres son excluyentes y cubren todos los casos, así que el filtro nunca
+ * deja un espacio fuera sin decirlo.
+ */
+export type TipoAula = 'TALLER' | 'ZONA' | 'AULA';
+
+export const TIPOS_AULA: readonly TipoAula[] = ['TALLER', 'ZONA', 'AULA'];
+
+export function esTipoAula(valor: unknown): valor is TipoAula {
+  return typeof valor === 'string' && (TIPOS_AULA as readonly string[]).includes(valor);
+}
+
+/**
+ * Un espacio del centro: aula, taller o zona.
+ *
+ * `capacidad` en 0 significa «sin cupo declarado» (una zona, un pasillo), que
+ * **no** es lo mismo que desconocido: por eso la columna es `not null default 0`.
+ */
+export interface Aula {
+  id: string;
+  nombre: string;
+  capacidad: number;
+  esTaller: boolean;
+  activa: boolean;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+/**
+ * Un lapso académico.
+ *
+ * `activo` y `vigente` **no son lo mismo** y por eso son dos campos:
+ * `activo` es «este lapso está abierto, se puede planificar en él», y `vigente`
+ * es «este es el que el sistema considera en curso» (`system_settings.periodo_activo`).
+ * Puede haber varios abiertos y sólo uno vigente: al cerrar un lapso se prepara
+ * el siguiente mientras el vigente sigue dictándose.
+ *
+ * `vigente` es derivado: no es una columna de `academic_periods`.
+ *
+ * Las fechas son **anulables a propósito**: el centro no las ha cargado y
+ * inventarlas sería fabricar dato institucional (R-17). La UI debe mostrar «sin
+ * fechas cargadas», no un rango inventado.
+ */
+export interface Periodo {
+  id: string;
+  codigo: string;
+  nombre: string | null;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+  activo: boolean;
+  vigente: boolean;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+/**
+ * Una guardia de custodia.
+ *
+ * Es una **presencia**, no una clase: dice quién cubre qué espacio, qué día y
+ * qué bloque, **independientemente de que haya clase**. Por eso es su propia
+ * tabla y no un tipo de `schedule_slots`.
+ *
+ * `periodo` es obligatorio: sin él, una guardia del lunes a primera hora
+ * chocaría con las clases de cualquier lapso, incluido uno futuro que todavía no
+ * ha empezado (R-15).
+ */
+export interface Guardia {
+  id: string;
+  docenteId: string;
+  aulaId: string;
+  periodo: string;
+  dia: number;
+  bloque: number;
+  turno: Turno;
+  notas: string | null;
+  activa: boolean;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+/**
+ * Una clase del cuadrante: sección + docente + aula + día/bloque.
+ *
+ * Los cinco campos de la tabla son `seccionId`, `docenteId`, `aulaId`, `dia` y
+ * `bloque`. **El período no viaja en la tabla**: se deriva de la sección, y
+ * duplicarlo aquí crearía una segunda fuente de verdad que puede desviarse.
+ *
+ * El resto lo aporta la vista `v_cuadrante_clases`, que ya resuelve los nombres.
+ * Se incluyen `programaId`/`programa` y `materiaId`/`materia` aunque la tabla no
+ * los tenga: la cabecera de la rejilla es «período | especialidad | sección», y
+ * sin la especialidad la pantalla tendría que pedirla aparte —justo lo que el
+ * argumento de «las cuatro listas en una llamada» quiere evitar—.
+ *
+ * **No lleva marcas de tiempo.** La vista no las proyecta y ninguna pantalla del
+ * cuadrante las muestra; añadirlas habría exigido otra migración para cumplir
+ * una frase del contrato, y el esquema no se toca por cosmética.
+ */
+export interface ClaseCuadrante {
+  id: string;
+  seccionId: string;
+  docenteId: string;
+  aulaId: string;
+  dia: number;
+  bloque: number;
+  turno: Turno;
+  activa: boolean;
+  // --- resuelto por `v_cuadrante_clases` ---
+  periodo: string;
+  programaId: string;
+  programa: string;
+  materiaId: string;
+  materia: string;
+  seccion: string;
+  aula: string;
+  docente: string;
+}
+
+/** Un docente, reducido a lo que la rejilla necesita para pintar una fila. */
+export interface DocenteResumen {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * La rejilla maestra de un lapso, completa en una sola respuesta.
+ *
+ * **Las cuatro listas juntas, y no por comodidad.** La rejilla necesita pintar
+ * las clases, las guardias, las columnas de aulas y las filas de docentes a la
+ * vez: son las cuatro dimensiones de la misma rejilla. Con cuatro peticiones, la
+ * pantalla puede quedar a medio pintar mostrando una guardia junto a una clase
+ * que ya no existe, y el administrador no sabría si eso es un choque real o una
+ * pantalla desactualizada. Una sola respuesta es coherente por construcción.
+ *
+ * `periodo` es `null` cuando no hay lapso vigente y no se pidió ninguno. En ese
+ * caso las listas de clases y guardias salen vacías pero **`aulas` y `docentes`
+ * siguen llenas**: la pantalla puede decir «no hay lapso vigente» en vez de
+ * aparecer en blanco, y el administrador ve que el catálogo sí tiene datos.
+ */
+export interface RejillaCuadrante {
+  periodo: string | null;
+  clases: ClaseCuadrante[];
+  guardias: Guardia[];
+  aulas: Aula[];
+  docentes: DocenteResumen[];
+}
+
+/** Los dos roles que tienen horario propio. Un `admin` no tiene: ve la rejilla. */
+export type RolDeHorario = 'docente' | 'estudiante';
+
+/**
+ * El horario del llamante.
+ *
+ * Una sola forma para los dos roles porque el aislamiento lo garantiza la RLS y
+ * lo único que cambia es qué filas sobreviven al filtro. Un docente recibe sus
+ * clases **y** sus guardias; un estudiante, las clases de las secciones en las
+ * que está matriculado, y `guardias` siempre vacío.
+ */
+export interface MiHorario {
+  rol: RolDeHorario;
+  periodo: string | null;
+  clases: ClaseCuadrante[];
+  guardias: Guardia[];
+}

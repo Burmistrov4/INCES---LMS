@@ -8,20 +8,28 @@
  * guardias de módulo, permisos, validación y traducción de errores.
  */
 import type {
+  Aula,
   CambiosModulo,
+  ClaseCuadrante,
   DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
   EntradaPensum,
   EstadoAcceso,
+  Guardia,
   InvitacionDocente,
   Materia,
+  MiHorario,
   ModuloSistema,
   ParametroSistema,
   Perfil,
+  Periodo,
   Programa,
   ProgramaConTotales,
+  RejillaCuadrante,
   Rol,
+  RolDeHorario,
+  TipoAula,
   TipoPrograma,
 } from './tipos.js';
 import type { PeticionUrlSubida, UrlFirmada } from './almacenamiento.js';
@@ -290,6 +298,212 @@ export interface EntradaCrearMateria {
   horasAcademicas: number;
 }
 
+// --- Módulo 3: cuadrante, aulas y guardias ----------------------------------
+
+/**
+ * Cuadrante, aulas y guardias (Módulo 3).
+ *
+ * **Todo pasa por PostgREST, sin funciones de base de datos.** A diferencia de
+ * M2 —donde crear un programa con su pensum exigía una función porque PostgREST
+ * no admite insertar un padre con sus hijos—, aquí cada escritura es **una fila
+ * en una tabla**. No hay agregado que crear de golpe, así que no hace falta RPC
+ * y el puerto no declara ninguna intención transaccional.
+ *
+ * Lo que sí vive en la base es la **guarda anti-colisión**: un docente o un
+ * espacio no pueden estar en dos sitios en el mismo bloque. Es un trigger, no
+ * una regla de la API, y se comprueba **cruzando las dos tablas**
+ * (`schedule_slots` y `teacher_duties`), cosa que ningún `unique` puede
+ * expresar. Por eso el puerto no tiene ninguna operación «comprobar
+ * disponibilidad»: preguntar antes de escribir sería una carrera, y la
+ * respuesta buena la da la propia escritura.
+ */
+export interface PuertaCuadrante {
+  // --- Aulas ----------------------------------------------------------------
+  listarAulas(opciones: OpcionesListadoAulas): Promise<PaginaAulas>;
+  crearAula(entrada: EntradaCrearAula): Promise<Aula>;
+  /** `nombre`, `capacidad`, `esTaller` y `activa`. Nunca borra: archiva. */
+  actualizarAula(id: string, cambios: CambiosAula): Promise<Aula>;
+
+  // --- Períodos -------------------------------------------------------------
+  /**
+   * El catálogo completo de lapsos, con `vigente` ya resuelto.
+   *
+   * Sin paginar a propósito: un centro acumula unos pocos lapsos al año, y el
+   * desplegable de la pantalla los necesita **todos** para poder ofrecer el
+   * siguiente sin que el administrador tenga que buscarlo.
+   */
+  listarPeriodos(): Promise<Periodo[]>;
+  crearPeriodo(entrada: EntradaCrearPeriodo): Promise<Periodo>;
+  actualizarPeriodo(id: string, cambios: CambiosPeriodo): Promise<Periodo>;
+  /**
+   * Declara ese lapso como el vigente.
+   *
+   * Es la **única** forma de mover `system_settings.periodo_activo`, y no se
+   * acepta por `actualizarPeriodo` para que no haya dos caminos que cambien lo
+   * mismo por vías distintas. Un trigger rechaza el valor si no corresponde a un
+   * lapso registrado.
+   */
+  declararPeriodoVigente(id: string): Promise<Periodo>;
+
+  // --- Guardias -------------------------------------------------------------
+  listarGuardias(opciones: OpcionesListadoGuardias): Promise<PaginaGuardias>;
+  crearGuardia(entrada: EntradaCrearGuardia): Promise<Guardia>;
+  actualizarGuardia(id: string, cambios: CambiosGuardia): Promise<Guardia>;
+
+  // --- Cuadrante ------------------------------------------------------------
+  /** La rejilla completa: clases, guardias, aulas y docentes de un lapso. */
+  rejilla(opciones: OpcionesRejilla): Promise<RejillaCuadrante>;
+  crearClase(entrada: EntradaCrearClase): Promise<ClaseCuadrante>;
+  actualizarClase(id: string, cambios: CambiosClase): Promise<ClaseCuadrante>;
+
+  // --- Lectura por rol ------------------------------------------------------
+  /**
+   * El horario del llamante.
+   *
+   * `usuarioId` se pasa explícitamente porque para un docente «lo mío» es
+   * `teacher_id = yo`, una sola columna. Para un estudiante «lo mío» es «las
+   * secciones en las que estoy matriculado», que es una subconsulta: eso lo
+   * resuelve la política RLS de `schedule_slots`, no el repositorio.
+   *
+   * Un `admin` no llega aquí: la ruta le responde 403. Su agenda no existe, y
+   * devolverle un horario vacío le haría creer que no tiene ninguna.
+   */
+  miHorario(rol: RolDeHorario, usuarioId: string, periodo?: string): Promise<MiHorario>;
+}
+
+/** Filtros y paginación del listado de aulas. Todos opcionales salvo la paginación. */
+export interface OpcionesListadoAulas {
+  /** Búsqueda libre sobre `nombre`, insensible a mayúsculas. */
+  busqueda?: string;
+  /** Talleres, zonas o aulas. Las tres formas son excluyentes y cubren todo. */
+  tipo?: TipoAula;
+  /** Sólo las activas (`true`) o sólo las archivadas (`false`). */
+  activa?: boolean;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaAulas {
+  /** Las filas de esta página, ya ordenadas por nombre. */
+  aulas: Aula[];
+  /** Cuántas filas cumplen el filtro **en total**, no cuántas se devolvieron. */
+  total: number;
+}
+
+/** Filtros y paginación del listado de guardias. */
+export interface OpcionesListadoGuardias {
+  periodo?: string;
+  docenteId?: string;
+  aulaId?: string;
+  /** 1 = lunes … 6 = sábado. */
+  dia?: number;
+  bloque?: number;
+  activa?: boolean;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaGuardias {
+  guardias: Guardia[];
+  /** Cuántas filas cumplen el filtro en total, no cuántas se devolvieron. */
+  total: number;
+}
+
+/** Filtros de la rejilla. Sin `periodo`, se usa el vigente. */
+export interface OpcionesRejilla {
+  /** Lapso del que se pide la rejilla. Ausente = el vigente. */
+  periodo?: string;
+  seccionId?: string;
+  docenteId?: string;
+  aulaId?: string;
+  /**
+   * Incluir clases y guardias archivadas.
+   *
+   * Por defecto `false`: la rejilla muestra lo que está en vigor. Se pone en
+   * `true` para ver el histórico de un hueco concreto.
+   */
+  incluirInactivas: boolean;
+}
+
+export interface EntradaCrearAula {
+  nombre: string;
+  /** 0 = sin cupo declarado (zonas, pasillos). */
+  capacidad: number;
+  esTaller: boolean;
+}
+
+export interface CambiosAula {
+  nombre?: string;
+  capacidad?: number;
+  esTaller?: boolean;
+  activa?: boolean;
+}
+
+export interface EntradaCrearPeriodo {
+  codigo: string;
+  nombre: string | null;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+}
+
+/**
+ * Cambios de un lapso. `codigo` no está: es su identidad.
+ *
+ * `sections.period_code` apunta a él y los documentos impresos lo citan, así que
+ * renombrarlo rompería la referencia. Cambiar la nomenclatura (R-06) es crear un
+ * lapso nuevo y archivar el viejo, no reescribir el código de uno en uso.
+ */
+export interface CambiosPeriodo {
+  nombre?: string | null;
+  fechaInicio?: string | null;
+  fechaFin?: string | null;
+  activo?: boolean;
+}
+
+export interface EntradaCrearGuardia {
+  docenteId: string;
+  aulaId: string;
+  periodo: string;
+  dia: number;
+  bloque: number;
+  notas: string | null;
+}
+
+export interface CambiosGuardia {
+  docenteId?: string;
+  aulaId?: string;
+  periodo?: string;
+  dia?: number;
+  bloque?: number;
+  notas?: string | null;
+  activa?: boolean;
+}
+
+/**
+ * Una clase nueva del cuadrante.
+ *
+ * **No lleva período.** Se deriva de la sección: aceptarlo del cliente abriría
+ * la puerta a una fila cuya sección pertenece al lapso `2026-1` mientras la
+ * rejilla se dibuja en el `2026-2`, y el chequeo de colisiones compararía peras
+ * con manzanas.
+ */
+export interface EntradaCrearClase {
+  seccionId: string;
+  docenteId: string;
+  aulaId: string;
+  dia: number;
+  bloque: number;
+}
+
+export interface CambiosClase {
+  seccionId?: string;
+  docenteId?: string;
+  aulaId?: string;
+  dia?: number;
+  bloque?: number;
+  activa?: boolean;
+}
+
 /**
  * Almacenamiento pesado (Cloudflare R2).
  *
@@ -318,4 +532,5 @@ export interface Repositorios {
   invitaciones: PuertaInvitacionesDocente;
   acceso: PuertaAuditoriaAcceso;
   curriculo: PuertaCurriculo;
+  cuadrante: PuertaCuadrante;
 }
