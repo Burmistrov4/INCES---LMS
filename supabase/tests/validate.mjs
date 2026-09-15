@@ -1350,6 +1350,113 @@ async function main() {
     `vio ${guardiasDoc1.rows.length}`,
   );
 
+  // --------------- 14.8 el camino REAL: escritura como `authenticated`
+  // Las pruebas de 14.4 escribían como el DUEÑO de las tablas, y el dueño se
+  // salta la comprobación de privilegios de función. Por eso no vieron que los
+  // envoltorios de trigger eran `security invoker` mientras el llamante no
+  // tenía EXECUTE sobre `exigir_agenda_libre()`: **toda alta real fallaba con
+  // 42501** y la protección anti-colisión nunca llegaba a evaluarse. Un doble
+  // que corre con más permisos que el usuario real no prueba al usuario real.
+  //
+  // Aquí se escribe como lo hace el backend: rol `authenticated` con los claims
+  // de un admin. Si alguien vuelve a poner los envoltorios en `invoker`, la
+  // primera aserción de este bloque se cae.
+  //
+  // Se usa ADMIN2_ID y no ADMIN_ID porque la sección 12 desactivó a ADMIN_ID a
+  // propósito (`active = false`), y `is_admin()` exige `rol = 'admin' AND
+  // active`: con el desactivado, la RLS rechazaría la escritura por un motivo
+  // que no tiene nada que ver con lo que se está probando.
+  seccion('14.8 El trigger funciona para un `authenticated` real, no para el dueño');
+
+  let altaGuardiaOk = true;
+  let altaGuardiaError = null;
+  try {
+    await como('authenticated', ADMIN2_ID, () =>
+      db.exec(
+        `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+         values ('${DOC2}', '${AULA_TEORIA}', '${PERIODO}', 4, 9)`,
+      ),
+    );
+  } catch (e) {
+    altaGuardiaOk = false;
+    altaGuardiaError = e;
+  }
+  check(
+    'un admin autenticado SÍ puede dar de alta una guardia',
+    altaGuardiaOk,
+    altaGuardiaError ? `${altaGuardiaError.code}: ${altaGuardiaError.message}` : '',
+  );
+
+  const choqueAutenticado = await esperaError(
+    'el trigger sigue protegiendo cuando quien escribe es un admin autenticado',
+    () =>
+      como('authenticated', ADMIN2_ID, () =>
+        db.exec(
+          `insert into public.teacher_duties (teacher_id, classroom_id, period_code, day_of_week, block)
+           values ('${DOC2}', '${AULA_TALLER}', '${PERIODO}', 4, 9)`,
+        ),
+      ),
+  );
+  check(
+    'el choque llega como 23514 y no como un fallo de privilegios',
+    choqueAutenticado?.code === '23514',
+    `código: ${choqueAutenticado?.code}`,
+  );
+
+  let altaClaseOk = true;
+  let altaClaseError = null;
+  try {
+    await como('authenticated', ADMIN2_ID, () =>
+      db.exec(
+        `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+         values ('${SEC_M3}', '${DOC1}', '${AULA_TALLER}', 4, 10)`,
+      ),
+    );
+  } catch (e) {
+    altaClaseOk = false;
+    altaClaseError = e;
+  }
+  check(
+    'un admin autenticado SÍ puede poner una clase en el cuadrante',
+    altaClaseOk,
+    altaClaseError ? `${altaClaseError.code}: ${altaClaseError.message}` : '',
+  );
+
+  const cruceAutenticado = await esperaError(
+    'el cruce guardia/clase también salta para un admin autenticado',
+    () =>
+      como('authenticated', ADMIN2_ID, () =>
+        db.exec(
+          `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+           values ('${SEC_M3B}', '${DOC1}', '${AULA_TEORIA}', 4, 10)`,
+        ),
+      ),
+  );
+  check(
+    'el cruce llega como 23514, no como 42501',
+    cruceAutenticado?.code === '23514',
+    `código: ${cruceAutenticado?.code}`,
+  );
+
+  // El límite que NO se debe cruzar para "arreglar" un 42501: conceder EXECUTE
+  // a `authenticated` convertiría la función en un oráculo de la agenda ajena
+  // (¿está ocupado el jueves a las 9?) y en un grifo del `pg_advisory_xact_lock`.
+  const llamadaDirecta = await esperaError(
+    'la función delegada no se puede llamar a mano: la puerta es el trigger',
+    () =>
+      como('authenticated', ADMIN2_ID, () =>
+        db.query(
+          `select public.exigir_agenda_libre('${PERIODO}', 4::smallint, 9::smallint,
+             '${DOC2}'::uuid, '${AULA_TEORIA}'::uuid, 'teacher_duties', gen_random_uuid())`,
+        ),
+      ),
+  );
+  check(
+    'la llamada directa se rechaza por privilegios (42501)',
+    llamadaDirecta?.code === '42501',
+    `código: ${llamadaDirecta?.code}`,
+  );
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +
