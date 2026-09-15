@@ -16,12 +16,22 @@
 exactamente con `origin/main`.
 
 ```
-HEAD = origin/main = dfb0a8b
+HEAD = origin/main
 ```
 
-Verificado con `git rev-list --left-right --count origin/main...HEAD` → `0 0`.
+**Aquí no hay un SHA, a propósito.** Este documento viaja *dentro* del commit que
+describe, así que cualquier hash escrito aquí nace ya obsoleto — el commit que lo
+contiene lo mueve. Compruébalo tú:
+
+```bash
+git rev-list --left-right --count origin/main...HEAD   # debe dar: 0	0
+git log --oneline -8                                   # los últimos commits
+```
+
+Los últimos commits, que sí son estables porque son anteriores a este archivo:
 
 ```
+2f41720  docs(handover): sincronizar el traspaso con el modulo 3 y corregir la fecha
 dfb0a8b  docs(modulo3): contrato de API y verificacion de esquema desplegado
 d676907  fix(modulo3): los envoltorios de trigger anti-colision deben ser security definer
 50aed06  feat(modulo3): esquema DDL de cuadrante, aulas, guardias y triggers anti-colision
@@ -586,7 +596,9 @@ ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
 - SQL: 164/164 aserciones en pglite, sobre las 10 migraciones.
 - Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
-- HEAD en `main` = `dfb0a8b`, idéntico a `origin/main`. Working tree limpio.
+- HEAD en `main` = `origin/main` (comprueba con
+  `git rev-list --left-right --count origin/main...HEAD` -> `0  0`). Working tree
+  limpio. No se escribe el SHA: nace obsoleto, ver arriba.
 - Modulo 1 completo y verificado de extremo a extremo contra la base real.
 - Modulo 2 completo: base, backend y UI.
 - Modulo 3: ESQUEMA APLICADO Y CORREGIDO; backend PENDIENTE (las 14 rutas del
