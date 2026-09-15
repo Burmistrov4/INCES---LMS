@@ -78,7 +78,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       icono: Icons.menu_book_outlined,
       titulo: 'Programas Académicos',
       categoria: 'Gestión académica',
-      disponible: false,
     ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
