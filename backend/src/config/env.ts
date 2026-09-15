@@ -42,8 +42,15 @@ const esquema = z.object({
     .string()
     .min(20, 'SUPABASE_SERVICE_ROLE_KEY parece incompleta.'),
 
-  /** Orígenes permitidos por CORS, separados por coma. `*` = cualquiera. */
-  CORS_ORIGINS: z.string().default('http://localhost:3000'),
+  /**
+   * Orígenes permitidos por CORS, separados por coma. `*` = cualquiera.
+   *
+   * El valor por defecto es el del **frontend**, no el del propio backend: quien
+   * llama a la API desde un navegador es el servidor de desarrollo de Flutter
+   * (`flutter run --web-port=8080`), y es su origen —no el del backend— lo que
+   * CORS debe autorizar. Poner aquí el puerto del backend no autoriza nada.
+   */
+  CORS_ORIGINS: z.string().default('http://localhost:8080'),
 
   /** TTL de la caché de módulos. `0` la desactiva (útil en tests). */
   MODULE_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),

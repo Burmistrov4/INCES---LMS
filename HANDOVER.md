@@ -102,27 +102,44 @@ teacher_invitations  : id, email, token_hash, is_used, created_at, expires_at
 
 `node supabase/verificar-esquema.mjs` → **32/32 sin fallos**.
 
-#### ⚠️ Footgun: `apply-migrations.mjs` NO rastrea estado
+#### ✅ D10 resuelta: `apply-migrations.mjs` ya lleva libro mayor
 
-Léelo antes de usarlo otra vez. El script **reaplica las 5 migraciones en orden,
-siempre**, y se detiene al primer error. No lleva registro de cuáles ya están
-aplicadas: confía en que el SQL sea idempotente. Cuatro de los cinco archivos
-tienen `create policy` / `create trigger` **sin guarda**, así que relanzarlo sobre
-una base ya migrada puede fallar a medio camino y dejar la migración nueva sin
-aplicar.
+**El footgun está erradicado.** Antes el script reaplicaba las 5 migraciones en
+cada ejecución y se detenía al primer error; como 4 de los 5 archivos tienen
+`create policy` / `create trigger` sin guarda, reejecutar sobre una base ya
+migrada podía fallar a medio camino. Ahora hay un libro mayor:
 
-Para esta sesión apliqué **solo** el archivo pendiente por la API de administración
-y lo verifiqué después. Si tienes que aplicar otra migración suelta, haz lo mismo
-o añade control de estado al script. `--check` sólo lista los archivos: **no
-comprueba qué está aplicado**, no te fíes de él como diagnóstico.
+```
+public.schema_migrations (version PK, checksum, applied_at)
+```
+
+- Sólo se ejecutan los archivos **ausentes** del libro.
+- Se guarda el **SHA-256** de cada archivo. Si uno ya aplicado cambia, se detecta
+  **deriva** y el script **se niega a tocar la base** (`exit 1`, apto para CI).
+- La fila del libro se inserta **en el mismo lote** que la migración: o quedan
+  las dos cosas o ninguna. No hay estado a medias.
 
 ```bash
-# simulación (sólo lista archivos, NO detecta estado)
+# diagnóstico: qué está aplicado, pendiente o con deriva (no escribe)
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs --check
 
-# verificación real del estado
+# aplicar sólo lo pendiente
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs
+
+# registrar como aplicado SIN ejecutar (para bases con esquema ya montado)
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs --adoptar
+
+# verificación independiente del esquema
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
 ```
+
+Estado actual: **5/5 adoptadas**, `--check` → `0 pendiente(s), 0 con deriva`.
+
+> **Regla nueva:** nunca edites una migración que ya corrió. Si el esquema debe
+> cambiar, crea un archivo **nuevo**. Si editas uno aplicado, el script te lo dirá
+> y no aplicará nada — es la protección funcionando, no un fallo.
+
+> `--check` **sí** diagnostica de verdad ahora (antes sólo listaba archivos).
 
 - El token se crea en `supabase.com/dashboard/account/tokens`.
 - **No confundir** `SUPABASE_ACCESS_TOKEN` (Management API, prefijo `sbp_`) con
@@ -149,32 +166,47 @@ código: es un límite del proveedor.
 
 Consecuencia práctica: para el humo real, invita a `lorenzoroca333@gmail.com`.
 
-### 2.3 Alineación de puertos y `CORS_ORIGINS`
+### 2.3 Reparto de puertos y `CORS_ORIGINS` — ✅ ALINEADO
 
-El backend escucha en **3000** por defecto (`PORT=3000`), que **colisiona con el
-puerto de desarrollo de Flutter**. Arranque correcto:
+**No los cruces.** El reparto canónico es:
+
+```
+backend  ->  3000   la API        (PORT, backend/.env)
+Flutter  ->  8080   el navegador  (--web-port=8080, obligatorio)
+```
 
 ```bash
-# Backend  (elige 8080 u otro, pero sé coherente)
-cd backend && PORT=8080 npm run dev
+# Backend
+cd backend && npm run dev            # escucha en 3000
 
 # Frontend — --web-port NO es opcional
-flutter run -d chrome --web-port=8080 \
-  --dart-define=API_BASE_URL=http://localhost:8080
+flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
+```
+
+`API_BASE_URL` vive en `.env.json` y vale `http://localhost:3000` — el puerto del
+**backend**, porque es a quien el frontend llama.
+
+> **Corrección de una versión anterior de este documento:** decía que el backend
+> fuera en 8080 *y* el frontend en 8080. Eso es una colisión: el segundo en
+> arrancar no encuentra puerto. El backend va en 3000.
+
+`CORS_ORIGINS` autoriza el origen del **navegador**, es decir el del frontend
+(8080). Poner ahí el puerto del backend no autoriza nada. Valor por defecto ya
+corregido en `env.ts` y en `.env.example`:
+
+```
+CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ```
 
 > Sin `--web-port`, Flutter elige un puerto **efímero distinto en cada arranque**
-> y el valor de `CORS_ORIGINS` queda obsoleto al segundo intento: el navegador
-> bloquea la API con un error de CORS que parece un bug de backend y no lo es.
+> y `CORS_ORIGINS` queda obsoleto al segundo intento: el navegador bloquea la API
+> con un error que parece un bug de backend y no lo es.
 
-Valor actual en `.env.example`:
-
-```
-CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:8080
-```
-
-`API_BASE_URL` se lee por `--dart-define`. Si no se pasa, el `ApiClient` lanza un
-error explícito en lugar de fallar en silencio.
+**⚠️ En la máquina de Lorenzo el puerto 3000 lo ocupa otro proceso `node`**
+(`C:\Program Files\nodejs\node.exe`, PID 16884, ajeno a este proyecto: responde
+404 en `/salud`). Si no lo libera, el backend no arranca en 3000. Salidas: cerrar
+ese proceso, o cambiar `PORT` y ajustar `API_BASE_URL` en `.env.json`. Los tres
+valores (`PORT`, `API_BASE_URL`, `CORS_ORIGINS`) deben contar la misma historia.
 
 ### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⏳
 
