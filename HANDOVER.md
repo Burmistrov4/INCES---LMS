@@ -176,14 +176,42 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000,h
 `API_BASE_URL` se lee por `--dart-define`. Si no se pasa, el `ApiClient` lanza un
 error explícito en lugar de fallar en silencio.
 
-### 2.4 Humo real pendiente (lo ejecuta Lorenzo)
+### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⏳
 
-1. ~~Aplicar la migración (2.1).~~ **HECHO** — ya no es necesario.
-2. Invitar a `lorenzoroca333@gmail.com` desde el cPanel.
-3. Copiar `enlaceActivacion` de la respuesta.
-4. Abrir `http://localhost:8080/#/auth/activate?token=...`.
-5. Fijar contraseña.
-6. Confirmar en la base: `rol = 'docente'` e `is_used = true`.
+**Mitad-API: VERIFICADA** contra la base real con `node supabase/humo-invitaciones.mjs
+--confirmar` → **17/17 sin fallos**, cero residuo. Cubre lo que las 171 pruebas con
+dobles no podían cubrir:
+
+- RLS de `teacher_invitations` y `auth_logs` con JWT reales: el admin ve, `anon`
+  no ve, un `docente` no ve, y **nadie inserta trazas con rol `authenticated`**
+  (no hay GRANT de INSERT, por diseño).
+- HTTP completo: `POST /admin/usuarios/invitaciones` → `POST /auth/activar` →
+  `perfil.rol = 'docente'`, `is_used = true`, traza SUCCESS en `auth_logs`.
+- El token es de un solo uso: reutilizarlo se rechaza.
+- El token en claro **no** queda en la base (sólo su SHA-256).
+
+**Mitad-UI: PENDIENTE.** Abrir `http://localhost:8080/#/auth/activate?token=...` en
+el navegador, fijar la contraseña y comprobar que la pantalla lee el token de
+`Uri.base.fragment`. Requiere la alineación de puertos de 2.3. Nunca se ha
+ejecutado esa pantalla en un navegador real.
+
+> `correoEnviado` sale `false` en el humo, y **es lo esperado**: el remitente de
+> Resend es no bloqueante por diseño (`{ entregado: false }` en vez de excepción),
+> así que una invitación siempre se persiste y el enlace viaja en la respuesta.
+> Ver 2.2.
+
+#### ⚠️ `crear-admin.mjs` no sirve para un admin de prueba
+
+Usa `inviteUserByEmail`, que exige entrega de correo. Sin dominio verificado en
+Resend, cualquier dirección que no sea el buzón dueño devuelve
+**`HTTP 500: Error sending invite email`**. Para crear un usuario con sesión,
+usa `auth.admin.createUser` con `email_confirm: true` (lo que hace el humo), que
+no envía nada.
+
+```bash
+node supabase/humo-invitaciones.mjs              # simulación
+node supabase/humo-invitaciones.mjs --confirmar  # ejecuta
+```
 
 **Nota de arquitectura:** el enlace usa **hash strategy** (`/#/auth/activate`),
 no path. Es deliberado: así el servidor siempre entrega `index.html` y no hace
