@@ -241,6 +241,52 @@ actualizarse: la ruta existe, pero su implementación pasa por dos RPC.
 
 ---
 
+## R-11 · El filtro `or` de PostgREST: una trampa medida, y una sonda que mintió
+
+**No es una contradicción del documento.** Se registra aquí porque es el tipo de
+hallazgo que, mal medido, se convierte en un «arreglo» que rompe producción.
+
+PostgREST exige que el valor de `or` sea un árbol **entre paréntesis**:
+
+```
+or=(code.ilike."x",name.ilike."x")     -- 200
+or=code.ilike."x",name.ilike."x"       -- 400 · 42703 column programs.orcode does not exist
+```
+
+Sin paréntesis, PostgREST concatena `or` con el nombre de la primera columna y
+busca una columna llamada `orcode`. Eso fue exactamente lo que devolvió la
+primera sonda que escribí, y por un momento parecía un bug de producción: el
+mismo patrón lo usa el listado de usuarios desde el overhaul de M1.
+
+**No lo era.** `supabase-js` envuelve el valor por dentro —
+`PostgrestFilterBuilder.or()` hace `searchParams.append('or', `(${filters})`)` —
+así que la URL que sale del repositorio **sí** lleva los paréntesis. El error
+estaba en la sonda: construí la URL a mano, sin lo que añade el SDK, y medí una
+petición que el código nunca envía.
+
+| Prueba contra la base real | Resultado |
+| --- | --- |
+| `or=(code.ilike."her",name.ilike."her")` | **200** |
+| `or=code.ilike."her",name.ilike."her"` | **400** `42703 column programs.orcode does not exist` |
+| `or=(code.ilike."o,o",…)` — texto con coma | **200** |
+| `or=(code.ilike."o""b",…)` — comilla doble escapada | **200** |
+| `or=(code.ilike."a(b)",…)` — paréntesis en el texto | **200** |
+| `or=((code.ilike."herr"))` — paréntesis doblados | **400** `PGRST100 unexpected "("` |
+
+**Consecuencias, las dos escritas en el código:**
+
+1. `filtroIlike` **no** debe añadir paréntesis. Si alguien los añadiera «para
+   arreglarlo», el valor viajaría doblado y la consulta fallaría con `PGRST100`.
+   Hay una prueba que fija el formato para que eso no pase inadvertido.
+2. El escapado del texto (comillas dobles para volverlo literal, y duplicarlas
+   dentro) **sí** estaba bien y ahora está medido con coma, comilla y paréntesis.
+
+**Lección de método.** Una sonda vale lo que vale su fidelidad: si reconstruye a
+mano lo que una librería construye, mide otra cosa. La comprobación correcta era
+leer la implementación de `.or()` antes de dar por hecho el fallo.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -255,3 +301,4 @@ actualizarse: la ruta existe, pero su implementación pasa por dos RPC.
 | R-08 | `sections` de Fase 0 era un stub | Rediseñada completa | ✅ Resuelta |
 | R-09 | `cursos` vs `programs` (D12) | Vista de compatibilidad | ✅ Resuelta |
 | R-10 | "Una transacción" que PostgREST no da | Dos funciones RPC | ✅ Resuelta |
+| R-11 | El filtro `or` exige paréntesis | Los añade `supabase-js`; no se toca | ✅ Verificada |

@@ -31,16 +31,18 @@
 | **D6** | OpenAPI 3.1 generado desde Zod | ✅ Completa |
 | **Módulo 1** | Invitación de docentes por token + auditoría de accesos (`auth_logs`) | ✅ Completa |
 | **D10** | Conexión directa sólo IPv6 | ✅ Resuelta (libro mayor de migraciones) |
-| **Fase 4+** | M2 Currículo … M8 Pasantías | ⏳ Pendiente |
+| **Módulo 2 (backend)** | Currículo y Pensum: repositorio, 7 rutas y traducción de errores | ✅ Completo |
+| **Módulo 2 (frontend)** | Asistente de 3 pasos en Flutter | ⏳ Pendiente |
+| **Fase 4+** | M3 Cuadrante … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del 2026-09-14; migraciones
+**Verificación al cierre de esta iteración** — suites del 2026-09-15; migraciones
 de M2 aplicadas y verificadas el **2026-09-15**
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **110 / 110** en verde |
-| `npm test` (backend) | **171 / 171** en verde (11 archivos) |
+| `npm test` (backend) | **232 / 232** en verde (14 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
@@ -50,8 +52,9 @@ de M2 aplicadas y verificadas el **2026-09-15**
 | **Libro mayor de migraciones (D10)** | 8 versiones aplicadas con checksum SHA-256 válido |
 | **Migraciones de M2 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 13 tablas + la vista `cursos`, con RLS activo en las 4 nuevas (ver §9, §10 y §11) |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
+| **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
-| Documento OpenAPI | OpenAPI 3.1.0 · **15 rutas · 24 esquemas** |
+| Documento OpenAPI | OpenAPI 3.1.0 · **22 rutas · 40 esquemas** |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -473,10 +476,30 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 | `POST` | `/api/v1/admin/usuarios/invitaciones` | admin | Invita a un docente: crea el token y devuelve el enlace |
 | `POST` | `/api/v1/auth/activar` | **token de invitación** | El docente fija su contraseña y queda promovido a `docente` |
 
-**15 rutas en total**, contadas en el documento OpenAPI. Las dos últimas son las
-únicas que no van protegidas por un JWT de sesión: `/auth/activar` va protegida
-por el token de un solo uso, porque el docente todavía no tiene sesión cuando
-abre el enlace. Por eso esa ruta consulta la base con `service_role`.
+**Rutas de M2** (módulo 2, currículo y pensum — todas `admin`):
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/programas` | Listado paginado, con `totalMaterias` y `totalPeriodos` en la misma consulta |
+| `GET` | `/api/v1/admin/programas/:id` | Detalle con el pensum agrupado, `seccionesActivas` y `editable` |
+| `POST` | `/api/v1/admin/programas` | **El asistente**: programa + pensum, atómico (201) |
+| `PATCH` | `/api/v1/admin/programas/:id` | Metadatos: `nombre`, `requierePasantia`, `activo` |
+| `PATCH` | `/api/v1/admin/programas/:id/pensum` | Reemplaza el pensum completo; la Regla 2 puede dar 409 |
+| `GET` | `/api/v1/admin/materias` | Banco global de materias, paginado y con búsqueda |
+| `POST` | `/api/v1/admin/materias` | Registra una materia en caliente (201) |
+
+**22 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
+token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
+enlace. Por eso esa ruta consulta la base con `service_role`.
+
+**Las dos escrituras de M2 no usan `insert`.** `POST /programas` y
+`PATCH /programas/:id/pensum` van por las funciones `crear_programa_con_pensum` y
+`reemplazar_pensum`, porque PostgREST no admite insertar un padre con sus hijos en
+la misma petición ni expone transacciones entre peticiones. El repositorio nunca
+escribe esas tablas directamente, y hay una prueba que lo comprueba contra un
+cliente de Supabase falso: sin ella, cambiar la RPC por un `insert` habría dejado
+la suite en verde y la atomicidad destruida. Ver §11 y `REPORTE_ARIA.md` R-10.
 
 **Paginación: el patrón es contar primero.** Toda ruta de listado hace
 `select count(*)` con `head: true` **antes** de pedir la página, y devuelve
@@ -609,7 +632,7 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `src/http/plugins/modulos.ts` | Guardias de módulo y mantenimiento (lógica pura) |
 | `src/http/plugins/errores.ts` | Cuerpo de error uniforme |
 | `src/http/esquemas.ts` | Validación de entrada + coherencia de tipos |
-| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth` |
+| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth`, `curriculo` |
 | `src/app.ts` | Construye la app con todo inyectado |
 | `src/server.ts` | Único punto que lee `process.env` |
 
@@ -903,10 +926,12 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    2026-09-15, y `verificar-esquema.mjs` actualizado: ahora comprueba las 13
    tablas, la vista `cursos` (con `security_invoker`), las columnas de M2 y el
    trigger de la Regla 2. 56/56.
-3. **Implementar las rutas de M2** (`/api/v1/admin/programas`, `/materias`) y el
-   asistente de tres pasos en Flutter. Contrato propuesto en §9.
-4. **Encender `m2_curriculo` desde el cPanel** cuando su API exista. El
-   interruptor ya funciona; lo que falta es lo que hay detrás.
+3. ~~Implementar las rutas de M2 (`/api/v1/admin/programas`, `/materias`)~~ —
+   **hecho** el 2026-09-15: las 7 rutas existen, el repositorio llama a las dos
+   funciones por `supabase.rpc(...)` y el contrato está en
+   `docs/CONTRATO_API_MODULO2.md`. **Falta el asistente de tres pasos en Flutter.**
+4. **Encender `m2_curriculo` desde el cPanel** cuando la pantalla de M2 exista.
+   El interruptor ya funciona; lo que falta es lo que hay detrás.
 5. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
    cerrar D9 con una regla de ciclo de vida en R2.
 6. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
@@ -915,6 +940,12 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    caducidad, cruza con `enrollments` y registra la asistencia. Tres faltas
    consecutivas disparan el motor de bids de M4. **No se implementa todavía**:
    depende de M3 (cuadrante) y M4 (bids), que aún no existen.
+7. **Decidir R-06** (convención de período: `2026-1` frente a `SA26-2`). Es la
+   única decisión abierta que deja una guarda inerte: el trigger de la Regla 2
+   está aplicado y funciona, pero sólo dispara si el `period_code` de una sección
+   coincide exactamente con `system_settings.periodo_activo`. Hasta que se
+   elija una convención y se use en los dos sitios, la regla no bloquea nada en
+   la práctica. **No se elige unilateralmente: la decide el equipo.**
 
 ---
 

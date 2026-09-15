@@ -14,7 +14,7 @@
 import type { EntradaPensum, GrupoPensum } from './tipos.js';
 
 /**
- * Agrupa un pensum por período, ordenado y **sin huecos**.
+ * Agrupa un pensum por período, ordenado y **sin grupos vacíos**.
  *
  * El caso que importa: períodos `[1, 2, 5]` deben devolver **tres** grupos, no
  * cinco con dos vacíos. Rellenar los huecos con grupos vacíos haría que la
@@ -24,9 +24,14 @@ import type { EntradaPensum, GrupoPensum } from './tipos.js';
  *
  * Dentro de cada período, las materias conservan el orden en que llegaron: el
  * servidor no reordena lo que el administrativo escribió.
+ *
+ * Es genérica sobre el tipo de entrada para servir a los dos usos sin
+ * duplicarse: el pensum que se **manda** (`EntradaPensum`, sólo ids) y el que se
+ * **recibe** (`MateriaEnPensum`, con código, nombre y horas). Los campos extra
+ * se conservan; agrupar no los toca.
  */
-export function agruparPensum(entradas: EntradaPensum[]): GrupoPensum[] {
-  const porPeriodo = new Map<number, EntradaPensum[]>();
+export function agruparPensum<T extends EntradaPensum>(entradas: T[]): GrupoPensum<T>[] {
+  const porPeriodo = new Map<number, T[]>();
 
   for (const entrada of entradas) {
     const actuales = porPeriodo.get(entrada.periodo);

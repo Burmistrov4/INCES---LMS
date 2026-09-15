@@ -265,6 +265,212 @@ const RespuestaActivacion = z
   })
   .openapi('RespuestaActivacion');
 
+// --------------------------------------------------------------- módulo 2 ---
+
+const TipoPrograma = z.enum(['CARRERA', 'CURSO_LIBRE']).openapi('TipoPrograma');
+
+const Programa = z
+  .object({
+    id: z.string().uuid(),
+    codigo: z.string().openapi({
+      description: 'Código institucional corto (máx. 12). MAYÚSCULAS, dígitos y guiones.',
+    }),
+    nombre: z.string(),
+    tipo: TipoPrograma,
+    requierePasantia: z.boolean().openapi({
+      description:
+        'Si es true, M8 exige el aval del tutor industrial antes de declarar EGRESADO al estudiante.',
+    }),
+    activo: z.boolean().openapi({
+      description: 'false = borrador. Publicar es ponerlo en true, y eso dispara la Regla 1.',
+    }),
+    creadoEn: z.string(),
+    actualizadoEn: z.string(),
+  })
+  .openapi('Programa');
+
+const ProgramaConTotales = Programa.extend({
+  totalMaterias: z.number().int().openapi({
+    description:
+      'Cuántas materias tiene el pensum. Cero en una CARRERA activa es un estado inválido (Regla 1).',
+  }),
+  totalPeriodos: z.number().int().openapi({
+    description:
+      'Cuántos períodos distintos cubre el pensum. Un pensum [1, 2, 5] son tres, no cinco.',
+  }),
+}).openapi('ProgramaConTotales');
+
+const Materia = z
+  .object({
+    id: z.string().uuid(),
+    codigo: z.string(),
+    nombre: z.string(),
+    horasAcademicas: z.number().int().openapi({ description: 'Carga horaria total. Siempre > 0.' }),
+    creadoEn: z.string(),
+    actualizadoEn: z.string(),
+  })
+  .openapi('Materia');
+
+/** Lo que el cliente **manda** dentro de un pensum: sólo el id y el período. */
+const EntradaPensum = z
+  .object({
+    materiaId: z.string().uuid(),
+    periodo: z.number().int().min(1).openapi({ description: 'Período lógico. Empieza en 1.' }),
+  })
+  .strict()
+  .openapi('EntradaPensum');
+
+/** Lo que el cliente **recibe**: la entrada más los datos de la materia. */
+const MateriaEnPensum = z
+  .object({
+    materiaId: z.string().uuid(),
+    periodo: z.number().int(),
+    codigo: z.string(),
+    nombre: z.string(),
+    horasAcademicas: z.number().int(),
+  })
+  .openapi('MateriaEnPensum');
+
+const GrupoPensum = z
+  .object({
+    periodo: z.number().int(),
+    materias: z.array(MateriaEnPensum),
+  })
+  .openapi('GrupoPensum');
+
+const RespuestaProgramas = z
+  .object({
+    programas: z.array(ProgramaConTotales),
+    total: z.number().int().openapi({
+      description: 'Cuántas filas cumplen el filtro en total, no cuántas se devolvieron.',
+    }),
+    limite: z.number().int(),
+    desplazamiento: z.number().int(),
+  })
+  .openapi('RespuestaProgramas');
+
+const RespuestaDetallePrograma = z
+  .object({
+    programa: Programa,
+    pensum: z.array(GrupoPensum).openapi({
+      description:
+        'Pensum agrupado por período. No incluye períodos vacíos: un pensum [1, 2, 5] devuelve tres grupos.',
+    }),
+    seccionesActivas: z.number().int().openapi({
+      description: 'Secciones activas del período vigente que usan este programa.',
+    }),
+    editable: z.boolean().openapi({
+      description:
+        'false cuando la Regla 2 impide tocar el pensum (seccionesActivas > 0). La UI deshabilita el reordenamiento antes de que el usuario choque contra el 409.',
+    }),
+  })
+  .openapi('RespuestaDetallePrograma');
+
+const RespuestaPrograma = z.object({ programa: Programa }).openapi('RespuestaPrograma');
+
+const RespuestaMaterias = z
+  .object({
+    materias: z.array(Materia),
+    total: z.number().int(),
+    limite: z.number().int(),
+    desplazamiento: z.number().int(),
+  })
+  .openapi('RespuestaMaterias');
+
+const RespuestaMateria = z.object({ materia: Materia }).openapi('RespuestaMateria');
+
+const CuerpoCrearPrograma = z
+  .object({
+    codigo: z.string(),
+    nombre: z.string(),
+    tipo: TipoPrograma,
+    requierePasantia: z.boolean().optional(),
+    publicar: z.boolean().optional().openapi({
+      description: 'Decide el `isActive` inicial. Por defecto false: el programa nace en borrador.',
+    }),
+    pensum: z.array(EntradaPensum).min(1).openapi({
+      description: 'Al menos una materia, y ninguna repetida.',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoCrearPrograma');
+
+const CuerpoActualizarPrograma = z
+  .object({
+    nombre: z.string().optional(),
+    requierePasantia: z.boolean().optional(),
+    activo: z.boolean().optional(),
+  })
+  .strict()
+  .openapi('CuerpoActualizarPrograma');
+
+const CuerpoReemplazarPensum = z
+  .object({
+    pensum: z.array(EntradaPensum).min(1).openapi({
+      description:
+        'El estado FINAL del pensum, no un parche: la base calcula qué borrar, qué reordenar y qué añadir.',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoReemplazarPensum');
+
+const CuerpoCrearMateria = z
+  .object({
+    codigo: z.string(),
+    nombre: z.string(),
+    horasAcademicas: z.number().int().positive(),
+  })
+  .strict()
+  .openapi('CuerpoCrearMateria');
+
+const ParametroIdPrograma = z.object({
+  id: z.string().uuid().openapi({
+    param: { name: 'id', in: 'path' },
+    example: '46342064-c05a-4341-8638-f35c2541718c',
+    description:
+      'UUID del programa. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.',
+  }),
+});
+
+const parametrosListadoProgramas = z.object({
+  tipo: TipoPrograma.optional().openapi({
+    param: { name: 'tipo', in: 'query' },
+    description: 'Filtra por tipo de oferta. Sin él, carreras y cursos libres.',
+  }),
+  activo: z.enum(['true', 'false']).optional().openapi({
+    param: { name: 'activo', in: 'query' },
+    description:
+      'Filtra publicados (true) o borradores (false). Ausente = todos. Un valor distinto se rechaza con 400.',
+  }),
+  busqueda: z.string().optional().openapi({
+    param: { name: 'busqueda', in: 'query' },
+    description: 'Texto libre sobre el código y el nombre. Insensible a mayúsculas.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
+const parametrosListadoMaterias = z.object({
+  busqueda: z.string().optional().openapi({
+    param: { name: 'busqueda', in: 'query' },
+    description: 'Texto libre sobre el código y el nombre. Insensible a mayúsculas.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
 const ParametroClave = z.object({
   clave: z.string().openapi({
     param: { name: 'clave', in: 'path' },
@@ -705,6 +911,201 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // ------------------------------------------------------------- currículo ---
+  //
+  // Las dos escrituras que necesitan atomicidad —crear el programa con su
+  // pensum y reemplazar el pensum— van por funciones de PostgreSQL llamadas con
+  // `supabase.rpc(...)`, no por un `insert` anidado. PostgREST no admite
+  // insertar un padre con sus hijos en la misma petición y no expone
+  // transacciones entre peticiones; se comprobó contra la base real. El
+  // contrato para el cliente es el mismo que pedía el documento de
+  // arquitectura: **una petición, todo o nada**.
+  const curriculo = { tags: ['Currículo'] };
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'get',
+    path: '/api/v1/admin/programas',
+    summary: 'Listado paginado de programas, con los totales de cada pensum',
+    description:
+      '`totalMaterias` y `totalPeriodos` llegan en la misma consulta que la página, no en N+1: la pantalla necesita saber si un programa está vacío para avisar antes de que el administrador intente publicarlo. `total` es el número de filas que cumplen el filtro, no las devueltas.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoProgramas },
+    responses: {
+      200: {
+        description: 'Una página de programas, ordenados por nombre.',
+        content: { 'application/json': { schema: RespuestaProgramas } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'get',
+    path: '/api/v1/admin/programas/{id}',
+    summary: 'Detalle de un programa con el pensum agrupado por período',
+    description:
+      'Devuelve además `seccionesActivas` y `editable`, que es la Regla 2 materializada: cuando hay secciones activas del período vigente, `editable` es false y la UI deshabilita el reordenamiento antes de que el usuario choque contra el 409.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdPrograma },
+    responses: {
+      200: {
+        description: 'Detalle del programa.',
+        content: { 'application/json': { schema: RespuestaDetallePrograma } },
+      },
+      400: error('El `id` no es un UUID válido (PETICION_INVALIDA).'),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('El programa no existe (PROGRAMA_INEXISTENTE).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'post',
+    path: '/api/v1/admin/programas',
+    summary: 'El asistente: crea un programa con su pensum, en una sola transacción',
+    description:
+      'Una sola petición con todo. Se ejecuta dentro de una función de PostgreSQL, así que un fallo no deja un programa a medio armar: o queda el programa con su pensum, o no queda nada. Publicar (`publicar: true`) sobre un pensum que la base rechace deshace la operación entera.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCrearPrograma } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Programa creado, con su pensum ya agrupado.',
+        content: { 'application/json': { schema: RespuestaDetallePrograma } },
+      },
+      400: error(
+        'Fallo de validación (código con formato inválido, pensum vacío o materia repetida), ' +
+          'referencia a una materia inexistente (REFERENCIA_INVALIDA) o Regla 1 (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      409: error('El código del programa ya existe (REGISTRO_DUPLICADO).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'patch',
+    path: '/api/v1/admin/programas/{id}',
+    summary: 'Cambia los metadatos de un programa',
+    description:
+      'Sólo `nombre`, `requierePasantia` y `activo`. `codigo` y `tipo` son la identidad del programa: `sections` (M3) apunta a él y un código cambiado rompe cualquier documento impreso que lo cite. Publicar un programa sin materias es un 400 RESTRICCION_VIOLADA desde el trigger diferido de la Regla 1.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: ParametroIdPrograma,
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoActualizarPrograma } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Programa actualizado.',
+        content: { 'application/json': { schema: RespuestaPrograma } },
+      },
+      400: error('Ningún cambio indicado, o Regla 1: una carrera activa sin materias.'),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: RESPUESTAS_ERROR[404],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'patch',
+    path: '/api/v1/admin/programas/{id}/pensum',
+    summary: 'Reemplaza el pensum completo de un programa',
+    description:
+      'Es un reemplazo, no un parche: el cliente manda el estado final y la base calcula la diferencia (borrar lo que sobra, reordenar lo que cambia, insertar lo nuevo), todo en una transacción. Si la Regla 2 bloquea, la operación se rechaza entera y el pensum queda intacto.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: ParametroIdPrograma,
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoReemplazarPensum } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Pensum reemplazado, con el detalle ya actualizado.',
+        content: { 'application/json': { schema: RespuestaDetallePrograma } },
+      },
+      400: error(
+        'Pensum vacío o con materias repetidas (PETICION_INVALIDA), materia inexistente ' +
+          '(REFERENCIA_INVALIDA) o Regla 1 (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('El programa no existe (PROGRAMA_INEXISTENTE).'),
+      409: error(
+        'PENSUM_EN_USO: hay secciones activas del período vigente usando el programa (Regla 2). ' +
+          'Archive esas secciones primero, o clone el programa.',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'get',
+    path: '/api/v1/admin/materias',
+    summary: 'Banco global de materias, paginado',
+    description:
+      'Alimenta la columna izquierda del paso 2 del asistente, con buscador en tiempo real. Una materia existe una vez y se comparte entre programas.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoMaterias },
+    responses: {
+      200: {
+        description: 'Una página de materias, ordenadas por nombre.',
+        content: { 'application/json': { schema: RespuestaMaterias } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...curriculo,
+    method: 'post',
+    path: '/api/v1/admin/materias',
+    summary: 'Registra una materia en el banco global',
+    description:
+      'Es el «registrar materia en caliente» del paso 2: el administrativo descubre a mitad del asistente que falta una materia y la crea sin salir. Un código repetido da 409: la UI debe ofrecer seleccionar la existente, porque ése es el caso frecuente.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCrearMateria } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Materia creada.',
+        content: { 'application/json': { schema: RespuestaMateria } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      409: error('El código de la materia ya existe (REGISTRO_DUPLICADO).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   return registro;
 }
 
@@ -740,6 +1141,11 @@ export function construirDocumentoOpenApi() {
         name: 'Administrador Maestro',
         description:
           'Interruptores de módulos, parámetros del sistema y auditoría. Requiere rol admin.',
+      },
+      {
+        name: 'Currículo',
+        description:
+          'Módulo 2: programas de formación, banco de materias y pensum. Requiere rol admin.',
       },
     ],
   });

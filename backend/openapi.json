@@ -30,6 +30,10 @@
     {
       "name": "Administrador Maestro",
       "description": "Interruptores de módulos, parámetros del sistema y auditoría. Requiere rol admin."
+    },
+    {
+      "name": "Currículo",
+      "description": "Módulo 2: programas de formación, banco de materias y pensum. Requiere rol admin."
     }
   ],
   "components": {
@@ -632,6 +636,371 @@
         "required": [
           "token",
           "password"
+        ],
+        "additionalProperties": false
+      },
+      "TipoPrograma": {
+        "type": "string",
+        "enum": [
+          "CARRERA",
+          "CURSO_LIBRE"
+        ]
+      },
+      "Programa": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codigo": {
+            "type": "string",
+            "description": "Código institucional corto (máx. 12). MAYÚSCULAS, dígitos y guiones."
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoPrograma"
+          },
+          "requierePasantia": {
+            "type": "boolean",
+            "description": "Si es true, M8 exige el aval del tutor industrial antes de declarar EGRESADO al estudiante."
+          },
+          "activo": {
+            "type": "boolean",
+            "description": "false = borrador. Publicar es ponerlo en true, y eso dispara la Regla 1."
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "tipo",
+          "requierePasantia",
+          "activo",
+          "creadoEn",
+          "actualizadoEn"
+        ]
+      },
+      "ProgramaConTotales": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Programa"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "totalMaterias": {
+                "type": "integer",
+                "description": "Cuántas materias tiene el pensum. Cero en una CARRERA activa es un estado inválido (Regla 1)."
+              },
+              "totalPeriodos": {
+                "type": "integer",
+                "description": "Cuántos períodos distintos cubre el pensum. Un pensum [1, 2, 5] son tres, no cinco."
+              }
+            },
+            "required": [
+              "totalMaterias",
+              "totalPeriodos"
+            ]
+          }
+        ]
+      },
+      "RespuestaProgramas": {
+        "type": "object",
+        "properties": {
+          "programas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProgramaConTotales"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Cuántas filas cumplen el filtro en total, no cuántas se devolvieron."
+          },
+          "limite": {
+            "type": "integer"
+          },
+          "desplazamiento": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "programas",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
+      "MateriaEnPensum": {
+        "type": "object",
+        "properties": {
+          "materiaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodo": {
+            "type": "integer"
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "horasAcademicas": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "materiaId",
+          "periodo",
+          "codigo",
+          "nombre",
+          "horasAcademicas"
+        ]
+      },
+      "GrupoPensum": {
+        "type": "object",
+        "properties": {
+          "periodo": {
+            "type": "integer"
+          },
+          "materias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MateriaEnPensum"
+            }
+          }
+        },
+        "required": [
+          "periodo",
+          "materias"
+        ]
+      },
+      "RespuestaDetallePrograma": {
+        "type": "object",
+        "properties": {
+          "programa": {
+            "$ref": "#/components/schemas/Programa"
+          },
+          "pensum": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrupoPensum"
+            },
+            "description": "Pensum agrupado por período. No incluye períodos vacíos: un pensum [1, 2, 5] devuelve tres grupos."
+          },
+          "seccionesActivas": {
+            "type": "integer",
+            "description": "Secciones activas del período vigente que usan este programa."
+          },
+          "editable": {
+            "type": "boolean",
+            "description": "false cuando la Regla 2 impide tocar el pensum (seccionesActivas > 0). La UI deshabilita el reordenamiento antes de que el usuario choque contra el 409."
+          }
+        },
+        "required": [
+          "programa",
+          "pensum",
+          "seccionesActivas",
+          "editable"
+        ]
+      },
+      "EntradaPensum": {
+        "type": "object",
+        "properties": {
+          "materiaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "periodo": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Período lógico. Empieza en 1."
+          }
+        },
+        "required": [
+          "materiaId",
+          "periodo"
+        ],
+        "additionalProperties": false
+      },
+      "CuerpoCrearPrograma": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "tipo": {
+            "$ref": "#/components/schemas/TipoPrograma"
+          },
+          "requierePasantia": {
+            "type": "boolean"
+          },
+          "publicar": {
+            "type": "boolean",
+            "description": "Decide el `isActive` inicial. Por defecto false: el programa nace en borrador."
+          },
+          "pensum": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntradaPensum"
+            },
+            "minItems": 1,
+            "description": "Al menos una materia, y ninguna repetida."
+          }
+        },
+        "required": [
+          "codigo",
+          "nombre",
+          "tipo",
+          "pensum"
+        ],
+        "additionalProperties": false
+      },
+      "RespuestaPrograma": {
+        "type": "object",
+        "properties": {
+          "programa": {
+            "$ref": "#/components/schemas/Programa"
+          }
+        },
+        "required": [
+          "programa"
+        ]
+      },
+      "CuerpoActualizarPrograma": {
+        "type": "object",
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "requierePasantia": {
+            "type": "boolean"
+          },
+          "activo": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CuerpoReemplazarPensum": {
+        "type": "object",
+        "properties": {
+          "pensum": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntradaPensum"
+            },
+            "minItems": 1,
+            "description": "El estado FINAL del pensum, no un parche: la base calcula qué borrar, qué reordenar y qué añadir."
+          }
+        },
+        "required": [
+          "pensum"
+        ],
+        "additionalProperties": false
+      },
+      "Materia": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "horasAcademicas": {
+            "type": "integer",
+            "description": "Carga horaria total. Siempre > 0."
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "actualizadoEn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "codigo",
+          "nombre",
+          "horasAcademicas",
+          "creadoEn",
+          "actualizadoEn"
+        ]
+      },
+      "RespuestaMaterias": {
+        "type": "object",
+        "properties": {
+          "materias": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Materia"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limite": {
+            "type": "integer"
+          },
+          "desplazamiento": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "materias",
+          "total",
+          "limite",
+          "desplazamiento"
+        ]
+      },
+      "RespuestaMateria": {
+        "type": "object",
+        "properties": {
+          "materia": {
+            "$ref": "#/components/schemas/Materia"
+          }
+        },
+        "required": [
+          "materia"
+        ]
+      },
+      "CuerpoCrearMateria": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "horasAcademicas": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": [
+          "codigo",
+          "nombre",
+          "horasAcademicas"
         ],
         "additionalProperties": false
       }
@@ -1726,6 +2095,699 @@
           },
           "500": {
             "description": "Fallo interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/programas": {
+      "get": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Listado paginado de programas, con los totales de cada pensum",
+        "description": "`totalMaterias` y `totalPeriodos` llegan en la misma consulta que la página, no en N+1: la pantalla necesita saber si un programa está vacío para avisar antes de que el administrador intente publicarlo. `total` es el número de filas que cumplen el filtro, no las devueltas.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/TipoPrograma"
+                },
+                {
+                  "description": "Filtra por tipo de oferta. Sin él, carreras y cursos libres."
+                }
+              ]
+            },
+            "required": false,
+            "name": "tipo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Filtra publicados (true) o borradores (false). Ausente = todos. Un valor distinto se rechaza con 400."
+            },
+            "required": false,
+            "name": "activo",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Texto libre sobre el código y el nombre. Insensible a mayúsculas."
+            },
+            "required": false,
+            "name": "busqueda",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de programas, ordenados por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaProgramas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "El asistente: crea un programa con su pensum, en una sola transacción",
+        "description": "Una sola petición con todo. Se ejecuta dentro de una función de PostgreSQL, así que un fallo no deja un programa a medio armar: o queda el programa con su pensum, o no queda nada. Publicar (`publicar: true`) sobre un pensum que la base rechace deshace la operación entera.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearPrograma"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Programa creado, con su pensum ya agrupado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaDetallePrograma"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Fallo de validación (código con formato inválido, pensum vacío o materia repetida), referencia a una materia inexistente (REFERENCIA_INVALIDA) o Regla 1 (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El código del programa ya existe (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/programas/{id}": {
+      "get": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Detalle de un programa con el pensum agrupado por período",
+        "description": "Devuelve además `seccionesActivas` y `editable`, que es la Regla 2 materializada: cuando hay secciones activas del período vigente, `editable` es false y la UI deshabilita el reordenamiento antes de que el usuario choque contra el 409.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del programa. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle del programa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaDetallePrograma"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El `id` no es un UUID válido (PETICION_INVALIDA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El programa no existe (PROGRAMA_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Cambia los metadatos de un programa",
+        "description": "Sólo `nombre`, `requierePasantia` y `activo`. `codigo` y `tipo` son la identidad del programa: `sections` (M3) apunta a él y un código cambiado rompe cualquier documento impreso que lo cite. Publicar un programa sin materias es un 400 RESTRICCION_VIOLADA desde el trigger diferido de la Regla 1.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del programa. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoActualizarPrograma"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Programa actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPrograma"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ningún cambio indicado, o Regla 1: una carrera activa sin materias.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El recurso no existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/programas/{id}/pensum": {
+      "patch": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Reemplaza el pensum completo de un programa",
+        "description": "Es un reemplazo, no un parche: el cliente manda el estado final y la base calcula la diferencia (borrar lo que sobra, reordenar lo que cambia, insertar lo nuevo), todo en una transacción. Si la Regla 2 bloquea, la operación se rechaza entera y el pensum queda intacto.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del programa. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoReemplazarPensum"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pensum reemplazado, con el detalle ya actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaDetallePrograma"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Pensum vacío o con materias repetidas (PETICION_INVALIDA), materia inexistente (REFERENCIA_INVALIDA) o Regla 1 (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El programa no existe (PROGRAMA_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "PENSUM_EN_USO: hay secciones activas del período vigente usando el programa (Regla 2). Archive esas secciones primero, o clone el programa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/materias": {
+      "get": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Banco global de materias, paginado",
+        "description": "Alimenta la columna izquierda del paso 2 del asistente, con buscador en tiempo real. Una materia existe una vez y se comparte entre programas.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Texto libre sobre el código y el nombre. Insensible a mayúsculas."
+            },
+            "required": false,
+            "name": "busqueda",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Tamaño de página. Por defecto 25."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "Filas a saltar antes de esta página. Por defecto 0."
+            },
+            "required": false,
+            "name": "desplazamiento",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Una página de materias, ordenadas por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaMaterias"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Currículo"
+        ],
+        "summary": "Registra una materia en el banco global",
+        "description": "Es el «registrar materia en caliente» del paso 2: el administrativo descubre a mitad del asistente que falta una materia y la crea sin salir. Un código repetido da 409: la UI debe ofrecer seleccionar la existente, porque ése es el caso frecuente.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearMateria"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Materia creada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaMateria"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El código de la materia ya existe (REGISTRO_DUPLICADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
             "content": {
               "application/json": {
                 "schema": {

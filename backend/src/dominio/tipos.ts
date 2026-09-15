@@ -184,16 +184,41 @@ export interface EntradaPensum {
   periodo: number;
 }
 
-/** Un período del pensum con sus materias, para pintar el detalle agrupado. */
-export interface GrupoPensum {
+/**
+ * Una materia del pensum **con sus datos**, tal como la devuelve el detalle.
+ *
+ * `EntradaPensum` es lo que el cliente manda; esto es lo que recibe. Se separan
+ * a propósito: el cliente no debe poder mandar el nombre de una materia, porque
+ * el nombre vive en `subjects` y lo comparten cinco pensums. Si fueran el mismo
+ * tipo, un reemplazo de pensum podría reescribir el nombre de una materia
+ * compartida sin que nadie lo pidiera.
+ *
+ * Existe porque la pantalla del pensum pinta código, nombre y horas de cada
+ * materia: sin esto tendría que pedir el banco de materias entero, o hacer una
+ * consulta por materia.
+ */
+export interface MateriaEnPensum extends EntradaPensum {
+  codigo: string;
+  nombre: string;
+  horasAcademicas: number;
+}
+
+/**
+ * Un período del pensum con sus materias, para pintar el detalle agrupado.
+ *
+ * Es genérico sobre el tipo de entrada para que `agruparPensum` sirva tanto al
+ * pensum "puro" (sólo ids, lo que se manda) como al detalle enriquecido (lo que
+ * se recibe), sin duplicar la agrupación ni perder los campos extra.
+ */
+export interface GrupoPensum<T extends EntradaPensum = EntradaPensum> {
   periodo: number;
-  materias: EntradaPensum[];
+  materias: T[];
 }
 
 /** El pensum completo de un programa, agrupado por período. */
 export interface DetallePrograma {
   programa: Programa;
-  pensum: GrupoPensum[];
+  pensum: GrupoPensum<MateriaEnPensum>[];
   /** Secciones activas del período vigente. Es lo que decide `editable`. */
   seccionesActivas: number;
   /** `false` cuando la Regla 2 impide tocar el pensum. */

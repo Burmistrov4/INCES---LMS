@@ -115,8 +115,11 @@ describe('documento OpenAPI generado (D6)', () => {
       [
         'GET /api/v1/admin/acceso',
         'GET /api/v1/admin/auditoria',
+        'GET /api/v1/admin/materias',
         'GET /api/v1/admin/modulos',
         'GET /api/v1/admin/parametros',
+        'GET /api/v1/admin/programas',
+        'GET /api/v1/admin/programas/{id}',
         'GET /api/v1/admin/usuarios',
         'GET /api/v1/modulos',
         'GET /api/v1/yo',
@@ -125,20 +128,30 @@ describe('documento OpenAPI generado (D6)', () => {
         'GET /salud/profundo',
         'PATCH /api/v1/admin/modulos/{clave}',
         'PATCH /api/v1/admin/parametros/{clave}',
+        'PATCH /api/v1/admin/programas/{id}',
+        'PATCH /api/v1/admin/programas/{id}/pensum',
         'PATCH /api/v1/admin/usuarios/{id}/rol',
+        'POST /api/v1/admin/materias',
+        'POST /api/v1/admin/programas',
         'POST /api/v1/admin/usuarios/invitaciones',
         'POST /api/v1/auth/activar',
       ].sort(),
     );
   });
 
-  it('no declara ninguna ruta sin respuesta 200/201 y sin 401 cuando exige sesión', () => {
+  it('no declara ninguna ruta sin respuesta de éxito y sin 401 cuando exige sesión', () => {
     const documento = construirDocumentoOpenApi();
     for (const [ruta, operaciones] of Object.entries(documento.paths ?? {})) {
       for (const [metodo, operacion] of Object.entries(operaciones)) {
         if (metodo === 'parameters') continue;
         const respuestas = Object.keys(operacion.responses ?? {});
-        expect(respuestas, `${metodo} ${ruta} sin respuesta de éxito`).toContain('200');
+        // 201 cuenta como éxito: las dos altas de M2 (programa y materia) crean
+        // un recurso y lo devuelven con su identificador. Exigir sólo 200
+        // obligaba a mentir en el contrato o a devolver 200 por una creación.
+        expect(
+          respuestas.some((codigo) => codigo === '200' || codigo === '201'),
+          `${metodo} ${ruta} sin respuesta de éxito (200/201)`,
+        ).toBe(true);
         if (operacion.security) {
           expect(
             respuestas,

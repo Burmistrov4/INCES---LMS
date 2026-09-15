@@ -9,14 +9,20 @@
  */
 import type {
   CambiosModulo,
+  DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
+  EntradaPensum,
   EstadoAcceso,
   InvitacionDocente,
+  Materia,
   ModuloSistema,
   ParametroSistema,
   Perfil,
+  Programa,
+  ProgramaConTotales,
   Rol,
+  TipoPrograma,
 } from './tipos.js';
 import type { PeticionUrlSubida, UrlFirmada } from './almacenamiento.js';
 
@@ -168,6 +174,123 @@ export interface PuertaAuditoriaAcceso {
 }
 
 /**
+ * Currículo y pensum (Módulo 2).
+ *
+ * Las dos escrituras que importan —crear un programa con su pensum y reemplazar
+ * el pensum completo— **no se pueden hacer con un `insert` de PostgREST**: no
+ * admite insertar un padre con sus hijos en la misma petición y no expone
+ * transacciones entre peticiones. Se comprobó contra la base real (ver
+ * `docs/CONTRATO_API_MODULO2.md` §5 y `REPORTE_ARIA.md` R-10).
+ *
+ * Por eso el puerto declara la **intención** ("crea este programa con este
+ * pensum, todo o nada") y el adaptador la satisface llamando a las funciones
+ * `crear_programa_con_pensum` y `reemplazar_pensum` por `supabase.rpc(...)`.
+ * El dominio no sabe —ni debe saber— que existen funciones en la base: eso es
+ * un detalle del adaptador. Si mañana PostgreSQL se cambiara por otra cosa, el
+ * puerto no cambiaría.
+ */
+export interface PuertaCurriculo {
+  /** Listado paginado de programas, con los totales que la pantalla necesita. */
+  listarProgramas(opciones: OpcionesListadoProgramas): Promise<PaginaProgramas>;
+
+  /** Detalle con el pensum agrupado. `null` si el programa no existe. */
+  detallePrograma(id: string): Promise<DetallePrograma | null>;
+
+  /**
+   * El asistente: programa + pensum en **una sola transacción**.
+   *
+   * Devuelve el detalle ya armado porque el cliente lo pinta al terminar el
+   * asistente, y volver a pedirlo sería una petición de más justo cuando el
+   * administrador espera ver el resultado.
+   */
+  crearPrograma(entrada: EntradaCrearPrograma): Promise<DetallePrograma>;
+
+  /** Metadatos del programa. `codigo` y `tipo` no se pueden cambiar. */
+  actualizarPrograma(id: string, cambios: CambiosPrograma): Promise<Programa>;
+
+  /**
+   * Reemplazo completo del pensum: el cliente manda el estado final y la base
+   * calcula la diferencia. Es transaccional, y la Regla 2 puede bloquearlo.
+   */
+  reemplazarPensum(id: string, pensum: EntradaPensum[]): Promise<DetallePrograma>;
+
+  /** Banco global de materias, paginado y con búsqueda. */
+  listarMaterias(opciones: OpcionesListadoMaterias): Promise<PaginaMaterias>;
+
+  /** Registra una materia en caliente desde el paso 2 del asistente. */
+  crearMateria(entrada: EntradaCrearMateria): Promise<Materia>;
+}
+
+/** Filtros y paginación del listado de programas. Todos opcionales salvo la paginación. */
+export interface OpcionesListadoProgramas {
+  /** Sólo las carreras o sólo los cursos libres. */
+  tipo?: TipoPrograma;
+  /** Sólo los publicados (`true`) o sólo los borradores (`false`). */
+  activo?: boolean;
+  /** Búsqueda libre sobre `codigo` y `nombre`, insensible a mayúsculas. */
+  busqueda?: string;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaProgramas {
+  /** Las filas de esta página, ya ordenadas por nombre. */
+  programas: ProgramaConTotales[];
+  /** Cuántas filas cumplen el filtro **en total**, no cuántas se devolvieron. */
+  total: number;
+}
+
+/** Filtros y paginación del banco de materias. */
+export interface OpcionesListadoMaterias {
+  /** Búsqueda libre sobre `codigo` y `nombre`, insensible a mayúsculas. */
+  busqueda?: string;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaMaterias {
+  materias: Materia[];
+  /** Cuántas filas cumplen el filtro en total, no cuántas se devolvieron. */
+  total: number;
+}
+
+/**
+ * Lo que manda el asistente al final de sus tres pasos.
+ *
+ * `publicar` decide el `is_active` inicial. Va separado de `activo` a
+ * propósito: crear en borrador es lo normal mientras se arma el pensum, y
+ * publicar es la decisión final. Un solo campo para las dos cosas obligaría a
+ * que el asistente publicara siempre o nunca.
+ */
+export interface EntradaCrearPrograma {
+  codigo: string;
+  nombre: string;
+  tipo: TipoPrograma;
+  requierePasantia: boolean;
+  publicar: boolean;
+  pensum: EntradaPensum[];
+}
+
+/**
+ * Cambios de metadatos de un programa.
+ *
+ * No incluye `codigo` ni `tipo`: son la identidad del programa. `sections` (M3)
+ * apunta a él, y un código cambiado rompe cualquier documento impreso que lo
+ * cite.
+ */
+export interface CambiosPrograma {
+  nombre?: string;
+  requierePasantia?: boolean;
+  activo?: boolean;
+}
+
+export interface EntradaCrearMateria {
+  codigo: string;
+  nombre: string;
+  horasAcademicas: number;
+}
+
+/**
  * Almacenamiento pesado (Cloudflare R2).
  *
  * No forma parte de `Repositorios` a propósito: no es una tabla, es un servicio
@@ -194,4 +317,5 @@ export interface Repositorios {
   auditoria: PuertaAuditoria;
   invitaciones: PuertaInvitacionesDocente;
   acceso: PuertaAuditoriaAcceso;
+  curriculo: PuertaCurriculo;
 }

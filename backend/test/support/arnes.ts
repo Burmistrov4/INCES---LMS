@@ -4,6 +4,7 @@ import { cargarEnv, type Env } from '../../src/config/env.js';
 import type {
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
+  PuertaCurriculo,
   PuertaInvitacionesDocente,
   PuertaModulos,
   PuertaParametros,
@@ -11,15 +12,21 @@ import type {
   Repositorios,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
+import { agruparPensum, pensumEditable } from '../../src/dominio/reglas-curriculo.js';
 import type { EnvioCorreo } from '../../src/infra/correo.js';
 import type {
   CambiosModulo,
+  DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
+  EntradaPensum,
   InvitacionDocente,
+  Materia,
+  MateriaEnPensum,
   ModuloSistema,
   ParametroSistema,
   Perfil,
+  Programa,
   Rol,
 } from '../../src/dominio/tipos.js';
 
@@ -145,6 +152,140 @@ export function entradaAcceso(
   };
 }
 
+// --- datos de ejemplo de M2 -------------------------------------------------
+
+/**
+ * Identificadores de M2.
+ *
+ * Se escriben con la forma de un UUID v4 real (`-4xxx-8xxx-`) y no con el
+ * `1111-1111-1111` de los perfiles, porque **estos sí pasan por el `.uuid()` de
+ * Zod** en las rutas: el esquema de Zod rechaza las versiones que no existen, y
+ * un fixture con forma inválida haría fallar la prueba por el motivo
+ * equivocado.
+ */
+export const ID_PROGRAMA_SISTEMAS = '11111111-1111-4111-8111-111111111111';
+export const ID_PROGRAMA_HERRERIA = '22222222-2222-4222-8222-222222222222';
+export const ID_PROGRAMA_VACIO = '33333333-3333-4333-8333-333333333333';
+
+export const ID_MATERIA_ALGORITMICA = 'aaaaaaaa-1111-4111-8111-111111111111';
+export const ID_MATERIA_BASEDATOS = 'aaaaaaaa-2222-4222-8222-222222222222';
+export const ID_MATERIA_INGLES = 'aaaaaaaa-3333-4333-8333-333333333333';
+export const ID_MATERIA_MATEMATICA = 'aaaaaaaa-4444-4444-8444-444444444444';
+
+export const PROGRAMA_SISTEMAS: Programa = {
+  id: ID_PROGRAMA_SISTEMAS,
+  codigo: 'SIST-01',
+  nombre: 'Análisis de Sistemas',
+  tipo: 'CARRERA',
+  requierePasantia: true,
+  activo: true,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+export const PROGRAMA_HERRERIA: Programa = {
+  id: ID_PROGRAMA_HERRERIA,
+  codigo: 'CUR-HER-01',
+  nombre: 'Herrería',
+  tipo: 'CURSO_LIBRE',
+  requierePasantia: false,
+  activo: true,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+/**
+ * Una carrera **en borrador y sin materias**.
+ *
+ * Existe para poder probar la Regla 1: publicarla (`activo: true`) debe dar 400,
+ * y es el caso real que el constraint trigger diferido existe para atrapar.
+ * Sin un programa así en los datos, esa prueba no tendría nada que publicar.
+ */
+export const PROGRAMA_VACIO: Programa = {
+  id: ID_PROGRAMA_VACIO,
+  codigo: 'SIST-99',
+  nombre: 'Carrera sin pensum',
+  tipo: 'CARRERA',
+  requierePasantia: false,
+  activo: false,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+export const MATERIA_ALGORITMICA: Materia = {
+  id: ID_MATERIA_ALGORITMICA,
+  codigo: 'ALG-I',
+  nombre: 'Algorítmica I',
+  horasAcademicas: 96,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+export const MATERIA_BASEDATOS: Materia = {
+  id: ID_MATERIA_BASEDATOS,
+  codigo: 'BD-II',
+  nombre: 'Bases de Datos II',
+  horasAcademicas: 120,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+export const MATERIA_INGLES: Materia = {
+  id: ID_MATERIA_INGLES,
+  codigo: 'ING-TEC',
+  nombre: 'Inglés Técnico',
+  horasAcademicas: 48,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+/**
+ * Una cuarta materia que **no está en ningún pensum por defecto**.
+ *
+ * Existe para poder probar el único caso en que la Regla 2 **no** bloquea:
+ * añadir una materia a un pensum que ya está en uso. Sin una materia libre, esa
+ * prueba no tendría nada que añadir y el reparto del trigger quedaría sin
+ * comprobar.
+ */
+export const MATERIA_MATEMATICA: Materia = {
+  id: ID_MATERIA_MATEMATICA,
+  codigo: 'MAT-I',
+  nombre: 'Matemática I',
+  horasAcademicas: 96,
+  creadoEn: '2026-09-01T10:00:00.000Z',
+  actualizadoEn: '2026-09-01T10:00:00.000Z',
+};
+
+export const PROGRAMAS_POR_DEFECTO: Programa[] = [
+  PROGRAMA_SISTEMAS,
+  PROGRAMA_HERRERIA,
+  PROGRAMA_VACIO,
+];
+
+export const MATERIAS_POR_DEFECTO: Materia[] = [
+  MATERIA_ALGORITMICA,
+  MATERIA_BASEDATOS,
+  MATERIA_INGLES,
+  MATERIA_MATEMATICA,
+];
+
+/**
+ * Pensum de los programas de ejemplo.
+ *
+ * El de Sistemas usa períodos `[1, 1, 4]` **a propósito**: saltar del 1 al 4
+ * deja el hueco de los períodos 2 y 3, y así cualquier prueba que pase por el
+ * detalle comprueba de paso que la agrupación no inventa períodos vacíos.
+ */
+export const PENSUM_POR_DEFECTO: Record<string, EntradaPensum[]> = {
+  [ID_PROGRAMA_SISTEMAS]: [
+    { materiaId: ID_MATERIA_ALGORITMICA, periodo: 1 },
+    { materiaId: ID_MATERIA_BASEDATOS, periodo: 1 },
+    { materiaId: ID_MATERIA_INGLES, periodo: 4 },
+  ],
+  [ID_PROGRAMA_HERRERIA]: [],
+  [ID_PROGRAMA_VACIO]: [],
+};
+
 // --- repositorios en memoria ------------------------------------------------
 
 export interface EstadoFalso {
@@ -155,6 +296,18 @@ export interface EstadoFalso {
   invitaciones: InvitacionDocente[];
   acceso: EntradaAcceso[];
   correos: { para: string; asunto: string }[];
+  programas: Programa[];
+  materias: Materia[];
+  /** El pensum de cada programa, por id. Es la única fuente de los totales. */
+  pensum: Record<string, EntradaPensum[]>;
+  /**
+   * Secciones activas del período vigente, por programa.
+   *
+   * Es el dato que decide la Regla 2. Se modela como un número y no como filas
+   * de `sections` porque lo único que M2 hace con ellas es contarlas; fingir la
+   * tabla entera daría una sensación de cobertura que no aporta nada.
+   */
+  seccionesActivas: Record<string, number>;
 }
 
 export interface Arnés {
@@ -174,6 +327,11 @@ export interface OpcionesArnés {
   auditoria?: EntradaAuditoria[];
   /** Traza de accesos inicial (auth_logs), para las pruebas de auditoría. */
   acceso?: EntradaAcceso[];
+  programas?: Programa[];
+  materias?: Materia[];
+  pensum?: Record<string, EntradaPensum[]>;
+  /** Secciones activas por programa, para ejercitar la Regla 2. */
+  seccionesActivas?: Record<string, number>;
   moduleCacheTtlMs?: number;
   settingsCacheTtlMs?: number;
 }
@@ -208,6 +366,22 @@ function accesosMasRecientesPrimero(entradas: EntradaAcceso[]): EntradaAcceso[] 
     .map((conIndice) => conIndice.entrada);
 }
 
+/**
+ * Copia un pensum por programa sin compartir referencias.
+ *
+ * Un arreglo compartido entre el valor por defecto y el estado del arnés haría
+ * que un test que reemplaza un pensum modificara el de los siguientes: el
+ * arnés entero pasaría a depender del orden en que corren las pruebas, que es
+ * la clase de fallo que sólo aparece cuando la suite crece.
+ */
+function clonarPensum(origen: Record<string, EntradaPensum[]>): Record<string, EntradaPensum[]> {
+  const copia: Record<string, EntradaPensum[]> = {};
+  for (const [programaId, entradas] of Object.entries(origen)) {
+    copia[programaId] = entradas.map((entrada) => ({ ...entrada }));
+  }
+  return copia;
+}
+
 /** Construye el arnés completo con la API ya montada. */
 export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
   const estado: EstadoFalso = {
@@ -218,6 +392,14 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     invitaciones: [],
     acceso: opciones.acceso ?? [],
     correos: [],
+    programas: opciones.programas ?? [...PROGRAMAS_POR_DEFECTO],
+    materias: opciones.materias ?? [...MATERIAS_POR_DEFECTO],
+    // Se copia en profundidad: el pensum es un objeto anidado, y compartir el
+    // arreglo con el valor por defecto haría que un test que reemplaza un
+    // pensum contaminara el siguiente. Es el fallo clásico de los dobles que
+    // guardan estado por referencia.
+    pensum: clonarPensum(opciones.pensum ?? PENSUM_POR_DEFECTO),
+    seccionesActivas: { ...(opciones.seccionesActivas ?? {}) },
   };
 
   const llamadas: string[] = [];
@@ -437,6 +619,238 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
+  // --- Módulo 2 ------------------------------------------------------------
+
+  /** Secuencias para los identificadores que se crean durante una prueba. */
+  let secuenciaProgramas = 0;
+  let secuenciaMaterias = 0;
+
+  const nuevoId = (prefijo: string, secuencia: number): string =>
+    `${prefijo}-0000-4000-8000-${String(secuencia).padStart(12, '0')}`;
+
+  const pensumDe = (programaId: string): EntradaPensum[] => estado.pensum[programaId] ?? [];
+
+  /**
+   * Arma el detalle del programa.
+   *
+   * Usa las **funciones puras reales** (`agruparPensum`, `pensumEditable`) en
+   * vez de reimplementarlas: un doble que agrupara a su manera podría pasar una
+   * prueba que el código de producción no pasaría, y el fallo aparecería en
+   * producción en lugar de aquí.
+   */
+  const armarDetalle = (programa: Programa): DetallePrograma => {
+    const materias: MateriaEnPensum[] = pensumDe(programa.id).map((entrada) => {
+      const materia = estado.materias.find((m) => m.id === entrada.materiaId);
+      return {
+        materiaId: entrada.materiaId,
+        periodo: entrada.periodo,
+        codigo: materia?.codigo ?? '',
+        nombre: materia?.nombre ?? '',
+        horasAcademicas: materia?.horasAcademicas ?? 0,
+      };
+    });
+
+    const secciones = estado.seccionesActivas[programa.id] ?? 0;
+
+    return {
+      programa,
+      pensum: agruparPensum(materias),
+      seccionesActivas: secciones,
+      editable: pensumEditable(secciones),
+    };
+  };
+
+  /**
+   * Comprueba que las materias del pensum existen.
+   *
+   * En la base lo impone el FK `program_subjects.subject_id`. Un doble que no
+   * lo comprobara dejaría pasar un pensum con materias inventadas y la prueba
+   * daría verde sobre un estado imposible.
+   */
+  const exigirMateriasExistentes = (pensum: EntradaPensum[]): void => {
+    for (const entrada of pensum) {
+      if (!estado.materias.some((m) => m.id === entrada.materiaId)) {
+        throw new ErrorApi(
+          400,
+          'REFERENCIA_INVALIDA',
+          'Se hace referencia a un registro que no existe.',
+        );
+      }
+    }
+  };
+
+  const curriculo: PuertaCurriculo = {
+    async listarProgramas(opciones) {
+      revisar('curriculo.listarProgramas');
+
+      const { tipo, activo, busqueda, limite, desplazamiento } = opciones;
+      const aguja = busqueda?.toLowerCase();
+
+      const coincide = (p: Programa): boolean => {
+        if (tipo && p.tipo !== tipo) return false;
+        if (activo !== undefined && p.activo !== activo) return false;
+        if (!aguja) return true;
+        return `${p.codigo} ${p.nombre}`.toLowerCase().includes(aguja);
+      };
+
+      const filtrados = estado.programas
+        .filter(coincide)
+        .sort((a, b) => a.nombre.localeCompare(b.nombre) || a.id.localeCompare(b.id))
+        .map((programa) => ({
+          ...programa,
+          totalMaterias: pensumDe(programa.id).length,
+          totalPeriodos: new Set(pensumDe(programa.id).map((e) => e.periodo)).size,
+        }));
+
+      return {
+        programas: filtrados.slice(desplazamiento, desplazamiento + limite),
+        total: filtrados.length,
+      };
+    },
+
+    async detallePrograma(id) {
+      revisar('curriculo.detallePrograma');
+      const programa = estado.programas.find((p) => p.id === id);
+      return programa ? armarDetalle(programa) : null;
+    },
+
+    async crearPrograma(entrada) {
+      revisar('curriculo.crearPrograma');
+
+      if (estado.programas.some((p) => p.codigo === entrada.codigo)) {
+        throw ErrorApi.conflicto('REGISTRO_DUPLICADO', 'Ese registro ya existe.');
+      }
+      exigirMateriasExistentes(entrada.pensum);
+
+      const ahora = new Date().toISOString();
+      const programa: Programa = {
+        id: nuevoId('77777777', ++secuenciaProgramas),
+        codigo: entrada.codigo,
+        nombre: entrada.nombre,
+        tipo: entrada.tipo,
+        requierePasantia: entrada.requierePasantia,
+        activo: entrada.publicar,
+        creadoEn: ahora,
+        actualizadoEn: ahora,
+      };
+
+      estado.programas = [...estado.programas, programa];
+      estado.pensum[programa.id] = entrada.pensum.map((e) => ({ ...e }));
+
+      return armarDetalle(programa);
+    },
+
+    async actualizarPrograma(id, cambios) {
+      revisar('curriculo.actualizarPrograma');
+
+      const actual = estado.programas.find((p) => p.id === id);
+      // Mismo código que produce el repositorio real cuando el `update` no
+      // toca ninguna fila (PostgREST `PGRST116`). Si el doble usara un código
+      // propio, la prueba fijaría un contrato que la API no cumple.
+      if (!actual) {
+        throw ErrorApi.noEncontrado('NO_ENCONTRADO', 'El recurso solicitado no existe.');
+      }
+
+      const actualizado: Programa = {
+        ...actual,
+        ...(cambios.nombre === undefined ? {} : { nombre: cambios.nombre }),
+        ...(cambios.requierePasantia === undefined
+          ? {}
+          : { requierePasantia: cambios.requierePasantia }),
+        ...(cambios.activo === undefined ? {} : { activo: cambios.activo }),
+        actualizadoEn: new Date().toISOString(),
+      };
+
+      // Regla 1, como el constraint trigger diferido de la base: publicar una
+      // CARRERA sin materias es un error del administrativo, no un estado
+      // válido. Es el camino que la base atrapa y Zod no puede ver, porque
+      // depende del estado de la tabla y no de lo que llega en la petición.
+      if (
+        actualizado.activo &&
+        actualizado.tipo === 'CARRERA' &&
+        pensumDe(id).length === 0
+      ) {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          'Una carrera activa no puede quedarse sin materias.',
+        );
+      }
+
+      estado.programas = estado.programas.map((p) => (p.id === id ? actualizado : p));
+      return actualizado;
+    },
+
+    async reemplazarPensum(id, pensum) {
+      revisar('curriculo.reemplazarPensum');
+
+      const programa = estado.programas.find((p) => p.id === id);
+      if (!programa) {
+        throw ErrorApi.noEncontrado('NO_ENCONTRADO', 'El recurso solicitado no existe.');
+      }
+
+      exigirMateriasExistentes(pensum);
+
+      const nuevoPorMateria = new Map(pensum.map((e) => [e.materiaId, e.periodo]));
+
+      // Regla 2, como el trigger de la base: quitar o reordenar una materia es
+      // estructural y se bloquea si el programa ya tiene secciones activas del
+      // período vigente. **Añadir no**: `create trigger ... before update of
+      // period_order, program_id or delete` no mira los insert.
+      const estructural = pensumDe(id).some((entrada) => {
+        const periodoNuevo = nuevoPorMateria.get(entrada.materiaId);
+        return periodoNuevo === undefined || periodoNuevo !== entrada.periodo;
+      });
+
+      if (estructural && (estado.seccionesActivas[id] ?? 0) > 0) {
+        throw ErrorApi.conflicto(
+          'PENSUM_EN_USO',
+          'No se puede modificar el pensum: el programa ya tiene secciones activas en el período vigente.',
+        );
+      }
+
+      estado.pensum[id] = pensum.map((e) => ({ ...e }));
+      return armarDetalle(programa);
+    },
+
+    async listarMaterias(opciones) {
+      revisar('curriculo.listarMaterias');
+
+      const { busqueda, limite, desplazamiento } = opciones;
+      const aguja = busqueda?.toLowerCase();
+
+      const filtradas = estado.materias
+        .filter((m) => !aguja || `${m.codigo} ${m.nombre}`.toLowerCase().includes(aguja))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre) || a.id.localeCompare(b.id));
+
+      return {
+        materias: filtradas.slice(desplazamiento, desplazamiento + limite),
+        total: filtradas.length,
+      };
+    },
+
+    async crearMateria(entrada) {
+      revisar('curriculo.crearMateria');
+
+      if (estado.materias.some((m) => m.codigo === entrada.codigo)) {
+        throw ErrorApi.conflicto('REGISTRO_DUPLICADO', 'Ese registro ya existe.');
+      }
+
+      const ahora = new Date().toISOString();
+      const materia: Materia = {
+        id: nuevoId('88888888', ++secuenciaMaterias),
+        codigo: entrada.codigo,
+        nombre: entrada.nombre,
+        horasAcademicas: entrada.horasAcademicas,
+        creadoEn: ahora,
+        actualizadoEn: ahora,
+      };
+
+      estado.materias = [...estado.materias, materia];
+      return materia;
+    },
+  };
+
   const repos: Repositorios = {
     perfiles,
     modulos,
@@ -444,6 +858,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     auditoria,
     invitaciones,
     acceso,
+    curriculo,
   };
 
   const enviarCorreo: EnvioCorreo = {

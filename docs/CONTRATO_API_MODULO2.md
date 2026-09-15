@@ -1,13 +1,14 @@
 # Contrato de API — Módulo 2 (Currículo y Pensum)
 
-> **Estado (2026-09-15):** el **esquema está aplicado y verificado** en la nube
-> (8/8 migraciones en el libro mayor, 56/56 comprobaciones del esquema), y las
-> **dos funciones transaccionales que sostienen el asistente están aplicadas y
-> probadas contra el motor real** (`supabase/humo-curriculo.mjs`, 14/14). Las
-> rutas HTTP de este documento están **en construcción**: el diseño está cerrado
-> y verificado, los manejadores todavía no existen. Lo que existe está en
-> `ESTADO_DEL_SISTEMA.md` §9–§11; el porqué de las funciones, en `REPORTE_ARIA.md`
-> R-10.
+> **Estado (2026-09-15): el backend del módulo está completo.** El **esquema está
+> aplicado y verificado** en la nube (8/8 migraciones en el libro mayor, 56/56
+> comprobaciones del esquema), las **dos funciones transaccionales que sostienen
+> el asistente están aplicadas y probadas contra el motor real**
+> (`supabase/humo-curriculo.mjs`, 14/14), y **las siete rutas de este documento
+> existen, están documentadas en OpenAPI y cubiertas por pruebas** (230 en la
+> suite del backend). Lo que falta de M2 es el frontend: el asistente de tres
+> pasos en Flutter. El porqué de las funciones está en `ESTADO_DEL_SISTEMA.md`
+> §11 y en `REPORTE_ARIA.md` R-10.
 
 Base: `/api/v1`. Todo error responde con la forma ya establecida:
 
@@ -76,10 +77,27 @@ export interface EntradaPensum {
   periodo: number;             // >= 1
 }
 
-/** Una entrada del pensum ya agrupada, tal como la devuelve `GET /:id`. */
-export interface GrupoPensum {
+/**
+ * Una materia del pensum CON sus datos, tal como la devuelve `GET /:id`.
+ * Es distinto de `EntradaPensum` a propósito: el cliente no debe poder mandar
+ * el nombre de una materia, porque vive en `subjects` y lo comparten varios
+ * pensums. Si fueran el mismo tipo, un reemplazo de pensum podría reescribir el
+ * nombre de una materia compartida sin que nadie lo pidiera.
+ */
+export interface MateriaEnPensum extends EntradaPensum {
+  codigo: string;
+  nombre: string;
+  horasAcademicas: number;
+}
+
+/**
+ * Un período del pensum con sus materias. Genérico para que `agruparPensum`
+ * sirva al pensum que se manda (sólo ids) y al que se recibe (con datos), sin
+ * duplicar la agrupación ni perder los campos extra.
+ */
+export interface GrupoPensum<T extends EntradaPensum = EntradaPensum> {
   periodo: number;
-  materias: EntradaPensum[];
+  materias: T[];
 }
 ```
 
@@ -381,7 +399,7 @@ función pura, probada sin montar HTTP ni repositorios.
 // backend/src/dominio/reglas-curriculo.ts
 
 /** Un pensum agrupado por período, con los períodos ordenados y sin grupos vacíos. */
-export function agruparPensum(entradas: EntradaPensum[]): GrupoPensum[];
+export function agruparPensum<T extends EntradaPensum>(entradas: T[]): GrupoPensum<T>[];
 
 /**
  * Rechaza un pensum con materias repetidas. Devuelve el código repetido, no un
@@ -418,26 +436,43 @@ prueba es la que avisa. Y el humo contra la base real lo vuelve a comprobar.
 
 ## 10. Estado de los prerrequisitos
 
-Los cuatro bloqueantes que este documento listaba **están resueltos**:
+Los cuatro bloqueantes que este documento listaba **están resueltos**, y el
+backend del módulo ya está construido encima:
 
 | # | Prerrequisito | Estado |
 | --- | --- | --- |
 | 1 | **D12** — decidir si `programs` absorbe a `cursos` | ✅ **Resuelto.** `programs` es la única fuente de verdad y `cursos` pasó a ser una vista de compatibilidad (`security_invoker`). Cero cambios en Flutter |
 | 2 | **D13** — rediseñar `sections` | ✅ **Resuelto.** `sections` tiene `program_id`, y por eso la Regla 2 se pudo implementar como trigger |
 | 3 | **Aplicar la migración** y añadir las tablas al verificador | ✅ **Resuelto.** 8/8 migraciones en el libro mayor y 56/56 comprobaciones del esquema |
-| 4 | **Declarar las 7 rutas** en `test/openapi.test.ts` | ⏳ Se hace **junto con los manejadores**: ese test obliga a que ninguna ruta quede sin documentar, así que declararlas antes de que existan sería declarar rutas inventadas |
+| 4 | **Declarar las 7 rutas** en `test/openapi.test.ts` | ✅ **Resuelto**, junto con los manejadores |
 
-**Lo que falta, y en este orden:**
+**Lo que ya existe:**
 
-1. El repositorio `CurriculoSupabase`, que llama a las dos funciones por
-   `supabase.rpc(...)` y traduce la Regla 2 con `esBloqueoPorPensumEnUso`.
-2. Los siete manejadores bajo `/api/v1/admin/`.
-3. Documentar las siete rutas en `src/http/openapi.ts` y regenerar el artefacto
-   (`npm run openapi`).
-4. Declarar las siete rutas en la lista esperada de `test/openapi.test.ts`.
+1. `CurriculoSupabase` (`backend/src/infra/repos-supabase.ts`): llama a las dos
+   funciones por `supabase.rpc(...)` y traduce la Regla 2 con
+   `esBloqueoPorPensumEnUso`. **No hace un solo `insert` directo** sobre
+   `programs` ni sobre `program_subjects`, y hay una prueba que lo comprueba
+   contra un cliente de Supabase falso.
+2. Los siete manejadores (`backend/src/http/rutas/curriculo.ts`), bajo
+   `/api/v1/admin/` y con la guardia `exigirAdmin`.
+3. Las siete rutas documentadas en `src/http/openapi.ts` y el artefacto
+   `openapi.json` regenerado.
+4. Las siete rutas en la lista esperada de `test/openapi.test.ts`.
+
+**Lo que falta de M2:** el asistente de tres pasos en Flutter. El contrato de
+las rutas ya no va a moverse, así que el frontend se puede construir contra él
+sin esperar a nada.
 
 Las dos funciones que sostienen el asistente **ya están aplicadas y probadas
 contra el motor real**. `supabase/humo-curriculo.mjs` (14/14) demuestra las dos
 cosas que ninguna prueba con dobles puede demostrar: que con el pensum vacío no
 queda **ni el programa**, y que cuando la Regla 2 bloquea un reordenamiento el
 pensum queda **intacto** — la función se deshace entera, no a medias.
+
+### Una trampa verificada, para quien lea esto después
+
+El filtro de búsqueda **no lleva paréntesis**: `supabase-js` los añade por
+dentro (`.or(f)` hace `append('or', \`(${f})\`)`). Escribirlos también aquí
+produce `or=((…))` y PostgREST responde `PGRST100 unexpected "("`. Comprobado
+contra la base real: con paréntesis, 200; doblados, 400. Hay una prueba que fija
+el formato para que nadie lo «arregle» y lo rompa.

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ErrorApi } from '../dominio/errores.js';
+import { materiaRepetida } from '../dominio/reglas-curriculo.js';
 
 /**
  * Esquemas de validación de entrada.
@@ -141,6 +142,188 @@ export type CambioRolEntrada = z.infer<typeof esquemaCambioRol>;
 export type CorreoInvitacionEntrada = z.infer<typeof esquemaCorreoInvitacion>;
 export type ActivarCuentaEntrada = z.infer<typeof esquemaActivarCuenta>;
 export type ListadoAccesoEntrada = z.infer<typeof esquemaListadoAcceso>;
+
+// --- Módulo 2: currículo y pensum -------------------------------------------
+
+/**
+ * Los dos tipos de oferta formativa.
+ *
+ * Literales y no derivados de `TIPOS_PROGRAMA` para que Zod conserve la unión
+ * exacta, igual que `rolSchema`. Una prueba comprueba que la lista y la
+ * constante del dominio siguen coincidiendo.
+ */
+export const tipoProgramaSchema = z.enum(['CARRERA', 'CURSO_LIBRE']);
+
+/**
+ * Código institucional corto (`varchar(12)` en la base).
+ *
+ * El formato no es capricho: es un identificador que la gente teclea a mano en
+ * planillas y carteleras. Si se admitiera texto libre, alguien guardaría
+ * «Análisis de Sistemas» aquí y el código dejaría de identificar nada. Se
+ * recorta el espacio sobrante antes de validar, porque un `" SIST-01"` pegado
+ * desde una hoja de cálculo es un error de tecleo, no una intención.
+ *
+ * Duplica el `check` de la tabla a propósito: Zod da el mensaje antes de abrir
+ * una transacción y nombra el campo; el `check` es la invariante. Dos barreras,
+ * la misma decisión que con RLS.
+ */
+const codigoCatalogo = z
+  .string()
+  .trim()
+  .min(1, 'El código no puede estar vacío.')
+  .max(12, 'El código no puede pasar de 12 caracteres.')
+  .regex(
+    /^[A-Z0-9][A-Z0-9-]{0,11}$/,
+    'El código admite MAYÚSCULAS, dígitos y guiones, y debe empezar por letra o dígito.',
+  );
+
+const nombreCatalogo = z.string().trim().min(1, 'El nombre no puede estar vacío.').max(100);
+
+/**
+ * Una entrada del pensum: qué materia, en qué período.
+ *
+ * `.strict()` también aquí, no sólo en el objeto de arriba: sin esto, un
+ * `{"materiaId": …, "periodo": 1, "nombre": "Inventado"}` pasaría la validación
+ * del arreglo y el campo de más se colaría hasta la función de la base. Zod
+ * valida los objetos anidados por separado.
+ */
+const esquemaEntradaPensum = z
+  .object({
+    materiaId: z.string().uuid({
+      message: 'Cada entrada del pensum debe referenciar una materia por su UUID.',
+    }),
+    periodo: z.number().int().min(1, 'El período empieza en 1.').default(1),
+  })
+  .strict();
+
+/**
+ * El pensum completo: al menos una materia y ninguna repetida.
+ *
+ * La unicidad se comprueba con `materiaRepetida`, la misma función pura que
+ * usa el resto del módulo, para que el mensaje **nombre la materia** en vez de
+ * decir «hay un error»: un administrativo que armó un pensum de 40 materias
+ * necesita saber cuál se repite.
+ *
+ * `min(1)` deja fuera el pensum vacío, y el contrato lo pide así (400
+ * `PETICION_INVALIDA`). El constraint trigger diferido de la Regla 1 sigue
+ * estando detrás: Zod sólo ve lo que llega, el trigger ve el estado de la tabla.
+ */
+const esquemaPensum = z
+  .array(esquemaEntradaPensum)
+  .min(1, 'El pensum debe tener al menos una materia.')
+  .superRefine((entradas, ctx) => {
+    const repetida = materiaRepetida(entradas);
+    if (repetida) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `La materia ${repetida} aparece más de una vez en el pensum.`,
+      });
+    }
+  });
+
+/**
+ * Un identificador de programa que viene por la URL.
+ *
+ * Misma razón que `esquemaIdPerfil`: sin esto, `/programas/me` viaja hasta
+ * Postgres, revienta con `22P02` y sale como un `500` genérico para lo que en
+ * realidad es una URL mal escrita.
+ */
+export const esquemaIdPrograma = z.string().uuid({
+  message: 'El identificador de programa debe ser un UUID válido.',
+});
+
+/**
+ * Listado paginado de programas.
+ *
+ * `activo` se acepta como cadena y se convierte, por la misma razón que en el
+ * listado de usuarios: en la URL todo llega como texto, y una cadena que no sea
+ * `true` ni `false` se rechaza con 400 en vez de interpretarse como `true`.
+ */
+export const esquemaListadoProgramas = z.object({
+  tipo: tipoProgramaSchema.optional(),
+  activo: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  busqueda: z.string().trim().min(1).max(100).optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+/** Listado paginado del banco global de materias. */
+export const esquemaListadoMaterias = z.object({
+  busqueda: z.string().trim().min(1).max(100).optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * El cuerpo del asistente: programa + pensum en una sola petición.
+ *
+ * `publicar` decide el `is_active` inicial y va separado de un `activo` porque
+ * crear en borrador es lo normal mientras se arma el pensum, y publicar es la
+ * decisión final. Un solo campo obligaría a publicar siempre o nunca.
+ */
+export const esquemaCrearPrograma = z
+  .object({
+    codigo: codigoCatalogo,
+    nombre: nombreCatalogo,
+    tipo: tipoProgramaSchema,
+    requierePasantia: z.boolean().default(false),
+    publicar: z.boolean().default(false),
+    pensum: esquemaPensum,
+  })
+  .strict();
+
+/**
+ * Cambios de metadatos de un programa.
+ *
+ * `codigo` y `tipo` no están: son la identidad del programa. `sections` (M3)
+ * apuntará a él, y un código cambiado rompe cualquier documento impreso que lo
+ * cite. Si alguien los manda, `.strict()` lo rechaza con un 400 que nombra el
+ * campo, en vez de ignorarlos en silencio.
+ */
+export const esquemaActualizarPrograma = z
+  .object({
+    nombre: nombreCatalogo.optional(),
+    requierePasantia: z.boolean().optional(),
+    activo: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio (nombre, requierePasantia o activo).',
+  });
+
+/**
+ * Reemplazo completo del pensum.
+ *
+ * El cliente manda el **estado final**, no un parche: un `PATCH` incremental
+ * obligaría al cliente a saber qué borrar, y esa no es su responsabilidad.
+ */
+export const esquemaReemplazarPensum = z
+  .object({
+    pensum: esquemaPensum,
+  })
+  .strict();
+
+/** Alta de una materia en caliente desde el paso 2 del asistente. */
+export const esquemaCrearMateria = z
+  .object({
+    codigo: codigoCatalogo,
+    nombre: nombreCatalogo,
+    horasAcademicas: z
+      .number()
+      .int()
+      .positive('Las horas académicas deben ser mayores que cero.'),
+  })
+  .strict();
+
+export type ListadoProgramasEntrada = z.infer<typeof esquemaListadoProgramas>;
+export type ListadoMateriasEntrada = z.infer<typeof esquemaListadoMaterias>;
+export type CrearProgramaEntrada = z.infer<typeof esquemaCrearPrograma>;
+export type ActualizarProgramaEntrada = z.infer<typeof esquemaActualizarPrograma>;
+export type ReemplazarPensumEntrada = z.infer<typeof esquemaReemplazarPensum>;
+export type CrearMateriaEntrada = z.infer<typeof esquemaCrearMateria>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.
