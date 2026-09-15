@@ -67,6 +67,32 @@ class ApiClient {
     return _procesar(respuesta, ruta);
   }
 
+  /// Reemplazo (PUT) de un recurso o de una de sus facetas.
+  ///
+  /// Existe por `PUT /admin/periodos/:id/vigente`, que **declara** un lapso como
+  /// el vigente. No es un `PATCH`: la operación no edita un campo del lapso —eso
+  /// sería mover `is_active`— sino que reemplaza un único valor del sistema
+  /// (`system_settings.periodo_activo`). Usar `PATCH` habría sugerido que el
+  /// vigente es una propiedad del lapso, y no lo es: es del centro.
+  Future<Map<String, dynamic>> put(
+    String ruta, {
+    Map<String, dynamic>? cuerpo,
+    String? token,
+    Map<String, String>? encabezadosExtra,
+  }) async {
+    final respuesta = await _http.put(
+      _resolver(ruta),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+        ...?encabezadosExtra,
+      },
+      body: cuerpo == null ? null : jsonEncode(cuerpo),
+    );
+
+    return _procesar(respuesta, ruta);
+  }
+
   /// Lectura (GET) con parámetros de consulta opcionales.
   ///
   /// Los parámetros vacíos se descartan: así el panel de auditoría puede mandar
