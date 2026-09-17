@@ -824,9 +824,20 @@ segundo sitio con la misma verdad—. M4 lo consumirá desde ahí.
 
 #### Lo que falta de M4
 
-- **Fase 2 (backend)**: ~10-12 rutas, `reglas-inscripciones.ts`, puerto,
+- **🚨 Prerrequisito que nadie había señalado: no existe forma de crear
+  secciones.** `sections` es la tabla central de M4 (uno se inscribe **en una
+  sección**), pero **no hay ruta, ni método de repositorio, ni esquema Zod** para
+  crear/listar/editar secciones: en todo `backend/src/` las únicas apariciones de
+  `sections` son comentarios y textos de OpenAPI. Lo único que existe es el
+  contador `contarSeccionesActivas(programaId)`, que alimenta la Regla 2 de M2.
+  **Sin secciones, el motor de cupos no tiene sobre qué operar.** Hay que decidir
+  dónde va ese CRUD (probablemente M3, que ya es dueño de aulas y períodos) —
+  **es una decisión de diseño, no un descuido que se arregle de paso.**
+- **Fase 2 (backend)**: ~12 rutas, `reglas-inscripciones.ts`, puerto,
   repositorio Supabase, esquemas Zod, OpenAPI, y **encender
-  `m4_inscripciones`** en `system_modules` (sigue apagado).
+  `m4_inscripciones`** en `system_modules` (sigue apagado). El briefing completo,
+  con el patrón de rutas y las firmas de las RPC **medidas contra la base**, está
+  en **`docs/BRIEFING_BACKEND_MODULO4.md`**.
 - **Fase 3 (frontend)**: paneles de inscripción y ocupación.
 - **Fase 4**: `humo-inscripciones.mjs` con `--confirmar` y purga. **Es el único
   sitio donde puede probarse la concurrencia real** (dos conexiones en paralelo):
@@ -943,6 +954,7 @@ bien — mejor arreglar el reloj antes de tocar M5.
 | **`ESTADO_DEL_SISTEMA.md`** | **Fuente de verdad.** Estado por fase, esquema, deudas D1–D13, recetas de arranque. **Ojo: se desincroniza solo** — verifica las cifras | **Primero, siempre** |
 | `REPORTE_ARIA.md` | Contradicciones del enunciado y fallos propios, resueltos uno por uno (R-01…**R-23**) | Si algo del diseño te chirría |
 | **`docs/CONTRATO_API_MODULO3.md`** | **El contrato de M3**: 14 rutas, tipos, errores, y por qué no hay un `unique` de colisión. **§10 explica el fallo `42501`** | **Antes de tocar nada de M3** |
+| **`docs/BRIEFING_BACKEND_MODULO4.md`** | **Briefing de la Fase 2 de M4 para un agente que llega sin contexto**: stack real, patrón de rutas, RPC ya existentes con firmas medidas, y el bloqueante de `sections` | **Antes de escribir el backend de M4** |
 | `docs/CONTRATO_API_MODULO2.md` | Contrato de M2 (currículo y pensum), ya implementado | Al tocar M2 |
 | `ROADMAP.md` | ⚠️ **Desactualizado** — no lo tomes como referencia de estado | Sólo contexto histórico |
 | `docs/PLAN_MAESTRO_STACK_DEFINITIVO.md` | El stack vigente, con sus ADR | Si dudas del stack |
