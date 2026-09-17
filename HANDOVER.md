@@ -1,20 +1,16 @@
 # HANDOVER — INCES LMS
 
-> **Módulo 4 (Inscripciones y Cupos) — Fase 1 (esquema) cerrada el 2026-09-18:**
-> migración `202609190001_mod4_inscripciones.sql` aplicada en la nube, más
-> `202609200001_mod4_reglas_ajuste.sql` que **ajusta las reglas institucionales**
-> (libro mayor **14/14**, 0 deriva). Motor de cupos con 6 RPC `security definer`,
-> cola FIFO, ventana de bids opcional (`habilitar_sistema_bids`, **apagada** por
-> defecto), cerrojo por sección y frontera de escritura cerrada (ver **§2.7** y
-> `REPORTE_ARIA.md` **R-23**). Backend 341/341, Flutter 307/307, SQL **222/222**,
-> esquema **92/92**.
-> **Fase 2 (backend) y Fase 3 (frontend) pendientes.** Las **4 decisiones de
-> producto ya fueron resueltas por Lorenzo** (§2.7) y están implementadas.
-> **Bloqueante abierto: Cloudflare R2 da `AccessDenied` porque el token todavía no
-> está vigente (`not_before: 2026-09-18T08:59:52Z`, unos 10 h en el futuro).**
-> El bucket y la cuenta son correctos, y el reloj ya se corrigió (el desfase de
-> 12 h era la causa *original* del `not_before` desplazado). Ver §2.8 y
-> `REPORTE_ARIA.md` **R-24** (allí está por qué el primer diagnóstico fue erróneo).
+> **Módulo 4 (Inscripciones y Cupos) — Fases 1 y 2 CERRADAS.**
+> **Fase 1 (esquema):** `202609190001_mod4_inscripciones.sql` aplicada, más
+> `202609200001_mod4_reglas_ajuste.sql` que ajusta las reglas institucionales y
+> `202609200002_mod4_habilitar_modulo.sql` que **enciende el módulo**.
+> **Fase 2 (backend): CONSTRUIDA** — 14 rutas (3 de secciones + 5 de estudiante +
+> 6 de administración), `reglas-inscripciones.ts`, `PuertaSecciones` y
+> `PuertaInscripciones`, `SeccionesSupabase` e `InscripcionesSupabase`, esquemas
+> Zod y OpenAPI. Backend **428/428**, SQL **223/223**, esquema **92/92**, libro
+> mayor **15/15**, typecheck/lint/build limpios. **R2 FUNCIONA** (ciclo completo
+> verificado). **Falta la Fase 3 (frontend) y el humo de la Fase 4.**
+> Ver **§2.7**, **§2.8** y `docs/BRIEFING_BACKEND_MODULO4.md`.
 >
 > Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14**,
 > puesto al día el **2026-09-15** (Módulo 2 completo) y **actualizado el
@@ -114,6 +110,7 @@ $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
   aplicada   202609180003_r06_periodo_sa26_2_y_modulos.sql
   aplicada   202609190001_mod4_inscripciones.sql
   aplicada   202609200001_mod4_reglas_ajuste.sql
+  aplicada   202609200002_mod4_habilitar_modulo.sql
 
   0 pendiente(s), 0 con deriva.
 ```
@@ -145,9 +142,9 @@ como `DEFINER` (con `authenticated` sí y `anon` no)** y **la columna
 
 | Suite | Resultado | Comando |
 |---|---|---|
-| Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
+| Backend (vitest) | **428 / 428** en verde | `cd backend && npm test` |
 | Flutter | **307 / 307** en verde — ⚠️ **última medición válida (2026-09-15)**; hoy **no re-ejecutable** en este entorno (ver la corrección más abajo) | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **222 / 222** en verde · 14 migraciones | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **223 / 223** en verde · 15 migraciones | `cd supabase/tests && npm test` |
 
 **Humos contra la nube real** (necesitan `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
 no el `sbp_`): currículo **15/15** (medido el 2026-09-18 — resuelve la discrepancia
@@ -822,31 +819,62 @@ tiene una consecuencia que no es obvia:
 `asistencia`). **Se usa la global existente**; no se creó el duplicado —sería un
 segundo sitio con la misma verdad—. M4 lo consumirá desde ahí.
 
+#### La Fase 2 del backend — CONSTRUIDA (2026-09-17)
+
+**14 rutas nuevas**, en dos archivos y con los dos patrones de registro:
+
+| Archivo | Rutas | Patrón |
+|---|---|---|
+| `src/http/rutas/secciones.ts` | `GET/POST /api/v1/admin/secciones`, `PATCH /api/v1/admin/secciones/:id` | **A** (bloque + `exigirAdmin`) |
+| `src/http/rutas/inscripciones.ts` (estudiante) | `GET /api/v1/ofertas`, `GET /api/v1/mis-inscripciones`, `POST /api/v1/inscripciones`, `POST /api/v1/inscripciones/:id/aceptar`, `POST /api/v1/inscripciones/:id/renunciar` | **B** (ruta suelta + guardia por ruta) |
+| `src/http/rutas/inscripciones.ts` (admin) | `GET /api/v1/admin/ocupacion`, `GET /api/v1/admin/secciones/:id/cola`, `GET /api/v1/admin/secciones/:id/inscripciones`, `POST /api/v1/admin/secciones/:id/promover`, `POST /api/v1/admin/inscripciones/reincorporar`, `POST /api/v1/admin/inscripciones/expirar` | **A** |
+
+> **En `/api/v1/inscripciones/:id/...`, `:id` es el identificador de la SECCIÓN**,
+> no el de la inscripción. Una inscripción no tiene identidad propia en la API: se
+> identifica por el par (estudiante, sección), y el estudiante es el de la sesión.
+> Las RPC reciben `p_section_id`.
+
+**El CRUD de secciones resolvió el bloqueante.** Existía el riesgo de construir 12
+rutas sobre una tabla que nadie podía llenar; ahora `sections` tiene
+crear/listar/archivar. Va en su **propio archivo** y no dentro de `cuadrante.ts`:
+una sección es el grupo de una materia en un lapso —lo que el estudiante elige— y
+una clase es una franja de la semana —lo que el docente dicta—. Son ciclos de vida
+distintos y mezclarlos habría dejado un módulo con dos responsabilidades.
+
+**Ninguna operación borra una sección.** Archivar es `activa: false`, y no es una
+convención: el `DELETE` está **revocado** en la base para `authenticated`
+(comprobado con `has_table_privilege`). Tampoco se puede cambiar el programa, la
+materia ni el lapso por `PATCH`: los tres forman la identidad
+(`unique (period_code, subject_id, name)`) y cambiarlos convertiría la sección en
+otra llevándose por delante el historial de inscripciones de su `id`.
+
+**`promover_siguiente` devuelve `uuid`, no `text`** (medido con
+`pg_get_function_arguments` contra la base, no copiado del `.sql`). Un `null` no es
+un error: significa que no había a nadie a quien promover —cola vacía, sección
+llena, o ya hay una oferta en el aire—. La ruta responde **200 con la explicación**,
+no un 404.
+
 #### Lo que falta de M4
 
-- **🚨 Prerrequisito que nadie había señalado: no existe forma de crear
-  secciones.** `sections` es la tabla central de M4 (uno se inscribe **en una
-  sección**), pero **no hay ruta, ni método de repositorio, ni esquema Zod** para
-  crear/listar/editar secciones: en todo `backend/src/` las únicas apariciones de
-  `sections` son comentarios y textos de OpenAPI. Lo único que existe es el
-  contador `contarSeccionesActivas(programaId)`, que alimenta la Regla 2 de M2.
-  **Sin secciones, el motor de cupos no tiene sobre qué operar.** Hay que decidir
-  dónde va ese CRUD (probablemente M3, que ya es dueño de aulas y períodos) —
-  **es una decisión de diseño, no un descuido que se arregle de paso.**
-- **Fase 2 (backend)**: ~12 rutas, `reglas-inscripciones.ts`, puerto,
-  repositorio Supabase, esquemas Zod, OpenAPI, y **encender
-  `m4_inscripciones`** en `system_modules` (sigue apagado). El briefing completo,
-  con el patrón de rutas y las firmas de las RPC **medidas contra la base**, está
-  en **`docs/BRIEFING_BACKEND_MODULO4.md`**.
 - **Fase 3 (frontend)**: paneles de inscripción y ocupación.
 - **Fase 4**: `humo-inscripciones.mjs` con `--confirmar` y purga. **Es el único
   sitio donde puede probarse la concurrencia real** (dos conexiones en paralelo):
   el cerrojo está diseñado para eso pero **no se ha visto funcionar bajo carga**.
-- **Sin probar, y hay que decirlo:** PGlite es Postgres real pero **no es
-  Supabase**. No se ejercitó PostgREST ni GoTrue, así que la traducción de `42501`
-  a un 403 en el backend **no está comprobada** — le toca a la Fase 2.
+- **Lo que sí se comprobó contra la nube** (no es PGlite): las **seis RPC son
+  alcanzables por PostgREST con los nombres de parámetro reales** —se llamaron sin
+  sesión y cada una llegó a su guardia con `42501`, que es lo esperado: sin
+  `auth.uid()` no hay actor—. Eso descarta un `PGRST202` por nombre mal escrito, que
+  era el riesgo real de la traducción a HTTP. La vista y `sections` se leen sin
+  problema. **Lo que sigue sin ejercitarse end-to-end es GoTrue** (un JWT real
+  atravesando PostgREST hasta la RPC), y eso le toca al humo de la Fase 4.
 
-### 2.8 Almacenamiento — Cloudflare R2: configurado, pero **el token aún no está vigente** 🔴
+### 2.8 Almacenamiento — Cloudflare R2: ✅ **FUNCIONA**
+
+> **Resuelto el 2026-09-17.** El token anterior tenía el `not_before` en el futuro
+> (nació con el reloj de la máquina 12 h adelantado). El reloj se corrigió y
+> Lorenzo emitió un token nuevo: **el ciclo completo subir → leer → borrar
+> funciona**. Lo de abajo se conserva porque el diagnóstico costó lo suyo y las
+> trampas siguen ahí — ver `REPORTE_ARIA.md` **R-24**.
 
 **Lo que el código espera** (fuente: `backend/src/config/env.ts`, líneas 75-91 y
 161-166). Son **cuatro** variables y **no** son las que suelen darse de memoria:
@@ -913,28 +941,23 @@ firma es válida, luego es alcance»— **estaba sin medir y era falsa**.
 > distintas: firma incorrecta, permiso insuficiente y **token no vigente**. El
 > discriminador es el control con una credencial falsa, no el nombre del error.
 
-**Estado al cierre (2026-09-17, con el reloj ya corregido):**
+**Estado al cierre (2026-09-17):**
 
 | Comprobación | Resultado |
 |---|---|
-| Reloj de la máquina | ✅ **Corregido** — desfase de 24 s contra el servidor (era 12 h) |
-| `ListObjectsV2` / `PutObject` con las credenciales actuales | ❌ **403 `AccessDenied`** |
-| Vigencia del token (`verify`) | `status: active` pero **`not_before: 2026-09-18T08:59:52Z`** |
+| Reloj de la máquina | ✅ Corregido — desfase de ~25 s contra el servidor (era 12 h) |
+| `HeadBucket` | ✅ **HTTP 200** |
+| `PutObject` | ✅ **HTTP 200** |
+| `GetObject` | ✅ **HTTP 200** y el contenido coincide con lo subido |
+| `ListObjectsV2` | ✅ **HTTP 200** |
+| `DeleteObject` | ✅ **HTTP 204**, y la purga verificada (0 objetos restantes) |
+| Vigencia del token (`verify`) | ✅ `status: active`, `not_before: 2026-09-17T22:55:28Z`, mensaje: *«This API Token is valid and active»* |
 
-Es decir: **corregir el reloj no desbloqueó R2**, y eso *confirma* el diagnóstico.
-La causa es la vigencia del token, no el reloj en sí. El token sirve a partir del
-`2026-09-18T08:59:52Z`; a la hora de cerrar esto faltaban ~10 h 38 min.
+**Credenciales vigentes** en `backend/.env` (git-ignorado): `R2_ACCESS_KEY_ID`
+`ff9e4647…`, bucket `inces-lms-media`, cuenta `c2722758a39bd150eeeaf747827db47c`.
 
-**Desbloqueo — le toca a Lorenzo (una sola cosa):**
-
-**Emitir un token nuevo de R2** con permiso *Object Read & Write* sobre
-`inces-lms-media`, y pasarme el **Access Key ID** y el **Secret**. Ahora que el
-reloj está bien, su `not_before` será ≈ ahora y funcionará de inmediato. (La
-alternativa —esperar a que entre en vigencia el actual— también sirve, pero es más
-lento y no aporta nada.)
-
-> El bucket `inces-lms-media` existe y la cuenta es correcta: **no hay nada que
-> revisar en el panel** salvo emitir el token.
+> **El bucket sigue vacío a propósito.** La sonda de verificación sube y borra su
+> propio objeto: no deja residuo. No hay nada que limpiar.
 
 **Efecto colateral a recordar:** con el reloj desviado, las **URL prefirmadas** de
 M5 se firman con una hora falsa y R2 las verá vencidas o demasiado futuras según el

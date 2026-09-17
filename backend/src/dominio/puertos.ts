@@ -16,11 +16,15 @@ import type {
   EntradaAuditoria,
   EntradaPensum,
   EstadoAcceso,
+  EstadoInscripcion,
   Guardia,
+  Inscripcion,
+  InscripcionDetallada,
   InvitacionDocente,
   Materia,
   MiHorario,
   ModuloSistema,
+  OcupacionSeccion,
   ParametroSistema,
   Perfil,
   Periodo,
@@ -29,6 +33,7 @@ import type {
   RejillaCuadrante,
   Rol,
   RolDeHorario,
+  Seccion,
   TipoAula,
   TipoPrograma,
 } from './tipos.js';
@@ -536,6 +541,155 @@ export interface PuertaAlmacenamiento {
   eliminar(clave: string): Promise<void>;
 }
 
+/**
+ * Secciones: el grupo concreto de una materia en un lapso.
+ *
+ * Es el catálogo que M4 necesita y que hasta ahora **no existía en la API**: la
+ * tabla se leía desde el cuadrante y se contaba desde el pensum, pero nadie
+ * podía crear una. Sin secciones el motor de cupos no tiene sobre qué operar.
+ *
+ * **Ninguna operación borra.** Archivar es `is_active = false`, y no es una
+ * convención: el `DELETE` está **revocado** en la base para `authenticated`, así
+ * que borrar no es una opción que se pueda tomar por descuido. Además una sección
+ * borrada se llevaría por delante el historial de inscripciones, que es
+ * exactamente lo que `DROPPED` existe para conservar.
+ */
+export interface PuertaSecciones {
+  listar(opciones: OpcionesListadoSecciones): Promise<PaginaSecciones>;
+  crear(entrada: EntradaCrearSeccion): Promise<Seccion>;
+  /** `nombre`, `cupoMaximo` y `activa`. Nunca borra: archiva. */
+  actualizar(id: string, cambios: CambiosSeccion): Promise<Seccion>;
+}
+
+export interface OpcionesListadoSecciones {
+  /** Búsqueda libre sobre el nombre de la sección, insensible a mayúsculas. */
+  busqueda?: string;
+  periodo?: string;
+  programaId?: string;
+  materiaId?: string;
+  activa?: boolean;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaSecciones {
+  secciones: Seccion[];
+  total: number;
+}
+
+/**
+ * Una sección nueva.
+ *
+ * El período se acepta del cliente —a diferencia de una clase del cuadrante, que
+ * lo hereda de su sección— porque la sección **es** la que fija el lapso: no hay
+ * nada de donde heredarlo.
+ */
+export interface EntradaCrearSeccion {
+  programaId: string;
+  materiaId: string;
+  periodo: string;
+  nombre: string;
+  /** `null` = usar el cupo global del centro. `0` = sección sin cupo. */
+  cupoMaximo: number | null;
+}
+
+export interface CambiosSeccion {
+  nombre?: string;
+  cupoMaximo?: number | null;
+  activa?: boolean;
+}
+
+/**
+ * El motor de inscripciones y cupos.
+ *
+ * **Todo pasa por RPC.** La tabla `enrollments` tiene `INSERT`, `UPDATE`,
+ * `DELETE` y `TRUNCATE` **revocados** para `anon` y `authenticated` (R-23): la
+ * escritura directa da `42501`. Y no es una limitación que haya que rodear, es la
+ * decisión de diseño — la clave publishable viaja al cliente (ADR-003), así que
+ * si se pudiera escribir directo, cualquiera se auto-inscribiría en `ENROLLED` y
+ * **el motor de cupos sería decorativo**.
+ *
+ * Las RPC son `security definer` y **hacen su propia autorización** con
+ * `auth.uid()`: al ser `definer`, la RLS ya no las protege.
+ */
+export interface PuertaInscripciones {
+  /** Catálogo de secciones con su ocupación, para poder inscribirse. */
+  listarOfertas(opciones: OpcionesListadoOfertas): Promise<PaginaOcupacion>;
+
+  /**
+   * Las inscripciones del llamante, con su sección y su posición en la cola.
+   *
+   * `estudianteId` se pasa **explícitamente** y no se deduce de la sesión, por la
+   * misma razón que en `miHorario`: la RLS deja a un administrador leer todas las
+   * filas, así que «lo mío» no se puede dejar al filtro de la base. Sin el
+   * parámetro, un administrador que abriera su pantalla de inscripciones vería
+   * las de todo el centro.
+   */
+  misInscripciones(estudianteId: string): Promise<InscripcionDetallada[]>;
+
+  /**
+   * Pide un asiento. Devuelve el estado resultante: `ENROLLED` si entró directo,
+   * `WAITLISTED` si quedó en la cola.
+   *
+   * **No devuelve un booleano ni una inscripción**: el estado lo decide la base
+   * dentro de su cerrojo, y adivinarlo aquí sería una segunda copia de la regla.
+   */
+  solicitar(seccionId: string): Promise<EstadoInscripcion>;
+
+  /** Acepta una oferta viva. Rechaza las vencidas. */
+  aceptar(seccionId: string): Promise<EstadoInscripcion>;
+
+  /** Renuncia al asiento. Deja la fila en `DROPPED`, no la borra. */
+  renunciar(seccionId: string): Promise<EstadoInscripcion>;
+
+  // --- Administración -------------------------------------------------------
+
+  /** Panel de ocupación de todas las secciones. */
+  listarOcupacion(opciones: OpcionesListadoOfertas): Promise<PaginaOcupacion>;
+
+  /** La cola FIFO de una sección, en orden de llegada. */
+  colaDeSeccion(seccionId: string): Promise<InscripcionDetallada[]>;
+
+  /** Quién está inscrito en una sección (cualquier estado). */
+  inscritosDeSeccion(seccionId: string): Promise<InscripcionDetallada[]>;
+
+  /**
+   * Promueve al siguiente de la cola.
+   *
+   * Devuelve `null` cuando **no había nadie a quien promover**, que no es un
+   * error: una cola vacía es un estado normal, no un fallo. La ruta lo traduce a
+   * un 200 explicativo en vez de a un 404.
+   */
+  promover(seccionId: string): Promise<Inscripcion | null>;
+
+  /**
+   * Devuelve a un `DROPPED` al estado `ENROLLED`. **Puede exceder la capacidad.**
+   *
+   * «Si el admin autoriza, el sistema obedece»: la comprobación de cupo se quitó
+   * de esta RPC a propósito. El exceso queda deliberado y auditable.
+   */
+  reincorporar(estudianteId: string, seccionId: string): Promise<EstadoInscripcion>;
+
+  /** Vence las ofertas caducadas. **Idempotente**: devuelve cuántas venció. */
+  expirarOfertas(): Promise<number>;
+}
+
+export interface OpcionesListadoOfertas {
+  periodo?: string;
+  programaId?: string;
+  materiaId?: string;
+  /** Sólo las secciones con asiento disponible de verdad (sin oferta viva). */
+  soloConCupo?: boolean;
+  busqueda?: string;
+  limite: number;
+  desplazamiento: number;
+}
+
+export interface PaginaOcupacion {
+  secciones: OcupacionSeccion[];
+  total: number;
+}
+
 /** Conjunto de puertas de datos que la API necesita. */
 export interface Repositorios {
   perfiles: PuertaPerfiles;
@@ -546,4 +700,6 @@ export interface Repositorios {
   acceso: PuertaAuditoriaAcceso;
   curriculo: PuertaCurriculo;
   cuadrante: PuertaCuadrante;
+  secciones: PuertaSecciones;
+  inscripciones: PuertaInscripciones;
 }

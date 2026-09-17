@@ -6,15 +6,18 @@ import type {
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
   PuertaCurriculo,
+  PuertaInscripciones,
   PuertaInvitacionesDocente,
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
+  PuertaSecciones,
   Repositorios,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
 import { agruparPensum, pensumEditable } from '../../src/dominio/reglas-curriculo.js';
 import { diaLegible, turnoDeBloque } from '../../src/dominio/reglas-cuadrante.js';
+import { ofertaVencida } from '../../src/dominio/reglas-inscripciones.js';
 import type { EnvioCorreo } from '../../src/infra/correo.js';
 import type {
   Aula,
@@ -24,16 +27,20 @@ import type {
   EntradaAcceso,
   EntradaAuditoria,
   EntradaPensum,
+  EstadoInscripcion,
   Guardia,
+  InscripcionDetallada,
   InvitacionDocente,
   Materia,
   MateriaEnPensum,
   ModuloSistema,
+  OcupacionSeccion,
   ParametroSistema,
   Perfil,
   Periodo,
   Programa,
   Rol,
+  Seccion,
 } from '../../src/dominio/tipos.js';
 
 /**
@@ -71,6 +78,34 @@ export const PERFIL_ALUMNO: Perfil = {
   cedula: '87654321',
   nombres: 'Ana',
   apellidos: 'Pérez',
+  rol: 'estudiante',
+  activo: true,
+};
+
+/**
+ * Un segundo estudiante, **fuera de los perfiles por defecto**.
+ *
+ * Las pruebas de cupo necesitan dos personas distintas: el cupo sólo se pone a
+ * prueba cuando alguien ocupa el asiento y otro lo pide. Meterlo en
+ * `PERFILES_POR_DEFECTO` habría cambiado el total de usuarios y roto las pruebas
+ * de paginación de M1, así que se opta por él explícitamente:
+ *
+ * ```ts
+ * crearArnés({
+ *   perfiles: [...PERFILES_POR_DEFECTO, PERFIL_ALUMNO_2],
+ *   identidades: { [TOKEN_ALUMNO_2]: ID_ALUMNO_2 },
+ * })
+ * ```
+ */
+export const ID_ALUMNO_2 = '22222222-2222-2222-2222-222222222223';
+export const TOKEN_ALUMNO_2 = 'token-alumno-2';
+
+export const PERFIL_ALUMNO_2: Perfil = {
+  id: ID_ALUMNO_2,
+  email: 'iris@inces.test',
+  cedula: '11223344',
+  nombres: 'Iris',
+  apellidos: 'Vega',
   rol: 'estudiante',
   activo: true,
 };
@@ -435,6 +470,15 @@ export interface SeccionFalsa {
   periodo: string;
   /** Identificador corto dentro del período ('SA', 'SC'). */
   nombre: string;
+  /**
+   * Cupo declarado de la sección, o `null` para «usa el global del centro».
+   *
+   * Se deja opcional y por defecto `null` para no reescribir las secciones que ya
+   * existían antes de M4: ninguna de ellas declaraba cupo, así que `null` es
+   * además el valor históricamente correcto.
+   */
+  cupoMaximo?: number | null;
+  activa?: boolean;
 }
 
 export const SECCION_SA: SeccionFalsa = {
@@ -529,10 +573,25 @@ export const CLASE_MIERCOLES: ClaseFalsa = {
 
 export const CLASES_POR_DEFECTO: ClaseFalsa[] = [CLASE_MIERCOLES];
 
-/** Una matrícula: qué estudiante está en qué sección. */
+/**
+ * Una matrícula: qué estudiante está en qué sección.
+ *
+ * `estado` es opcional y por defecto `ENROLLED` para no reescribir la fila que ya
+ * existía antes de M4 —el alumno de ejemplo está matriculado, no en cola—.
+ *
+ * `llegada` es el ordinal de inscripción y es lo que hace determinista la cola
+ * FIFO. Usar la marca de tiempo real haría que dos filas creadas en el mismo
+ * milisegundo pudieran ordenarse de dos formas distintas entre dos ejecuciones, y
+ * una prueba de «el primero de la cola» pasaría o fallaría al azar.
+ */
 export interface InscripcionFalsa {
+  id?: string;
   estudianteId: string;
   seccionId: string;
+  estado?: EstadoInscripcion;
+  /** Vencimiento de la oferta. Sólo tiene sentido con `PENDING_BID`. */
+  ofertaVenceEn?: string | null;
+  llegada?: number;
 }
 
 /**
@@ -542,7 +601,7 @@ export interface InscripcionFalsa {
  * `mi-horario` pasaría sin haber comprobado nada.
  */
 export const INSCRIPCIONES_POR_DEFECTO: InscripcionFalsa[] = [
-  { estudianteId: ID_ALUMNO, seccionId: ID_SECCION_SA },
+  { estudianteId: ID_ALUMNO, seccionId: ID_SECCION_SA, llegada: 1 },
 ];
 
 // --- repositorios en memoria ------------------------------------------------
@@ -577,6 +636,21 @@ export interface EstadoFalso {
   clases: ClaseFalsa[];
   secciones: SeccionFalsa[];
   inscripciones: InscripcionFalsa[];
+  /**
+   * Id del usuario de la petición en curso, o `null` si va anónima.
+   *
+   * Los repositorios reales reciben un cliente de Supabase atado al JWT, así que
+   * «quién llama» lo resuelve Postgres con `auth.uid()`. El doble no tiene JWT:
+   * `reposDePeticion` fija este campo en cada petición y las operaciones de M4 lo
+   * leen como si fuera `auth.uid()`.
+   *
+   * **Vale porque las pruebas inyectan peticiones de una en una.** Con dos
+   * peticiones concurrentes de usuarios distintos, este campo sería el último que
+   * escribiera y el doble atribuiría la operación al usuario equivocado. Es una
+   * limitación del doble, no del código de producción — que sí es seguro, porque
+   * cada petición tiene su propio cliente.
+   */
+  usuarioActual: string | null;
 }
 
 export interface Arnés {
@@ -610,6 +684,15 @@ export interface OpcionesArnés {
   clases?: ClaseFalsa[];
   secciones?: SeccionFalsa[];
   inscripciones?: InscripcionFalsa[];
+  /**
+   * Identidades extra: token → id de perfil.
+   *
+   * El arnés trae tres tokens fijos (admin, alumno, docente). Las pruebas que
+   * necesitan una cuarta persona —las de cupo, que necesitan dos estudiantes—
+   * añaden la suya aquí sin tocar los perfiles por defecto, que son el punto de
+   * apoyo de las pruebas de paginación de M1.
+   */
+  identidades?: Record<string, string>;
   moduleCacheTtlMs?: number;
   settingsCacheTtlMs?: number;
 }
@@ -623,6 +706,15 @@ const MODULOS_POR_DEFECTO: ModuloSistema[] = [
 const PARAMETROS_POR_DEFECTO: ParametroSistema[] = [
   parametro({ clave: 'modo_mantenimiento', valor: false, tipo: 'boolean', esPublico: true }),
   parametro({ clave: 'max_faltas_consecutivas', valor: 3, tipo: 'number' }),
+  // Cupo global del centro. Es el valor al que cae una sección con
+  // `max_capacity = null`; `0` significaría «ninguna sección admite a nadie», que
+  // dejaría todas las pruebas de inscripción en la cola por el motivo equivocado.
+  parametro({ clave: 'cupo_maximo_por_seccion', valor: 30, tipo: 'number' }),
+  // El motor de bids nace apagado (decisión de producto). El doble lo respeta
+  // para que una prueba no dé por buena una oferta con vencimiento que la base no
+  // produciría con la configuración por defecto.
+  parametro({ clave: 'habilitar_sistema_bids', valor: false, tipo: 'boolean' }),
+  parametro({ clave: 'bid_ttl_horas', valor: 24, tipo: 'number' }),
 ];
 
 /**
@@ -724,6 +816,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     clases: (opciones.clases ?? CLASES_POR_DEFECTO).map((clase) => ({ ...clase })),
     secciones: (opciones.secciones ?? SECCIONES_POR_DEFECTO).map((seccion) => ({ ...seccion })),
     inscripciones: (opciones.inscripciones ?? INSCRIPCIONES_POR_DEFECTO).map((i) => ({ ...i })),
+    usuarioActual: null,
   };
 
   const llamadas: string[] = [];
@@ -1712,6 +1805,517 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
+  // --- M4: secciones e inscripciones ----------------------------------------
+
+  let secuenciaSeccion = 3000;
+  let secuenciaInscripcion = 4000;
+
+  /** El parámetro global de cupo, con el mismo `coalesce(..., 0)` que la base. */
+  const cupoGlobal = (): number => {
+    const encontrado = estado.parametros.find((p) => p.clave === 'cupo_maximo_por_seccion');
+    return typeof encontrado?.valor === 'number' ? encontrado.valor : 0;
+  };
+
+  /**
+   * Cupo efectivo de una sección.
+   *
+   * Es la traducción de `cupo_efectivo()`: `max_capacity` manda, y **sólo `null`
+   * cae al global**. Un `0` es una sección sin cupo y se respeta como tal; tratarlo
+   * como «sin definir» haría que la prueba del cupo global pasara por el motivo
+   * equivocado.
+   */
+  const cupoEfectivo = (seccion: SeccionFalsa): number =>
+    seccion.cupoMaximo === null || seccion.cupoMaximo === undefined
+      ? cupoGlobal()
+      : seccion.cupoMaximo;
+
+  const estadoDe = (fila: InscripcionFalsa): EstadoInscripcion => fila.estado ?? 'ENROLLED';
+
+  /** Orden de llegada: el ordinal declarado, o la posición en el arreglo. */
+  const llegada = (fila: InscripcionFalsa): number =>
+    fila.llegada ?? estado.inscripciones.indexOf(fila);
+
+  const inscripcionesDe = (seccionId: string): InscripcionFalsa[] =>
+    estado.inscripciones
+      .filter((i) => i.seccionId === seccionId)
+      .sort((a, b) => llegada(a) - llegada(b));
+
+  /**
+   * Asientos ocupados: **sólo `ENROLLED`**.
+   *
+   * Es la regla institucional, y es exactamente lo que introduce la doble venta
+   * que `hayOfertaVigente` viene a cerrar. Si el doble contara `PENDING_BID` como
+   * ocupado, la prueba de la doble venta pasaría sin ejercitar el camino real.
+   */
+  const ocupadosDe = (seccionId: string): number =>
+    inscripcionesDe(seccionId).filter((i) => estadoDe(i) === 'ENROLLED').length;
+
+  /**
+   * ¿Hay una oferta de cupo viva?
+   *
+   * Es el espejo de `existe_oferta_vigente()`, y usa **la función pura real**
+   * `ofertaVencida` en vez de reimplementar la comparación: un doble que decidiera
+   * a su manera podría pasar una prueba que el código de producción no pasaría.
+   */
+  const hayOfertaVigente = (seccionId: string, ahora: Date): boolean =>
+    inscripcionesDe(seccionId).some(
+      (i) => estadoDe(i) === 'PENDING_BID' && !ofertaVencida(i.ofertaVenceEn ?? null, ahora),
+    );
+
+  const aSeccionFalsa = (fila: SeccionFalsa): Seccion => ({
+    id: fila.id,
+    programaId: fila.programaId,
+    materiaId: fila.materiaId,
+    periodo: fila.periodo,
+    nombre: fila.nombre,
+    cupoMaximo: fila.cupoMaximo ?? null,
+    activa: fila.activa ?? true,
+    creadoEn: new Date(0).toISOString(),
+    actualizadoEn: new Date(0).toISOString(),
+  });
+
+  const aOcupacionFalsa = (fila: SeccionFalsa, ahora: Date): OcupacionSeccion => {
+    const efectivo = cupoEfectivo(fila);
+    const ocupados = ocupadosDe(fila.id);
+    return {
+      seccionId: fila.id,
+      periodo: fila.periodo,
+      programaId: fila.programaId,
+      programaNombre: estado.programas.find((p) => p.id === fila.programaId)?.nombre ?? null,
+      materiaId: fila.materiaId,
+      materiaNombre: estado.materias.find((m) => m.id === fila.materiaId)?.nombre ?? null,
+      nombre: fila.nombre,
+      activa: fila.activa ?? true,
+      cupoEfectivo: efectivo,
+      cuposOcupados: ocupados,
+      cuposDisponibles: Math.max(efectivo - ocupados, 0),
+      ofertaVigente: hayOfertaVigente(fila.id, ahora),
+    };
+  };
+
+  const aInscripcionDetallada = (
+    fila: InscripcionFalsa,
+    conEstudiante: boolean,
+  ): InscripcionDetallada => {
+    const seccion = estado.secciones.find((s) => s.id === fila.seccionId);
+    const perfil = estado.perfiles.find((p) => p.id === fila.estudianteId);
+    const enCola = inscripcionesDe(fila.seccionId).filter((i) => estadoDe(i) === 'WAITLISTED');
+    const posicion = enCola.findIndex((i) => i === fila) + 1;
+
+    return {
+      id: fila.id ?? `inscripcion-${llegada(fila)}`,
+      estudianteId: fila.estudianteId,
+      seccionId: fila.seccionId,
+      estado: estadoDe(fila),
+      ofertaVenceEn: fila.ofertaVenceEn ?? null,
+      creadoEn: new Date(0).toISOString(),
+      actualizadoEn: new Date(0).toISOString(),
+      periodo: seccion?.periodo ?? '',
+      seccionNombre: seccion?.nombre ?? '',
+      materiaId: seccion?.materiaId ?? '',
+      materiaNombre: estado.materias.find((m) => m.id === seccion?.materiaId)?.nombre ?? null,
+      programaId: seccion?.programaId ?? '',
+      programaNombre: estado.programas.find((p) => p.id === seccion?.programaId)?.nombre ?? null,
+      // Sólo quien espera ocupa un turno de la cola.
+      posicionEnCola: estadoDe(fila) === 'WAITLISTED' && posicion > 0 ? posicion : null,
+      ...(conEstudiante
+        ? {
+            estudianteNombre: perfil
+              ? [perfil.nombres, perfil.apellidos].filter((p) => p.length > 0).join(' ')
+              : null,
+            estudianteEmail: perfil?.email ?? null,
+          }
+        : {}),
+    };
+  };
+
+  const secciones: PuertaSecciones = {
+    async listar(opciones) {
+      revisar('secciones.listar');
+
+      const aguja = opciones.busqueda?.toLowerCase();
+      const filtradas = estado.secciones.filter((s) => {
+        if (opciones.periodo && s.periodo !== opciones.periodo) return false;
+        if (opciones.programaId && s.programaId !== opciones.programaId) return false;
+        if (opciones.materiaId && s.materiaId !== opciones.materiaId) return false;
+        if (opciones.activa !== undefined && (s.activa ?? true) !== opciones.activa) return false;
+        if (aguja && !s.nombre.toLowerCase().includes(aguja)) return false;
+        return true;
+      });
+
+      return {
+        secciones: filtradas
+          .slice(opciones.desplazamiento, opciones.desplazamiento + opciones.limite)
+          .map(aSeccionFalsa),
+        total: filtradas.length,
+      };
+    },
+
+    async crear(entrada) {
+      revisar('secciones.crear');
+
+      if (!estado.programas.some((p) => p.id === entrada.programaId)) {
+        throw referenciaInvalida();
+      }
+      if (!estado.materias.some((m) => m.id === entrada.materiaId)) {
+        throw referenciaInvalida();
+      }
+      if (!estado.periodos.some((p) => p.codigo === entrada.periodo)) {
+        throw referenciaInvalida();
+      }
+
+      // `unique (period_code, subject_id, name)`.
+      const repetida = estado.secciones.some(
+        (s) =>
+          s.periodo === entrada.periodo &&
+          s.materiaId === entrada.materiaId &&
+          s.nombre === entrada.nombre,
+      );
+      if (repetida) {
+        throw new ErrorApi(409, 'REGISTRO_DUPLICADO', 'Ese registro ya existe.', {
+          contexto: 'crear sección',
+        });
+      }
+
+      const nueva: SeccionFalsa = {
+        // `nuevoId` arma el UUID completo (`<prefijo>-0000-4000-8000-<12>`), así
+        // que el prefijo son los 8 primeros dígitos y nada más: pasarle un
+        // `cccccccc-9000` produciría una cadena de 41 caracteres que no es un UUID.
+        id: nuevoId('cccccccc', ++secuenciaSeccion),
+        programaId: entrada.programaId,
+        materiaId: entrada.materiaId,
+        periodo: entrada.periodo,
+        nombre: entrada.nombre,
+        cupoMaximo: entrada.cupoMaximo,
+        activa: true,
+      };
+
+      estado.secciones = [...estado.secciones, nueva];
+      return aSeccionFalsa(nueva);
+    },
+
+    async actualizar(id, cambios) {
+      revisar('secciones.actualizar');
+
+      const actual = estado.secciones.find((s) => s.id === id);
+      if (!actual) {
+        throw ErrorApi.noEncontrado('SECCION_INEXISTENTE', 'Esa sección no existe.');
+      }
+
+      if (cambios.nombre !== undefined) actual.nombre = cambios.nombre;
+      // `null` explícito es un cambio legítimo —volver al cupo global—, así que se
+      // comprueba contra `undefined` y no por veracidad.
+      if (cambios.cupoMaximo !== undefined) actual.cupoMaximo = cambios.cupoMaximo;
+      if (cambios.activa !== undefined) actual.activa = cambios.activa;
+
+      return aSeccionFalsa(actual);
+    },
+  };
+
+  const inscripciones: PuertaInscripciones = {
+    async listarOfertas(opciones) {
+      revisar('inscripciones.listarOfertas');
+      return listarOcupacionCon(opciones, true);
+    },
+
+    async listarOcupacion(opciones) {
+      revisar('inscripciones.listarOcupacion');
+      return listarOcupacionCon(opciones, false);
+    },
+
+    async misInscripciones(estudianteId) {
+      revisar('inscripciones.misInscripciones');
+      return estado.inscripciones
+        .filter((i) => i.estudianteId === estudianteId)
+        .map((i) => aInscripcionDetallada(i, false));
+    },
+
+    async solicitar(seccionId) {
+      revisar('inscripciones.solicitar');
+      return inscribir(seccionId);
+    },
+
+    async aceptar(seccionId) {
+      revisar('inscripciones.aceptar');
+
+      const actor = usuarioActual();
+      const fila = estado.inscripciones.find(
+        (i) => i.seccionId === seccionId && i.estudianteId === actor,
+      );
+
+      if (!fila || estadoDe(fila) !== 'PENDING_BID') {
+        throw new ErrorApi(400, 'RESTRICCION_VIOLADA', 'No tienes una oferta de cupo pendiente para la sección.', {
+          contexto: 'aceptar un cupo',
+        });
+      }
+
+      if (ofertaVencida(fila.ofertaVenceEn ?? null, new Date())) {
+        throw new ErrorApi(410, 'OFERTA_VENCIDA', 'La oferta de cupo para la sección ya venció.');
+      }
+
+      fila.estado = 'ENROLLED';
+      fila.ofertaVenceEn = null;
+      return 'ENROLLED';
+    },
+
+    async renunciar(seccionId) {
+      revisar('inscripciones.renunciar');
+
+      const actor = usuarioActual();
+      const fila = estado.inscripciones.find(
+        (i) => i.seccionId === seccionId && i.estudianteId === actor,
+      );
+
+      if (!fila) {
+        throw new ErrorApi(400, 'RESTRICCION_VIOLADA', 'No tienes ninguna inscripción en la sección.', {
+          contexto: 'renunciar a un cupo',
+        });
+      }
+
+      fila.estado = 'DROPPED';
+      fila.ofertaVenceEn = null;
+
+      // Renunciar libera un asiento: se promueve al siguiente de la cola.
+      promoverEn(seccionId);
+      return 'DROPPED';
+    },
+
+    async colaDeSeccion(seccionId) {
+      revisar('inscripciones.colaDeSeccion');
+      return inscripcionesDe(seccionId)
+        .filter((i) => estadoDe(i) === 'WAITLISTED')
+        .map((i) => aInscripcionDetallada(i, true));
+    },
+
+    async inscritosDeSeccion(seccionId) {
+      revisar('inscripciones.inscritosDeSeccion');
+      return inscripcionesDe(seccionId).map((i) => aInscripcionDetallada(i, true));
+    },
+
+    async promover(seccionId) {
+      revisar('inscripciones.promover');
+
+      const promovida = promoverEn(seccionId);
+      // `null` no es un error: significa que no había nadie a quien promover.
+      if (!promovida) return null;
+
+      return {
+        id: promovida.id ?? `inscripcion-${llegada(promovida)}`,
+        estudianteId: promovida.estudianteId,
+        seccionId: promovida.seccionId,
+        estado: estadoDe(promovida),
+        ofertaVenceEn: promovida.ofertaVenceEn ?? null,
+        creadoEn: new Date(0).toISOString(),
+        actualizadoEn: new Date(0).toISOString(),
+      };
+    },
+
+    async reincorporar(estudianteId, seccionId) {
+      revisar('inscripciones.reincorporar');
+
+      const fila = estado.inscripciones.find(
+        (i) => i.seccionId === seccionId && i.estudianteId === estudianteId,
+      );
+
+      if (!fila) {
+        throw new ErrorApi(
+          404,
+          'SIN_HISTORIAL_EN_SECCION',
+          'No existe una inscripción previa del estudiante en la sección.',
+        );
+      }
+
+      if (estadoDe(fila) !== 'DROPPED') {
+        throw new ErrorApi(400, 'RESTRICCION_VIOLADA', 'La inscripción del estudiante no está dada de baja.');
+      }
+
+      // **Sin comprobación de cupo A PROPÓSITO**: el administrador puede exceder
+      // la capacidad. Si el doble la comprobara, la prueba de la regla
+      // institucional pasaría sin ejercitar la decisión real.
+      fila.estado = 'ENROLLED';
+      fila.ofertaVenceEn = null;
+      return 'ENROLLED';
+    },
+
+    async expirarOfertas() {
+      revisar('inscripciones.expirarOfertas');
+
+      const ahora = new Date();
+      let vencidas = 0;
+
+      for (const fila of estado.inscripciones) {
+        if (estadoDe(fila) !== 'PENDING_BID') continue;
+        if (!ofertaVencida(fila.ofertaVenceEn ?? null, ahora)) continue;
+
+        fila.estado = 'DROPPED';
+        fila.ofertaVenceEn = null;
+        vencidas += 1;
+        promoverEn(fila.seccionId);
+      }
+
+      return vencidas;
+    },
+  };
+
+  /** Filtra y pagina la ocupación, con el mismo contrato que el repositorio real. */
+  function listarOcupacionCon(
+    opciones: { periodo?: string; programaId?: string; materiaId?: string; soloConCupo?: boolean; busqueda?: string; limite: number; desplazamiento: number },
+    soloActivas: boolean,
+  ): { secciones: OcupacionSeccion[]; total: number } {
+    const ahora = new Date();
+    const aguja = opciones.busqueda?.toLowerCase();
+
+    let filtradas = estado.secciones.filter((s) => {
+      if (soloActivas && !(s.activa ?? true)) return false;
+      if (opciones.periodo && s.periodo !== opciones.periodo) return false;
+      if (opciones.programaId && s.programaId !== opciones.programaId) return false;
+      if (opciones.materiaId && s.materiaId !== opciones.materiaId) return false;
+      if (aguja && !s.nombre.toLowerCase().includes(aguja)) return false;
+      return true;
+    });
+
+    if (opciones.soloConCupo) {
+      // El asiento ofrecible no es la resta del contador: con una oferta en el
+      // aire el contador dice que hay hueco y el asiento está comprometido.
+      filtradas = filtradas.filter((s) => {
+        const efectivo = cupoEfectivo(s);
+        return ocupadosDe(s.id) < efectivo && !hayOfertaVigente(s.id, ahora);
+      });
+    }
+
+    return {
+      secciones: filtradas
+        .slice(opciones.desplazamiento, opciones.desplazamiento + opciones.limite)
+        .map((s) => aOcupacionFalsa(s, ahora)),
+      total: filtradas.length,
+    };
+  }
+
+  /**
+   * Inscribe al llamante, replicando la condición completa de
+   * `solicitar_inscripcion` **incluida la guarda de oferta viva**.
+   */
+  function inscribir(seccionId: string): EstadoInscripcion {
+    const actor = usuarioActual();
+    const seccion = estado.secciones.find((s) => s.id === seccionId);
+
+    if (!seccion) {
+      throw new ErrorApi(404, 'SECCION_INEXISTENTE', 'La sección no existe.');
+    }
+    if (!(seccion.activa ?? true)) {
+      throw new ErrorApi(409, 'SECCION_ARCHIVADA', 'La sección está archivada y no admite inscripciones.');
+    }
+
+    const previa = estado.inscripciones.find(
+      (i) => i.seccionId === seccionId && i.estudianteId === actor,
+    );
+
+    if (previa) {
+      if (estadoDe(previa) === 'DROPPED') {
+        throw new ErrorApi(
+          409,
+          'REQUIERE_REINCORPORACION',
+          'Ya cursaste la sección: un administrador debe reincorporarte explícitamente.',
+        );
+      }
+      throw new ErrorApi(
+        409,
+        'SOLICITUD_YA_EXISTE',
+        `Ya tienes una solicitud activa (${estadoDe(previa)}) para la sección.`,
+      );
+    }
+
+    // Anti-acaparamiento: no dos secciones vivas de la misma materia en el lapso.
+    const acapara = estado.inscripciones.some((i) => {
+      if (i.estudianteId !== actor) return false;
+      if (estadoDe(i) === 'DROPPED') return false;
+      const otra = estado.secciones.find((s) => s.id === i.seccionId);
+      return (
+        otra !== undefined &&
+        otra.materiaId === seccion.materiaId &&
+        otra.periodo === seccion.periodo
+      );
+    });
+
+    if (acapara) {
+      throw new ErrorApi(
+        409,
+        'ACAPARAMIENTO_DE_MATERIA',
+        'El estudiante ya tiene una sección de la materia en el lapso.',
+      );
+    }
+
+    const ahora = new Date();
+    const cabe = ocupadosDe(seccionId) < cupoEfectivo(seccion);
+    const ofertaEnAire = hayOfertaVigente(seccionId, ahora);
+
+    // La conjunción completa. Sin `!ofertaEnAire` se vendería dos veces el mismo
+    // asiento: es la regla que la prueba de la doble venta ejercita.
+    const estadoFinal: EstadoInscripcion = cabe && !ofertaEnAire ? 'ENROLLED' : 'WAITLISTED';
+
+    estado.inscripciones = [
+      ...estado.inscripciones,
+      {
+        id: nuevoId('ffffffff', ++secuenciaInscripcion),
+        estudianteId: actor,
+        seccionId,
+        estado: estadoFinal,
+        ofertaVenceEn: null,
+        llegada: estado.inscripciones.length + 1,
+      },
+    ];
+
+    return estadoFinal;
+  }
+
+  /**
+   * Promueve al primero de la cola, con las dos condiciones de
+   * `promover_siguiente_de_cola`: hay hueco **y** no hay oferta viva.
+   *
+   * Devuelve la fila promovida, o `null` si no había a quién.
+   */
+  function promoverEn(seccionId: string): InscripcionFalsa | null {
+    const seccion = estado.secciones.find((s) => s.id === seccionId);
+    if (!seccion) return null;
+
+    const ahora = new Date();
+    if (hayOfertaVigente(seccionId, ahora)) return null;
+    if (ocupadosDe(seccionId) >= cupoEfectivo(seccion)) return null;
+
+    const siguiente = estado.inscripciones
+      .filter((i) => i.seccionId === seccionId && estadoDe(i) === 'WAITLISTED')
+      .sort((a, b) => llegada(a) - llegada(b))[0];
+
+    if (!siguiente) return null;
+
+    const conBids = estado.parametros.find((p) => p.clave === 'habilitar_sistema_bids');
+    const ttl = estado.parametros.find((p) => p.clave === 'bid_ttl_horas');
+
+    if (conBids?.valor === true) {
+      siguiente.estado = 'PENDING_BID';
+      const horas = typeof ttl?.valor === 'number' ? ttl.valor : 24;
+      siguiente.ofertaVenceEn = new Date(Date.now() + horas * 3_600_000).toISOString();
+    } else {
+      // Con los bids apagados el primero de la cola pasa directo a ENROLLED.
+      siguiente.estado = 'ENROLLED';
+      siguiente.ofertaVenceEn = null;
+    }
+
+    return siguiente;
+  }
+
+  /**
+   * El id del llamante, leído de la última petición autenticada.
+   *
+   * El doble no tiene sesión propia: `reposDePeticion` devuelve siempre el mismo
+   * objeto, así que el actor se resuelve desde `estado.usuarioActual`, que el
+   * arnés fija por petición. Es el precio de montar la API entera en memoria y es
+   * preferible a fingir un cliente de Supabase con JWT.
+   */
+  function usuarioActual(): string {
+    return estado.usuarioActual ?? ID_ALUMNO;
+  }
+
   const repos: Repositorios = {
     perfiles,
     modulos,
@@ -1721,6 +2325,8 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     acceso,
     curriculo,
     cuadrante,
+    secciones,
+    inscripciones,
   };
 
   const enviarCorreo: EnvioCorreo = {
@@ -1743,6 +2349,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     [TOKEN_ADMIN]: ID_ADMIN,
     [TOKEN_ALUMNO]: ID_ALUMNO,
     [TOKEN_DOCENTE]: ID_DOCENTE,
+    ...(opciones.identidades ?? {}),
   };
 
   const app = construirApp(env, {
@@ -1753,7 +2360,12 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       return { id, email: perfil?.email ?? null };
     },
     reposAdmin: repos,
-    reposDePeticion: () => repos,
+    // Fija «quién llama» antes de que corra el manejador: es el sustituto del
+    // `auth.uid()` que en producción resuelve Postgres desde el JWT.
+    reposDePeticion: (token) => {
+      estado.usuarioActual = token ? (identidades[token] ?? null) : null;
+      return repos;
+    },
     enviarCorreo,
   });
 

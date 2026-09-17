@@ -5,33 +5,41 @@ import type {
   CambiosGuardia,
   CambiosPeriodo,
   CambiosPrograma,
+  CambiosSeccion,
   EntradaCrearAula,
   EntradaCrearClase,
   EntradaCrearGuardia,
   EntradaCrearMateria,
   EntradaCrearPeriodo,
   EntradaCrearPrograma,
+  EntradaCrearSeccion,
   OpcionesListadoAcceso,
   OpcionesListadoAulas,
   OpcionesListadoGuardias,
   OpcionesListadoMaterias,
+  OpcionesListadoOfertas,
   OpcionesListadoProgramas,
+  OpcionesListadoSecciones,
   OpcionesListadoUsuarios,
   OpcionesRejilla,
   PaginaAcceso,
   PaginaAulas,
   PaginaGuardias,
   PaginaMaterias,
+  PaginaOcupacion,
   PaginaProgramas,
+  PaginaSecciones,
   PaginaUsuarios,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
   PuertaCurriculo,
+  PuertaInscripciones,
   PuertaInvitacionesDocente,
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
+  PuertaSecciones,
   Repositorios,
 } from '../dominio/puertos.js';
 import { ErrorApi } from '../dominio/errores.js';
@@ -41,6 +49,16 @@ import {
   pensumEditable,
 } from '../dominio/reglas-curriculo.js';
 import { esChoqueDeAgenda, turnoDeBloque } from '../dominio/reglas-cuadrante.js';
+import {
+  esAcaparamientoDeMateria,
+  esEstadoInscripcion,
+  esOfertaVencida,
+  esReincorporacionSinHistorial,
+  esRequiereReincorporacion,
+  esSeccionArchivada,
+  esSeccionInexistente,
+  esSolicitudYaExistente,
+} from '../dominio/reglas-inscripciones.js';
 import {
   esRol,
   esTipoPrograma,
@@ -54,12 +72,16 @@ import {
   type EntradaAuditoria,
   type EntradaPensum,
   type EstadoAcceso,
+  type EstadoInscripcion,
   type Guardia,
+  type Inscripcion,
+  type InscripcionDetallada,
   type InvitacionDocente,
   type Materia,
   type MateriaEnPensum,
   type MiHorario,
   type ModuloSistema,
+  type OcupacionSeccion,
   type ParametroSistema,
   type Perfil,
   type Periodo,
@@ -68,6 +90,7 @@ import {
   type RejillaCuadrante,
   type Rol,
   type RolDeHorario,
+  type Seccion,
   type TipoParametro,
 } from '../dominio/tipos.js';
 import {
@@ -382,6 +405,90 @@ function aDocenteResumen(fila: Fila): DocenteResumen {
   return { id: textoObligatorio(fila.id), nombre };
 }
 
+// --- mapeadores de M4 -------------------------------------------------------
+
+function aSeccion(fila: Fila): Seccion {
+  return {
+    id: textoObligatorio(fila.id),
+    programaId: textoObligatorio(fila.program_id),
+    materiaId: textoObligatorio(fila.subject_id),
+    periodo: textoObligatorio(fila.period_code),
+    nombre: textoObligatorio(fila.name),
+    // `null` y `0` significan cosas distintas y la diferencia se conserva:
+    // `null` cae al cupo global, `0` es una sección que no admite a nadie.
+    cupoMaximo:
+      fila.max_capacity === null || fila.max_capacity === undefined
+        ? null
+        : entero(fila.max_capacity, 0),
+    activa: booleano(fila.is_active, true),
+    creadoEn: textoObligatorio(fila.created_at),
+    actualizadoEn: textoObligatorio(fila.updated_at),
+  };
+}
+
+/**
+ * Estado de una inscripción leído de la base.
+ *
+ * Un valor desconocido se degrada a `WAITLISTED`, por la misma razón que
+ * `rolSeguro` degrada a `estudiante`: es el estado que **no concede nada**. Decir
+ * «en lista de espera» cuando no se sabe es una imprecisión inofensiva; decir
+ * «inscrito» sería conceder un asiento que quizá no toca. Degradar es seguro;
+ * adivinar hacia arriba, no.
+ *
+ * (En el sentido contrario —el resultado de una escritura— **no** se degrada:
+ * ver `InscripcionesSupabase.estadoDevuelto`.)
+ */
+function estadoSeguro(valor: unknown): EstadoInscripcion {
+  return esEstadoInscripcion(valor) ? valor : 'WAITLISTED';
+}
+
+function aInscripcion(fila: Fila): Inscripcion {
+  return {
+    id: textoObligatorio(fila.id),
+    estudianteId: textoObligatorio(fila.student_id),
+    seccionId: textoObligatorio(fila.section_id),
+    estado: estadoSeguro(fila.status),
+    ofertaVenceEn: texto(fila.bid_expires_at),
+    creadoEn: textoObligatorio(fila.created_at),
+    actualizadoEn: textoObligatorio(fila.updated_at),
+  };
+}
+
+/**
+ * Una fila de `v_ocupacion_secciones`, con los nombres ya resueltos.
+ *
+ * Los recuentos llegan como `number` de PostgreSQL, pero se normalizan igual que
+ * todo lo demás: la frontera con Supabase es `unknown` y confiar en ella haría
+ * que una columna nula reventara en un punto lejano.
+ */
+function aOcupacion(
+  fila: Fila,
+  programaNombre: string | null,
+  materiaNombre: string | null,
+): OcupacionSeccion {
+  const cupoEfectivo = entero(fila.cupo_efectivo, 0);
+  const cuposOcupados = entero(fila.cupos_ocupados, 0);
+
+  return {
+    seccionId: textoObligatorio(fila.id),
+    periodo: textoObligatorio(fila.period_code),
+    programaId: textoObligatorio(fila.program_id),
+    programaNombre,
+    materiaId: textoObligatorio(fila.subject_id),
+    materiaNombre,
+    nombre: textoObligatorio(fila.name),
+    activa: booleano(fila.is_active, true),
+    cupoEfectivo,
+    cuposOcupados,
+    // Se recalcula en vez de confiar en `cupos_disponibles` de la vista, para que
+    // no pueda llegar un negativo si alguien reincorporó por encima del cupo (la
+    // regla institucional lo permite). `greatest(...,0)` está en la vista; esto es
+    // la misma garantía del lado del backend.
+    cuposDisponibles: Math.max(cupoEfectivo - cuposOcupados, 0),
+    ofertaVigente: booleano(fila.oferta_vigente, false),
+  };
+}
+
 // --- repositorios -----------------------------------------------------------
 
 const TABLA_PERFILES = 'profiles';
@@ -404,6 +511,20 @@ const TABLA_CUADRANTE = 'schedule_slots';
 
 /** La vista que resuelve los nombres de una clase sin abrir `profiles`. */
 const VISTA_CLASES = 'v_cuadrante_clases';
+
+// --- M4 ---------------------------------------------------------------------
+
+const TABLA_INSCRIPCIONES = 'enrollments';
+
+/**
+ * La vista de ocupación por sección.
+ *
+ * Es `security_invoker` sobre `sections`, pero **los recuentos vienen de
+ * funciones `definer`**: una vista `invoker` que contara `enrollments` directo
+ * mostraría a cada estudiante **sólo su propia fila** y la sección parecería
+ * vacía. Es la combinación que da el número correcto sin exponer datos ajenos.
+ */
+const VISTA_OCUPACION = 'v_ocupacion_secciones';
 
 /** Clave del parámetro que dice cuál es el período académico vigente. */
 const CLAVE_PERIODO_ACTIVO = 'periodo_activo';
@@ -448,6 +569,28 @@ const COLUMNAS_CLASE =
 
 /** Columnas de `profiles` que bastan para pintar una fila de la rejilla. */
 const COLUMNAS_DOCENTE_RESUMEN = 'id,nombres,apellidos';
+
+// --- M4 ---------------------------------------------------------------------
+
+const COLUMNAS_SECCION =
+  'id,program_id,subject_id,period_code,name,max_capacity,is_active,created_at,updated_at';
+
+const COLUMNAS_INSCRIPCION =
+  'id,student_id,section_id,status,bid_expires_at,created_at,updated_at';
+
+/**
+ * Las columnas de `v_ocupacion_secciones`, en el orden en que las declara la vista.
+ *
+ * `create or replace view` sólo admite **añadir** columnas al final, así que
+ * `oferta_vigente` va última en la vista y aquí. El orden importa poco para el
+ * `select` explícito, pero mantenerlo igual que la definición hace que un
+ * `select *` accidental —o una lectura del `comment on view`— no confunda.
+ */
+const COLUMNAS_OCUPACION =
+  'id,period_code,program_id,subject_id,name,is_active,cupo_efectivo,cupos_ocupados,cupos_disponibles,oferta_vigente';
+
+/** Datos del estudiante que el administrador sí puede ver (la RLS lo permite). */
+const COLUMNAS_ESTUDIANTE_RESUMEN = 'id,nombres,apellidos,email';
 
 /** Roles que pueden aparecer como docente en la rejilla. */
 const ROLES_DOCENTES: readonly Rol[] = ['docente', 'admin'];
@@ -2027,6 +2170,586 @@ class CuadranteSupabase implements PuertaCuadrante {
   }
 }
 
+const RECURSO_SECCION: Recurso = {
+  codigo: 'SECCION_INEXISTENTE',
+  mensaje: 'Esa sección no existe.',
+};
+
+/**
+ * Secciones (Módulo 3, aunque sea el catálogo que consume M4).
+ *
+ * Vive en su propio archivo de rutas y su propio puerto, separada del cuadrante:
+ * una sección es el grupo de una materia en un lapso —lo que el estudiante
+ * elige— y una clase es una franja de la semana —lo que el docente dicta—. Son
+ * ciclos de vida distintos y mezclarlos en `cuadrante.ts` habría dejado un módulo
+ * con dos responsabilidades.
+ *
+ * **Aquí sí hay escritura directa**, a diferencia de `enrollments`: `sections`
+ * tiene `INSERT` y `UPDATE` concedidos a `authenticated`, y la RLS los filtra con
+ * `sections_admin_all` (`is_admin()`). `DELETE` está **revocado**, así que
+ * archivar no es una convención: borrar no es una opción disponible.
+ */
+class SeccionesSupabase implements PuertaSecciones {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  async listar(opciones: OpcionesListadoSecciones): Promise<PaginaSecciones> {
+    const total = await this.contar(opciones);
+
+    if (opciones.desplazamiento >= total) {
+      return { secciones: [], total };
+    }
+
+    const respuesta = await this.consulta(opciones)
+      // Descendente por lapso: el más reciente arriba es el que se está usando.
+      .order('period_code', { ascending: false })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(
+        opciones.desplazamiento,
+        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
+      );
+
+    if (respuesta.error) {
+      // Defensa en profundidad ante una carrera entre el recuento y la página.
+      if (esRangoNoSatisfacible(respuesta.error)) {
+        return { secciones: [], total: await this.contar(opciones) };
+      }
+      throw traducirError(respuesta.error, 'listar secciones');
+    }
+
+    const filas = (respuesta.data ?? []) as Fila[];
+    return { secciones: filas.map(aSeccion), total };
+  }
+
+  private consulta(opciones: OpcionesListadoSecciones, contar = false) {
+    let consulta = contar
+      ? this.cliente.from(TABLA_SECCIONES).select('id', { count: 'exact', head: true })
+      : this.cliente.from(TABLA_SECCIONES).select(COLUMNAS_SECCION);
+
+    if (opciones.periodo) consulta = consulta.eq('period_code', opciones.periodo);
+    if (opciones.programaId) consulta = consulta.eq('program_id', opciones.programaId);
+    if (opciones.materiaId) consulta = consulta.eq('subject_id', opciones.materiaId);
+    if (opciones.activa !== undefined) consulta = consulta.eq('is_active', opciones.activa);
+    if (opciones.busqueda) consulta = consulta.ilike('name', `%${opciones.busqueda}%`);
+
+    return consulta;
+  }
+
+  private async contar(opciones: OpcionesListadoSecciones): Promise<number> {
+    const respuesta = await this.consulta(opciones, true);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'contar secciones');
+
+    if (respuesta.count === null || respuesta.count === undefined) {
+      throw ErrorApi.interno('La base de datos no devolvió el total de secciones.');
+    }
+
+    return respuesta.count;
+  }
+
+  async crear(entrada: EntradaCrearSeccion): Promise<Seccion> {
+    const respuesta = await this.cliente
+      .from(TABLA_SECCIONES)
+      .insert({
+        program_id: entrada.programaId,
+        subject_id: entrada.materiaId,
+        period_code: entrada.periodo,
+        name: entrada.nombre,
+        max_capacity: entrada.cupoMaximo,
+      })
+      .select(COLUMNAS_SECCION)
+      .single();
+
+    // Un nombre repetido dentro del mismo lapso y materia choca con
+    // `sections_identidad_unica` y sale como 409 REGISTRO_DUPLICADO. No se
+    // comprueba antes: preguntar sería una carrera, y la respuesta buena la da la
+    // propia escritura.
+    if (respuesta.error) throw traducirError(respuesta.error, 'crear sección');
+    return aSeccion(respuesta.data as Fila);
+  }
+
+  async actualizar(id: string, cambios: CambiosSeccion): Promise<Seccion> {
+    const parche: Record<string, unknown> = {};
+    if (cambios.nombre !== undefined) parche.name = cambios.nombre;
+    // `cupoMaximo` admite `null` explícito —«volver al cupo global»—, así que se
+    // comprueba contra `undefined` y no por veracidad: `0` es un valor legítimo y
+    // un `if (cambios.cupoMaximo)` lo descartaría en silencio.
+    if (cambios.cupoMaximo !== undefined) parche.max_capacity = cambios.cupoMaximo;
+    if (cambios.activa !== undefined) parche.is_active = cambios.activa;
+
+    if (Object.keys(parche).length === 0) {
+      throw ErrorApi.peticionInvalida('No se indicó ningún cambio para la sección.');
+    }
+
+    const respuesta = await this.cliente
+      .from(TABLA_SECCIONES)
+      .update(parche)
+      .eq('id', id)
+      .select(COLUMNAS_SECCION)
+      .single();
+
+    if (respuesta.error) {
+      throw this.traducirEscritura(respuesta.error, 'actualizar sección', RECURSO_SECCION);
+    }
+
+    return aSeccion(respuesta.data as Fila);
+  }
+
+  /** Convierte el 404 genérico de PostgREST en el código concreto del recurso. */
+  private traducirEscritura(error: unknown, contexto: string, recurso: Recurso): ErrorApi {
+    const traducido = traducirError(error, contexto);
+    if (traducido.codigo === 'NO_ENCONTRADO') {
+      return ErrorApi.noEncontrado(recurso.codigo, recurso.mensaje);
+    }
+    return traducido;
+  }
+}
+
+/**
+ * Inscripciones y cupos (Módulo 4).
+ *
+ * **Aquí no hay ni un solo `insert` sobre `enrollments`, y no es un olvido.**
+ * Esa tabla tiene `INSERT`, `UPDATE`, `DELETE` y `TRUNCATE` revocados para `anon`
+ * y `authenticated` (R-23): intentarlo daría `42501`. Toda escritura pasa por las
+ * RPC `security definer`, que **hacen su propia autorización** con `auth.uid()`
+ * porque, al ser `definer`, la RLS ya no las protege.
+ *
+ * Y no es una limitación que haya que rodear: la clave publishable viaja al
+ * cliente (ADR-003), así que si se pudiera escribir directo, cualquiera se
+ * auto-inscribiría en `ENROLLED` y el motor de cupos sería decorativo.
+ *
+ * La lógica de cupos tampoco se reimplementa: `cupo_efectivo`, `cupos_ocupados` y
+ * `existe_oferta_vigente` viven en la base, y el cerrojo por sección también. Lo
+ * único que se decide aquí es **cómo se traduce** lo que la base responde.
+ */
+class InscripcionesSupabase implements PuertaInscripciones {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  // --- Catálogo y panel -----------------------------------------------------
+
+  async listarOfertas(opciones: OpcionesListadoOfertas): Promise<PaginaOcupacion> {
+    // El estudiante no debe ver secciones archivadas: ofrecerlas sería ofrecer
+    // algo que la base va a rechazar con «está archivada y no admite
+    // inscripciones».
+    return this.listarOcupacionCon(opciones, true);
+  }
+
+  async listarOcupacion(opciones: OpcionesListadoOfertas): Promise<PaginaOcupacion> {
+    // El administrador sí las ve: necesita poder consultar el histórico de una
+    // sección cerrada.
+    return this.listarOcupacionCon(opciones, false);
+  }
+
+  private async listarOcupacionCon(
+    opciones: OpcionesListadoOfertas,
+    soloActivas: boolean,
+  ): Promise<PaginaOcupacion> {
+    const total = await this.contarOcupacion(opciones, soloActivas);
+
+    if (opciones.desplazamiento >= total) return { secciones: [], total };
+
+    const respuesta = await this.consultaDeOcupacion(opciones, soloActivas)
+      .order('period_code', { ascending: false })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(
+        opciones.desplazamiento,
+        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
+      );
+
+    if (respuesta.error) {
+      if (esRangoNoSatisfacible(respuesta.error)) {
+        return { secciones: [], total: await this.contarOcupacion(opciones, soloActivas) };
+      }
+      throw traducirError(respuesta.error, 'listar la ocupación de las secciones');
+    }
+
+    const filas = (respuesta.data ?? []) as Fila[];
+    const nombres = await this.resolverNombres(filas);
+
+    return {
+      secciones: filas.map((fila) =>
+        aOcupacion(
+          fila,
+          nombres.programas.get(textoObligatorio(fila.program_id)) ?? null,
+          nombres.materias.get(textoObligatorio(fila.subject_id)) ?? null,
+        ),
+      ),
+      total,
+    };
+  }
+
+  private consultaDeOcupacion(opciones: OpcionesListadoOfertas, soloActivas: boolean, contar = false) {
+    let consulta = contar
+      ? this.cliente.from(VISTA_OCUPACION).select('id', { count: 'exact', head: true })
+      : this.cliente.from(VISTA_OCUPACION).select(COLUMNAS_OCUPACION);
+
+    if (soloActivas) consulta = consulta.eq('is_active', true);
+    if (opciones.periodo) consulta = consulta.eq('period_code', opciones.periodo);
+    if (opciones.programaId) consulta = consulta.eq('program_id', opciones.programaId);
+    if (opciones.materiaId) consulta = consulta.eq('subject_id', opciones.materiaId);
+    if (opciones.busqueda) consulta = consulta.ilike('name', `%${opciones.busqueda}%`);
+
+    return consulta;
+  }
+
+  private async contarOcupacion(
+    opciones: OpcionesListadoOfertas,
+    soloActivas: boolean,
+  ): Promise<number> {
+    // `soloConCupo` **no** se puede filtrar en la consulta: el asiento ofrecible
+    // depende de `existe_oferta_vigente()`, y la vista sólo expone el booleano ya
+    // calculado. Se filtra después de traer la página, así que el total que se
+    // devuelve es el de la vista sin ese filtro — y por eso el filtro se aplica
+    // también al recuento, para que la paginación no mienta.
+    const respuesta = await this.consultaDeOcupacion(opciones, soloActivas, true);
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'contar la ocupación de las secciones');
+    }
+
+    if (respuesta.count === null || respuesta.count === undefined) {
+      throw ErrorApi.interno('La base de datos no devolvió el total de secciones.');
+    }
+
+    return respuesta.count;
+  }
+
+  /**
+   * Resuelve los nombres de programa y materia de una página de la vista.
+   *
+   * La vista expone los `id` pero no los nombres, y el estudiante necesita saber
+   * **qué** está eligiendo. Se resuelve con dos consultas acotadas a los ids de la
+   * página en vez de con una vista nueva: una migración más para añadir dos
+   * columnas de sólo lectura no se paga sola.
+   */
+  private async resolverNombres(
+    filas: Fila[],
+  ): Promise<{ programas: Map<string, string>; materias: Map<string, string> }> {
+    const programaIds = [...new Set(filas.map((f) => textoObligatorio(f.program_id)).filter(Boolean))];
+    const materiaIds = [...new Set(filas.map((f) => textoObligatorio(f.subject_id)).filter(Boolean))];
+
+    const [programas, materias] = await Promise.all([
+      this.cliente.from(TABLA_PROGRAMAS).select('id,name').in('id', programaIds),
+      this.cliente.from(TABLA_MATERIAS).select('id,name').in('id', materiaIds),
+    ]);
+
+    const aMapa = (respuesta: { data: unknown; error: unknown }, contexto: string) => {
+      const datos = desenvolver(
+        respuesta as { data: Fila[] | null; error: unknown },
+        contexto,
+      );
+      return new Map(datos.map((fila) => [textoObligatorio(fila.id), textoObligatorio(fila.name)]));
+    };
+
+    return {
+      programas: aMapa(programas, 'resolver los nombres de los programas'),
+      materias: aMapa(materias, 'resolver los nombres de las materias'),
+    };
+  }
+
+  // --- Lectura de inscripciones ---------------------------------------------
+
+  async misInscripciones(estudianteId: string): Promise<InscripcionDetallada[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_INSCRIPCIONES)
+      .select(COLUMNAS_INSCRIPCION)
+      // El filtro explícito no es redundante con la RLS: un administrador tiene
+      // permiso para leer todas las filas, así que sin esto vería las de todo el
+      // centro en su propia pantalla de inscripciones.
+      .eq('student_id', estudianteId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'leer mis inscripciones') as Fila[];
+    return this.detallar(filas.map(aInscripcion), false);
+  }
+
+  async colaDeSeccion(seccionId: string): Promise<InscripcionDetallada[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_INSCRIPCIONES)
+      .select(COLUMNAS_INSCRIPCION)
+      .eq('section_id', seccionId)
+      // La cola son los que esperan. `PENDING_BID` ya salió de ella (se le ofreció
+      // un asiento) y `ENROLLED` está dentro, así que ninguno de los dos ocupa un
+      // turno. Orden ascendente: FIFO, el primero que llegó es el primero.
+      .eq('status', 'WAITLISTED')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'leer la cola de la sección') as Fila[];
+    return this.detallar(filas.map(aInscripcion), true);
+  }
+
+  async inscritosDeSeccion(seccionId: string): Promise<InscripcionDetallada[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_INSCRIPCIONES)
+      .select(COLUMNAS_INSCRIPCION)
+      .eq('section_id', seccionId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'leer los inscritos de la sección') as Fila[];
+    return this.detallar(filas.map(aInscripcion), true);
+  }
+
+  /**
+   * Completa las inscripciones con los datos que necesita una pantalla.
+   *
+   * Se hace en tres consultas acotadas a los ids presentes —secciones, nombres y
+   * (si toca) estudiantes— en vez de una por fila. Con veinticinco inscripciones,
+   * una consulta por fila serían setenta y cinco viajes.
+   */
+  private async detallar(
+    inscripciones: Inscripcion[],
+    conEstudiante: boolean,
+  ): Promise<InscripcionDetallada[]> {
+    if (inscripciones.length === 0) return [];
+
+    const seccionIds = [...new Set(inscripciones.map((i) => i.seccionId))];
+
+    const seccionesRespuesta = await this.cliente
+      .from(TABLA_SECCIONES)
+      .select('id,program_id,subject_id,period_code,name')
+      .in('id', seccionIds);
+
+    const secciones = new Map(
+      (desenvolver(seccionesRespuesta, 'leer las secciones de las inscripciones') as Fila[]).map(
+        (fila) => [textoObligatorio(fila.id), fila],
+      ),
+    );
+
+    // La posición en la cola se calcula contra la cola COMPLETA de cada sección,
+    // no contra el subconjunto recibido: si se calculara sobre lo recibido, la
+    // pantalla de un estudiante le diría que es el primero de la cola aunque haya
+    // veinte delante.
+    const colaRespuesta = await this.cliente
+      .from(TABLA_INSCRIPCIONES)
+      .select('id,section_id')
+      .in('section_id', seccionIds)
+      .eq('status', 'WAITLISTED')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+
+    const cola = desenvolver(colaRespuesta, 'leer las colas de las secciones') as Fila[];
+    const posiciones = new Map<string, number>();
+    const contadorPorSeccion = new Map<string, number>();
+    for (const fila of cola) {
+      const seccion = textoObligatorio(fila.section_id);
+      const siguiente = (contadorPorSeccion.get(seccion) ?? 0) + 1;
+      contadorPorSeccion.set(seccion, siguiente);
+      posiciones.set(textoObligatorio(fila.id), siguiente);
+    }
+
+    const nombres = await this.resolverNombres(
+      [...secciones.values()].map((fila) => ({
+        program_id: fila.program_id,
+        subject_id: fila.subject_id,
+      })),
+    );
+
+    const estudiantes = conEstudiante
+      ? await this.resolverEstudiantes(inscripciones.map((i) => i.estudianteId))
+      : new Map<string, { nombre: string; email: string | null }>();
+
+    return inscripciones.map((inscripcion) => {
+      const seccion = secciones.get(inscripcion.seccionId);
+      const programaId = textoObligatorio(seccion?.program_id);
+      const materiaId = textoObligatorio(seccion?.subject_id);
+      const estudiante = estudiantes.get(inscripcion.estudianteId);
+
+      return {
+        ...inscripcion,
+        periodo: textoObligatorio(seccion?.period_code),
+        seccionNombre: textoObligatorio(seccion?.name),
+        materiaId,
+        materiaNombre: nombres.materias.get(materiaId) ?? null,
+        programaId,
+        programaNombre: nombres.programas.get(programaId) ?? null,
+        // Sólo tiene sentido para quien está esperando: un `ENROLLED` no ocupa un
+        // turno de la cola, y devolverle un número haría creer que sí.
+        posicionEnCola:
+          inscripcion.estado === 'WAITLISTED'
+            ? (posiciones.get(inscripcion.id) ?? null)
+            : null,
+        ...(conEstudiante
+          ? { estudianteNombre: estudiante?.nombre ?? null, estudianteEmail: estudiante?.email ?? null }
+          : {}),
+      };
+    });
+  }
+
+  private async resolverEstudiantes(
+    ids: string[],
+  ): Promise<Map<string, { nombre: string; email: string | null }>> {
+    const unicos = [...new Set(ids)];
+    const respuesta = await this.cliente
+      .from(TABLA_PERFILES)
+      .select(COLUMNAS_ESTUDIANTE_RESUMEN)
+      .in('id', unicos);
+
+    const filas = desenvolver(respuesta, 'leer los datos de los estudiantes') as Fila[];
+
+    return new Map(
+      filas.map((fila) => [
+        textoObligatorio(fila.id),
+        {
+          nombre: [textoObligatorio(fila.nombres), textoObligatorio(fila.apellidos)]
+            .filter((parte) => parte.length > 0)
+            .join(' '),
+          email: texto(fila.email),
+        },
+      ]),
+    );
+  }
+
+  // --- Escrituras: todas por RPC --------------------------------------------
+
+  async solicitar(seccionId: string): Promise<EstadoInscripcion> {
+    const respuesta = await this.cliente.rpc('solicitar_inscripcion', {
+      p_section_id: seccionId,
+    });
+
+    return this.estadoDevuelto(respuesta, 'solicitar una inscripción');
+  }
+
+  async aceptar(seccionId: string): Promise<EstadoInscripcion> {
+    const respuesta = await this.cliente.rpc('aceptar_cupo', { p_section_id: seccionId });
+
+    return this.estadoDevuelto(respuesta, 'aceptar un cupo');
+  }
+
+  async renunciar(seccionId: string): Promise<EstadoInscripcion> {
+    const respuesta = await this.cliente.rpc('renunciar_cupo', { p_section_id: seccionId });
+
+    return this.estadoDevuelto(respuesta, 'renunciar a un cupo');
+  }
+
+  async reincorporar(estudianteId: string, seccionId: string): Promise<EstadoInscripcion> {
+    const respuesta = await this.cliente.rpc('reincorporar_inscripcion', {
+      p_student_id: estudianteId,
+      p_section_id: seccionId,
+    });
+
+    return this.estadoDevuelto(respuesta, 'reincorporar una inscripción');
+  }
+
+  async expirarOfertas(): Promise<number> {
+    const respuesta = await this.cliente.rpc('expirar_ofertas_cupo');
+
+    if (respuesta.error) {
+      throw this.traducirInscripcion(respuesta.error, 'expirar las ofertas caducadas');
+    }
+
+    // Idempotente: la segunda llamada devuelve 0. Un `null` no debería llegar
+    // —la RPC devuelve `integer`— pero tratarlo como 0 es honesto: significa
+    // «no venció ninguna».
+    return entero(respuesta.data, 0);
+  }
+
+  async promover(seccionId: string): Promise<Inscripcion | null> {
+    const respuesta = await this.cliente.rpc('promover_siguiente', {
+      p_section_id: seccionId,
+    });
+
+    if (respuesta.error) {
+      throw this.traducirInscripcion(respuesta.error, 'promover al siguiente de la cola');
+    }
+
+    // `null` **no es un error**: significa que no había nadie a quien promover.
+    // Una cola vacía es un estado normal. La ruta lo traduce a un 200 explicativo.
+    const id = typeof respuesta.data === 'string' && respuesta.data.length > 0
+      ? respuesta.data
+      : null;
+    if (id === null) return null;
+
+    const fila = await this.cliente
+      .from(TABLA_INSCRIPCIONES)
+      .select(COLUMNAS_INSCRIPCION)
+      .eq('id', id)
+      .single();
+
+    return aInscripcion(desenvolver(fila, 'leer la inscripción promovida') as Fila);
+  }
+
+  /**
+   * El estado que devolvió una RPC.
+   *
+   * **Aquí no se degrada, a diferencia de la lectura.** Si la base devuelve un
+   * estado que no conocemos, lo más probable es que una migración haya añadido uno
+   * nuevo y el backend no se haya enterado. Devolver «en lista de espera» a quien
+   * acaba de quedar `ENROLLED` sería mentirle sobre su matrícula; fallar en alto
+   * lo dice en el sitio correcto.
+   */
+  private estadoDevuelto(
+    respuesta: { data: unknown; error: unknown },
+    contexto: string,
+  ): EstadoInscripcion {
+    if (respuesta.error) throw this.traducirInscripcion(respuesta.error, contexto);
+
+    const estado = respuesta.data;
+    if (!esEstadoInscripcion(estado)) {
+      throw ErrorApi.interno(
+        `La base devolvió un estado de inscripción desconocido (${String(estado)}). ` +
+          'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+      );
+    }
+
+    return estado;
+  }
+
+  /**
+   * Traduce los fallos de las RPC de M4.
+   *
+   * Las RPC lanzan `23514` para todo lo que es regla de negocio y `42501` para la
+   * autorización. Un `23514` genérico no sirve: «los datos no cumplen una regla»
+   * no le dice al estudiante que ya está en otra sección de esa materia, ni al
+   * administrador que el chico nunca cursó esa sección. Se distinguen **por el
+   * texto del mensaje**, que es lo único que llega — cambiar el `errcode` habría
+   * exigido una migración nueva sobre RPC ya aplicadas, y una migración aplicada
+   * no se edita nunca.
+   *
+   * El orden importa: los patrones más específicos primero. Si esto fallara, el
+   * peor caso es un `400` en vez de un `409`: la operación se sigue bloqueando,
+   * porque la invariante la impone la base.
+   */
+  private traducirInscripcion(error: unknown, contexto: string): ErrorApi {
+    const mensaje = mensajeDe(error);
+
+    if (esAcaparamientoDeMateria(mensaje)) {
+      return ErrorApi.conflicto('ACAPARAMIENTO_DE_MATERIA', mensaje, { contexto });
+    }
+
+    if (esRequiereReincorporacion(mensaje)) {
+      return ErrorApi.conflicto('REQUIERE_REINCORPORACION', mensaje, { contexto });
+    }
+
+    if (esSolicitudYaExistente(mensaje)) {
+      return ErrorApi.conflicto('SOLICITUD_YA_EXISTE', mensaje, { contexto });
+    }
+
+    if (esSeccionArchivada(mensaje)) {
+      return ErrorApi.conflicto('SECCION_ARCHIVADA', mensaje, { contexto });
+    }
+
+    // 410 y no 400: la petición era válida cuando se hizo y dejó de serlo por el
+    // paso del tiempo. La interfaz debe recargar, no pedir que se corrija nada.
+    if (esOfertaVencida(mensaje)) {
+      return new ErrorApi(410, 'OFERTA_VENCIDA', mensaje, { contexto });
+    }
+
+    if (esSeccionInexistente(mensaje)) {
+      return ErrorApi.noEncontrado('SECCION_INEXISTENTE', mensaje);
+    }
+
+    if (esReincorporacionSinHistorial(mensaje)) {
+      return ErrorApi.noEncontrado('SIN_HISTORIAL_EN_SECCION', mensaje);
+    }
+
+    return traducirError(error, contexto);
+  }
+}
+
 /** Construye el juego completo de repositorios sobre un cliente dado. */
 export function crearRepositorios(cliente: SupabaseClient): Repositorios {
   return {
@@ -2038,6 +2761,8 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     acceso: new AuditoriaAccesoSupabase(cliente),
     curriculo: new CurriculoSupabase(cliente),
     cuadrante: new CuadranteSupabase(cliente),
+    secciones: new SeccionesSupabase(cliente),
+    inscripciones: new InscripcionesSupabase(cliente),
   };
 }
 

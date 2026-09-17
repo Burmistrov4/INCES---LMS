@@ -421,3 +421,127 @@ export interface MiHorario {
   clases: ClaseCuadrante[];
   guardias: Guardia[];
 }
+
+// --- Módulo 4: secciones, inscripciones y cupos -----------------------------
+
+/**
+ * Los cuatro estados de una inscripción.
+ *
+ * El ciclo es: `WAITLISTED` (en la cola) → `PENDING_BID` (se le ofreció un
+ * asiento, con vencimiento) → `ENROLLED` (dentro) → `DROPPED` (fuera, pero la
+ * fila se conserva como historial).
+ *
+ * **`DROPPED` no es un borrado.** La fila se queda: es el historial de que ese
+ * estudiante estuvo en esa sección, y volver a entrar es una excepción de
+ * administración (`reincorporar_inscripcion`), no una reinscripción libre.
+ */
+export type EstadoInscripcion = 'ENROLLED' | 'WAITLISTED' | 'PENDING_BID' | 'DROPPED';
+
+export const ESTADOS_INSCRIPCION: readonly EstadoInscripcion[] = [
+  'ENROLLED',
+  'WAITLISTED',
+  'PENDING_BID',
+  'DROPPED',
+];
+
+/**
+ * Una sección: el grupo concreto de una materia en un lapso.
+ *
+ * Es la unidad sobre la que se inscribe un estudiante, y la que tiene cupo.
+ */
+export interface Seccion {
+  id: string;
+  programaId: string;
+  materiaId: string;
+  /** Código del lapso (`academic_periods.code`). */
+  periodo: string;
+  /** Nombre corto dentro del lapso ('SA', 'SC'). */
+  nombre: string;
+  /**
+   * Cupo declarado de la sección, o `null` para «usa el global del centro».
+   *
+   * ⚠️ **`0` no es «sin definir»: es una sección sin cupo.** Sólo `null` cae al
+   * parámetro `cupo_maximo_por_seccion`. La columna se hizo anulable justo para
+   * que ese fallback fuera alcanzable: era `not null default 0` y nunca
+   * disparaba.
+   */
+  cupoMaximo: number | null;
+  activa: boolean;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+/**
+ * La ocupación de una sección, con los nombres ya resueltos.
+ *
+ * Sale de la vista `v_ocupacion_secciones`, que calcula los tres recuentos con
+ * funciones `security definer` (una vista `invoker` que contara `enrollments`
+ * directo mostraría a cada estudiante **sólo su propia fila** y la sección
+ * parecería vacía).
+ *
+ * Los nombres no están en la vista: los resuelve el repositorio con una segunda
+ * consulta sobre los ids de la página.
+ */
+export interface OcupacionSeccion {
+  seccionId: string;
+  periodo: string;
+  programaId: string;
+  programaNombre: string | null;
+  materiaId: string;
+  materiaNombre: string | null;
+  nombre: string;
+  activa: boolean;
+  /** `coalesce(max_capacity, cupo_maximo_por_seccion, 0)`. */
+  cupoEfectivo: number;
+  /**
+   * Cuántos asientos están tomados.
+   *
+   * **Cuenta sólo `ENROLLED`**: una solicitud `PENDING_BID` no reserva cupo. Por
+   * eso `cuposDisponibles` puede ser > 0 con una oferta en el aire, y por eso
+   * existe `ofertaVigente`.
+   */
+  cuposOcupados: number;
+  cuposDisponibles: number;
+  /**
+   * ¿Hay una oferta de cupo viva (no vencida) en esta sección?
+   *
+   * **No es informativo: es la barrera contra la doble venta.** Sin esta señal,
+   * el contador diría que hay hueco mientras una oferta está en el aire, y dos
+   * personas acabarían en un asiento de uno. La interfaz **debe** usarla para no
+   * ofrecer un asiento que no se puede dar.
+   */
+  ofertaVigente: boolean;
+}
+
+/** Una inscripción tal como se guarda. */
+export interface Inscripcion {
+  id: string;
+  estudianteId: string;
+  seccionId: string;
+  estado: EstadoInscripcion;
+  /** Vencimiento de la oferta. Sólo tiene valor en `PENDING_BID`. */
+  ofertaVenceEn: string | null;
+  creadoEn: string;
+  actualizadoEn: string;
+}
+
+/**
+ * Una inscripción con el contexto que necesita una pantalla.
+ *
+ * Se aplana la sección en vez de anidarla porque las dos pantallas que la usan
+ * (mis inscripciones y la cola del administrador) pintan los mismos campos, y
+ * anidar obligaría a desempaquetar en el cliente sin ganar nada.
+ */
+export interface InscripcionDetallada extends Inscripcion {
+  periodo: string;
+  seccionNombre: string;
+  materiaId: string;
+  materiaNombre: string | null;
+  programaId: string;
+  programaNombre: string | null;
+  /** Posición en la cola FIFO, empezando en 1. `null` si no está en cola. */
+  posicionEnCola: number | null;
+  /** Nombre del estudiante. Sólo lo recibe el administrador (la RLS lo permite). */
+  estudianteNombre?: string | null;
+  estudianteEmail?: string | null;
+}

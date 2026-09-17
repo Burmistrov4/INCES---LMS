@@ -217,10 +217,16 @@ const habilitados = modulos
   .map((m) => m.clave)
   .sort();
 comprobar(
-  'm0…m3 habilitados y m4…m8 apagados',
+  'm0…m4 habilitados y m5…m8 apagados',
   JSON.stringify(habilitados) ===
-    JSON.stringify(['m0_cpanel', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante']) &&
-    modulos.filter((m) => !m.habilitado).every((m) => /^m[4-8]_/.test(m.clave)),
+    JSON.stringify([
+      'm0_cpanel',
+      'm1_onboarding',
+      'm2_curriculo',
+      'm3_cuadrante',
+      'm4_inscripciones',
+    ]) &&
+    modulos.filter((m) => !m.habilitado).every((m) => /^m[5-8]_/.test(m.clave)),
   `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');

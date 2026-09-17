@@ -12,7 +12,9 @@ import { rutasAdmin } from './http/rutas/admin.js';
 import { rutasAuth } from './http/rutas/auth.js';
 import { rutasCuadrante } from './http/rutas/cuadrante.js';
 import { rutasCurriculo } from './http/rutas/curriculo.js';
+import { rutasInscripciones } from './http/rutas/inscripciones.js';
 import { rutasSalud } from './http/rutas/salud.js';
+import { rutasSecciones } from './http/rutas/secciones.js';
 import { rutasYo } from './http/rutas/yo.js';
 import { CacheModulos, CacheParametros } from './infra/cache.js';
 import type { EnvioCorreo } from './infra/correo.js';
@@ -140,6 +142,11 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   rutasAdmin(app, depsRutas);
   rutasCurriculo(app);
   rutasCuadrante(app);
+  // El catálogo de secciones antes que las inscripciones: M4 se inscribe *en* una
+  // sección, así que sin poder crearlas el motor de cupos no tiene sobre qué
+  // operar. Son módulos distintos por alcance (M3) y por consumo (M4).
+  rutasSecciones(app);
+  rutasInscripciones(app);
   rutasAuth(app, depsRutas);
 
   return app;

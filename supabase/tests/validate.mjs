@@ -121,9 +121,15 @@ async function main() {
   );
   check('m9 (certificados/QR) NO se siembra', !modulos.some((m) => m.clave.startsWith('m9')));
   check(
-    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3)',
+    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3, m4)',
     modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
-      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante',
+      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones',
+  );
+  // `m5_archivos` sigue apagado aunque R2 ya funcione: el servicio de
+  // almacenamiento está construido pero todavía no tiene rutas que lo expongan.
+  check(
+    'm5 sigue apagado: no hay rutas que lo usen todavía',
+    !modulos.find((m) => m.clave === 'm5_archivos').habilitado,
   );
   check(
     'm0_cpanel está restringido al rol admin',

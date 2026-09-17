@@ -1,9 +1,36 @@
 # Briefing para el agente que implementa la Fase 2 del Módulo 4
 
+> ## ⚠️ ESTADO: LA FASE 2 YA ESTÁ CONSTRUIDA (2026-09-17)
+>
+> **No la reimplementes.** Este documento se escribió como briefing *previo*, y ya
+> se ejecutó. Lo que hay ahora en el repositorio:
+>
+> | Pieza | Dónde |
+> |---|---|
+> | CRUD de secciones (Patrón A) | `src/http/rutas/secciones.ts` |
+> | Motor de inscripciones (Patrones A y B) | `src/http/rutas/inscripciones.ts` |
+> | Reglas puras | `src/dominio/reglas-inscripciones.ts` |
+> | Puertos | `PuertaSecciones` y `PuertaInscripciones` en `src/dominio/puertos.ts` |
+> | Repositorios | `SeccionesSupabase` e `InscripcionesSupabase` en `src/infra/repos-supabase.ts` |
+> | Esquemas Zod | sección «Módulo 4» de `src/http/esquemas.ts` |
+> | Contrato | los 14 paths nuevos en `src/http/openapi.ts` y `openapi.json` |
+> | Módulo encendido | migración `202609200002_mod4_habilitar_modulo.sql` |
+>
+> **Verificado:** backend **428/428** · SQL pglite **223/223** · esquema **92/92** ·
+> libro mayor **15/15** · typecheck, lint y build limpios. Las seis RPC se
+> comprobaron alcanzables por PostgREST con los nombres de parámetro reales.
+>
+> **Lo que sigue sin estar hecho:** la **Fase 3 (frontend)** y el **humo de la
+> Fase 4** (`humo-inscripciones.mjs`, el único sitio donde puede probarse la
+> concurrencia real). Lo de abajo sigue siendo útil como **referencia del patrón**
+> y como **mapa de dónde vive cada cosa** — no como una lista de tareas pendientes.
+>
+> Un aviso que sigue vigente: **§7 (el CRUD de secciones) ya está resuelto**, así
+> que ese bloqueante está cerrado.
+
 > **Para quién es esto.** Para un agente de IA (o una persona) que llega **sin
-> contexto** al proyecto y va a escribir el backend del Módulo 4 (Inscripciones y
-> Cupos). Léelo entero antes de tocar nada. Si algo de aquí contradice al código,
-> **gana el código** — y avísalo.
+> contexto** al proyecto. Léelo entero antes de tocar nada. Si algo de aquí
+> contradice al código, **gana el código** — y avísalo.
 
 ---
 

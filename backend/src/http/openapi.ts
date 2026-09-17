@@ -959,6 +959,273 @@ const parametroMiHorario = z.object({
   }),
 });
 
+// --------------------------------------------------------- inscripciones ---
+//
+// Módulo 4: cinco rutas de estudiante bajo `/api/v1` y ocho de administración
+// bajo `/api/v1/admin`, más el catálogo de secciones.
+//
+// **Aquí no se documenta ninguna regla de cupo como si la decidiera la API.**
+// Las decide PostgreSQL, dentro de las RPC `security definer` y de un cerrojo por
+// sección. Lo que este contrato describe es lo que la API **traduce**, y por eso
+// los códigos de error importan más de lo normal: `ACAPARAMIENTO_DE_MATERIA`,
+// `REQUIERE_REINCORPORACION`, `SECCION_ARCHIVADA` y `OFERTA_VENCIDA` son todos
+// `23514` en la base, y sin separarlos el cliente no podría decir nada útil.
+//
+// **`ofertaVigente` no es informativo: es la barrera contra la doble venta.**
+// Como `cupos_ocupados` cuenta sólo `ENROLLED`, `cuposDisponibles` puede ser > 0
+// mientras una oferta está en el aire. La interfaz debe mirar `ofertaVigente` y
+// no el contador, o prometerá un asiento que la base va a negar.
+
+const EstadoInscripcion = z
+  .enum(['ENROLLED', 'WAITLISTED', 'PENDING_BID', 'DROPPED'])
+  .openapi('EstadoInscripcion');
+
+const Seccion = z
+  .object({
+    id: z.string().uuid(),
+    programaId: z.string().uuid(),
+    materiaId: z.string().uuid(),
+    periodo: z.string().openapi({
+      description: 'Código del lapso al que pertenece la sección.',
+    }),
+    nombre: z.string().openapi({
+      description:
+        'Identificador corto dentro del lapso ("SA", "SC"), de hasta 5 caracteres. El nombre largo de la materia vive en `subjects.name`.',
+    }),
+    cupoMaximo: z.number().int().nullable().openapi({
+      description:
+        'Cupo declarado. `null` = usa el global del centro (`cupo_maximo_por_seccion`). `0` = sección sin cupo, y NO es lo mismo: sólo `null` cae al global.',
+    }),
+    activa: z.boolean().openapi({
+      description:
+        'false = archivada. No hay borrado: el `DELETE` está revocado en la base, y una sección borrada se llevaría el historial de inscripciones.',
+    }),
+    creadoEn: z.string(),
+    actualizadoEn: z.string(),
+  })
+  .openapi('Seccion');
+
+const OcupacionSeccion = z
+  .object({
+    seccionId: z.string().uuid(),
+    periodo: z.string(),
+    programaId: z.string().uuid(),
+    programaNombre: z.string().nullable(),
+    materiaId: z.string().uuid(),
+    materiaNombre: z.string().nullable(),
+    nombre: z.string(),
+    activa: z.boolean(),
+    cupoEfectivo: z.number().int().openapi({
+      description:
+        '`coalesce(max_capacity, cupo_maximo_por_seccion, 0)`. Es el número contra el que se decide si hay asiento.',
+    }),
+    cuposOcupados: z.number().int().openapi({
+      description:
+        'Asientos tomados. Cuenta SÓLO `ENROLLED`: una solicitud `PENDING_BID` no reserva cupo.',
+    }),
+    cuposDisponibles: z.number().int().openapi({
+      description:
+        'Cupo efectivo menos ocupados, nunca negativo. OJO: puede ser > 0 con una oferta en el aire. Para decidir si se puede ofrecer, usa `ofertaVigente`.',
+    }),
+    ofertaVigente: z.boolean().openapi({
+      description:
+        '¿Hay una oferta de cupo viva (no vencida) en esta sección? NO es informativo: es la barrera contra la doble venta. Con `ofertaVigente: true` el asiento está comprometido aunque `cuposDisponibles` diga otra cosa, y una solicitud nueva entrará a la lista de espera.',
+    }),
+  })
+  .openapi('OcupacionSeccion');
+
+const Inscripcion = z
+  .object({
+    id: z.string().uuid(),
+    estudianteId: z.string().uuid(),
+    seccionId: z.string().uuid(),
+    estado: EstadoInscripcion,
+    ofertaVenceEn: z.string().nullable().openapi({
+      description:
+        'Vencimiento de la oferta. Sólo tiene valor en `PENDING_BID`. Pasada la fecha, la oferta se puede vencer con `POST /api/v1/admin/inscripciones/expirar`.',
+    }),
+    creadoEn: z.string(),
+    actualizadoEn: z.string(),
+  })
+  .openapi('Inscripcion');
+
+const InscripcionDetallada = Inscripcion.extend({
+  periodo: z.string(),
+  seccionNombre: z.string(),
+  materiaId: z.string().uuid(),
+  materiaNombre: z.string().nullable(),
+  programaId: z.string().uuid(),
+  programaNombre: z.string().nullable(),
+  posicionEnCola: z.number().int().nullable().openapi({
+    description:
+      'Posición en la cola FIFO, empezando en 1. `null` si no está en la cola: un `ENROLLED` no ocupa un turno.',
+  }),
+  estudianteNombre: z.string().nullable().optional().openapi({
+    description: 'Sólo lo recibe el administrador. La RLS de `profiles` impide al estudiante verlo.',
+  }),
+  estudianteEmail: z.string().nullable().optional(),
+}).openapi('InscripcionDetallada');
+
+const RespuestaSecciones = z
+  .object({
+    secciones: z.array(Seccion),
+    total: z.number().int(),
+    limite: z.number().int(),
+    desplazamiento: z.number().int(),
+  })
+  .openapi('RespuestaSecciones');
+
+const RespuestaSeccion = z.object({ seccion: Seccion }).openapi('RespuestaSeccion');
+
+const RespuestaOcupacion = z
+  .object({
+    secciones: z.array(OcupacionSeccion),
+    total: z.number().int(),
+    limite: z.number().int(),
+    desplazamiento: z.number().int(),
+  })
+  .openapi('RespuestaOcupacion');
+
+const RespuestaInscripciones = z
+  .object({ inscripciones: z.array(InscripcionDetallada) })
+  .openapi('RespuestaInscripciones');
+
+const RespuestaCola = z
+  .object({ cola: z.array(InscripcionDetallada) })
+  .openapi('RespuestaCola');
+
+const RespuestaEstadoInscripcion = z
+  .object({
+    estado: EstadoInscripcion,
+    mensaje: z.string().openapi({
+      description: 'Texto legible del estado, para no duplicar el mapa estado→etiqueta en el cliente.',
+    }),
+  })
+  .openapi('RespuestaEstadoInscripcion');
+
+const RespuestaPromocion = z
+  .object({
+    promovida: Inscripcion.nullable().openapi({
+      description:
+        'La inscripción promovida, o `null` si no había a nadie. **Un `null` no es un error**: la cola puede estar vacía, la sección llena, o ya haber una oferta en el aire. Es un 200 con explicación, no un 404.',
+    }),
+    mensaje: z.string(),
+  })
+  .openapi('RespuestaPromocion');
+
+const RespuestaExpiracion = z
+  .object({
+    vencidas: z.number().int().openapi({
+      description: 'Cuántas ofertas se vencieron. Idempotente: la segunda llamada devuelve 0.',
+    }),
+    mensaje: z.string(),
+  })
+  .openapi('RespuestaExpiracion');
+
+const CuerpoCrearSeccion = z
+  .object({
+    programaId: z.string().uuid(),
+    materiaId: z.string().uuid(),
+    periodo: z.string().openapi({
+      description: 'Código de un lapso ya registrado. Debe existir: la FK es `on delete restrict`.',
+    }),
+    nombre: z.string().max(5).openapi({
+      description: 'Identificador corto ("SA"). Único por lapso y materia.',
+    }),
+    cupoMaximo: z.number().int().min(0).nullable().optional().openapi({
+      description: 'Ausente o `null` = usar el cupo global. `0` = sección sin cupo.',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoCrearSeccion');
+
+const CuerpoActualizarSeccion = z
+  .object({
+    nombre: z.string().max(5).optional(),
+    cupoMaximo: z.number().int().min(0).nullable().optional(),
+    activa: z.boolean().optional().openapi({
+      description: 'Archivar es esto: no hay borrado.',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoActualizarSeccion');
+
+const CuerpoSolicitarInscripcion = z
+  .object({ seccionId: z.string().uuid() })
+  .strict()
+  .openapi('CuerpoSolicitarInscripcion');
+
+const CuerpoReincorporar = z
+  .object({
+    estudianteId: z.string().uuid(),
+    seccionId: z.string().uuid(),
+  })
+  .strict()
+  .openapi('CuerpoReincorporar');
+
+const parametrosListadoSecciones = z.object({
+  busqueda: z.string().optional().openapi({
+    param: { name: 'busqueda', in: 'query' },
+    description: 'Texto libre sobre el nombre corto de la sección.',
+  }),
+  periodo: z.string().optional().openapi({
+    param: { name: 'periodo', in: 'query' },
+    description: 'Código del lapso. Ausente = todos.',
+  }),
+  programaId: z.string().uuid().optional().openapi({
+    param: { name: 'programaId', in: 'query' },
+    description: 'Filtra por programa de formación.',
+  }),
+  materiaId: z.string().uuid().optional().openapi({
+    param: { name: 'materiaId', in: 'query' },
+    description: 'Filtra por unidad curricular.',
+  }),
+  activa: z.enum(['true', 'false']).optional().openapi({
+    param: { name: 'activa', in: 'query' },
+    description: 'Filtra activas (true) o archivadas (false). Ausente = todas.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
+const parametrosListadoOfertas = z.object({
+  busqueda: z.string().optional().openapi({
+    param: { name: 'busqueda', in: 'query' },
+    description: 'Texto libre sobre el nombre corto de la sección.',
+  }),
+  periodo: z.string().optional().openapi({
+    param: { name: 'periodo', in: 'query' },
+    description: 'Código del lapso. Ausente = todos.',
+  }),
+  programaId: z.string().uuid().optional().openapi({
+    param: { name: 'programaId', in: 'query' },
+    description: 'Filtra por programa de formación.',
+  }),
+  materiaId: z.string().uuid().optional().openapi({
+    param: { name: 'materiaId', in: 'query' },
+    description: 'Filtra por unidad curricular.',
+  }),
+  soloConCupo: z.enum(['true', 'false']).optional().openapi({
+    param: { name: 'soloConCupo', in: 'query' },
+    description:
+      'Sólo secciones con asiento realmente ofrecible: con hueco Y sin oferta viva. NO es `cuposDisponibles > 0`, que mentiría con una oferta en el aire.',
+  }),
+  limite: z.coerce.number().int().min(1).max(100).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Tamaño de página. Por defecto 25.',
+  }),
+  desplazamiento: z.coerce.number().int().min(0).optional().openapi({
+    param: { name: 'desplazamiento', in: 'query' },
+    description: 'Filas a saltar antes de esta página. Por defecto 0.',
+  }),
+});
+
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
   return {
@@ -1896,6 +2163,325 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // ------------------------------------------------------- inscripciones ---
+
+  const seccionesTag = { tags: ['Secciones'] };
+  const inscripcionesTag = { tags: ['Inscripciones'] };
+
+  registro.registerPath({
+    ...seccionesTag,
+    method: 'get',
+    path: '/api/v1/admin/secciones',
+    summary: 'Listado paginado de secciones',
+    description:
+      'El catálogo sobre el que se inscribe un estudiante. Hasta M4 esta tabla sólo se leía desde el cuadrante y se contaba desde el pensum: **no había forma de crear una sección**, y sin secciones el motor de cupos no tiene sobre qué operar.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoSecciones },
+    responses: {
+      200: {
+        description: 'Una página de secciones, de lapso más reciente a más antiguo.',
+        content: { 'application/json': { schema: RespuestaSecciones } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...seccionesTag,
+    method: 'post',
+    path: '/api/v1/admin/secciones',
+    summary: 'Crea una sección',
+    description:
+      '`periodo`, `programaId` y `materiaId` deben existir: las tres claves ajenas son `on delete restrict`, así que una referencia inventada es un 400 REFERENCIA_INVALIDA. El nombre es único por lapso y materia (`sections_identidad_unica`): repetirlo es un 409.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCrearSeccion } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Sección creada.',
+        content: { 'application/json': { schema: RespuestaSeccion } },
+      },
+      400: error('Referencia inexistente, nombre vacío o cupo negativo.'),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      409: error('Ya existe una sección con ese nombre en ese lapso y materia (REGISTRO_DUPLICADO).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...seccionesTag,
+    method: 'patch',
+    path: '/api/v1/admin/secciones/{id}',
+    summary: 'Cambia nombre, cupo o estado de una sección',
+    description:
+      '**No se puede cambiar el programa, la materia ni el lapso**: los tres forman la identidad de la sección y cambiarlos no sería editarla, sería convertirla en otra llevándose por delante el historial de inscripciones que cuelga de su `id`. **Tampoco hay borrado**: archivar es `activa: false`, y el `DELETE` está revocado en la base.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: z.object({ id: z.string().uuid() }),
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoActualizarSeccion } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Sección actualizada.',
+        content: { 'application/json': { schema: RespuestaSeccion } },
+      },
+      400: error('Ningún cambio indicado, o cupo negativo.'),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('La sección no existe (SECCION_INEXISTENTE).'),
+      409: error('El nombre nuevo choca con otra sección del mismo lapso y materia.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/ofertas',
+    summary: 'Catálogo de secciones con cupo, para inscribirse',
+    description:
+      'Sólo secciones activas: ofrecer una archivada sería ofrecer algo que la base va a rechazar. Cada fila trae `cuposDisponibles` y `ofertaVigente` por separado a propósito — con una oferta en el aire el contador puede decir que hay hueco y el asiento NO se puede dar. **Usa `ofertaVigente`, no el contador.**',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoOfertas },
+    responses: {
+      200: {
+        description: 'Una página de secciones con su ocupación.',
+        content: { 'application/json': { schema: RespuestaOcupacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/mis-inscripciones',
+    summary: 'Las inscripciones del llamante',
+    description:
+      'Incluye las dadas de baja: `DROPPED` **no es un borrado**, la fila se conserva como historial y volver a entrar es una excepción de administración. `posicionEnCola` sólo tiene valor para quien está esperando.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Las inscripciones propias, de la más reciente a la más antigua.',
+        content: { 'application/json': { schema: RespuestaInscripciones } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/inscripciones',
+    summary: 'Solicita un asiento en una sección',
+    description:
+      'Devuelve el estado resultante: `ENROLLED` si entró directo, `WAITLISTED` si quedó en la cola. **No se adivina aquí** — lo decide la base dentro de un cerrojo por sección. La regla es «hay hueco **Y** no hay oferta viva»: sin la segunda mitad, el asiento se vendería dos veces.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoSolicitarInscripcion } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Inscripción creada, en `ENROLLED` o en `WAITLISTED`.',
+        content: { 'application/json': { schema: RespuestaEstadoInscripcion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      404: error('La sección no existe (SECCION_INEXISTENTE).'),
+      409: error(
+        'ACAPARAMIENTO_DE_MATERIA (ya está en otra sección de esa materia), ' +
+          'REQUIERE_REINCORPORACION (ya la cursó y necesita que un admin lo reincorpore), ' +
+          'SOLICITUD_YA_EXISTE, o SECCION_ARCHIVADA.',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/inscripciones/{id}/aceptar',
+    summary: 'Acepta una oferta de cupo',
+    description:
+      '**`{id}` es el identificador de la SECCIÓN, no el de la inscripción.** Una inscripción no tiene identidad propia en la API: se identifica por el par (estudiante, sección), y el estudiante es siempre el de la sesión. Sólo el dueño de la oferta puede aceptarla: la de otro da 400 y la ajena queda intacta.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: 'Oferta aceptada. El estado resultante es `ENROLLED`.',
+        content: { 'application/json': { schema: RespuestaEstadoInscripcion } },
+      },
+      400: error('No hay una oferta pendiente para esa sección (RESTRICCION_VIOLADA).'),
+      401: RESPUESTAS_ERROR[401],
+      410: error('La oferta ya venció (OFERTA_VENCIDA). La interfaz debe recargar, no pedir que se corrija nada.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/inscripciones/{id}/renunciar',
+    summary: 'Renuncia al asiento en una sección',
+    description:
+      'Deja la fila en `DROPPED` y **promueve al siguiente de la cola**. No borra: el historial es lo que permite que un administrador reincorpore. `{id}` es el identificador de la sección.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: 'Baja registrada. El estado resultante es `DROPPED`.',
+        content: { 'application/json': { schema: RespuestaEstadoInscripcion } },
+      },
+      400: error('No hay ninguna inscripción en esa sección (RESTRICCION_VIOLADA).'),
+      401: RESPUESTAS_ERROR[401],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/admin/ocupacion',
+    summary: 'Panel de ocupación de todas las secciones',
+    description:
+      'A diferencia de `/api/v1/ofertas`, aquí **sí** se ven las secciones archivadas: el administrador necesita consultar el histórico de una cerrada.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoOfertas },
+    responses: {
+      200: {
+        description: 'Una página de secciones con su ocupación.',
+        content: { 'application/json': { schema: RespuestaOcupacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/admin/secciones/{id}/cola',
+    summary: 'La cola FIFO de una sección',
+    description:
+      'Orden de llegada: el primero que llegó es el primero. `PENDING_BID` no aparece —ya salió de la cola, se le ofreció un asiento— y `ENROLLED` tampoco. `posicionEnCola` viene ya resuelto.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: 'La cola, en orden.',
+        content: { 'application/json': { schema: RespuestaCola } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/admin/secciones/{id}/inscripciones',
+    summary: 'Quién está en una sección, en cualquier estado',
+    description:
+      'Incluye los `DROPPED`: es la vista de «quién pasó por aquí», que es justo lo que necesita el administrador para decidir una reincorporación. Trae el nombre y el correo del estudiante, que la RLS sí le permite ver.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: 'Las inscripciones de la sección, de la más antigua a la más reciente.',
+        content: { 'application/json': { schema: RespuestaInscripciones } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/admin/secciones/{id}/promover',
+    summary: 'Promueve al siguiente de la cola',
+    description:
+      'No promueve si la sección está llena ni si ya hay una oferta viva: **una oferta por asiento**. Devuelve `promovida: null` cuando no había a nadie, y eso **no es un error** — la cola puede estar vacía, la sección llena, o haber ya una oferta en el aire. Es un 200 con la explicación, no un 404.',
+    security: [{ bearerAuth: [] }],
+    request: { params: z.object({ id: z.string().uuid() }) },
+    responses: {
+      200: {
+        description: 'Promoción intentada. `promovida` es `null` si no había a quién.',
+        content: { 'application/json': { schema: RespuestaPromocion } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/admin/inscripciones/reincorporar',
+    summary: 'Devuelve a un dado de baja al estado de inscrito',
+    description:
+      '**Puede EXCEDER la capacidad de la sección, y es deliberado.** Regla institucional: «si el admin autoriza, el sistema obedece». La comprobación de cupo se quitó de la RPC a propósito; quedan el rol, el cerrojo y el trigger anti-acaparamiento. El exceso queda registrado, no es un agujero. Es la única RPC del módulo que actúa sobre otra persona.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoReincorporar } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Reincorporación hecha. El estado resultante es `ENROLLED`.',
+        content: { 'application/json': { schema: RespuestaEstadoInscripcion } },
+      },
+      400: error('La inscripción no está dada de baja (RESTRICCION_VIOLADA).'),
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('No existe una inscripción previa de ese estudiante en esa sección (SIN_HISTORIAL_EN_SECCION).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/admin/inscripciones/expirar',
+    summary: 'Vence las ofertas de cupo caducadas',
+    description:
+      '**Idempotente**: la segunda llamada devuelve 0. Y **sin `pg_cron` a propósito** — el proyecto tiene arquitectura dual (nube + servidor local) y cortes eléctricos, así que no se puede depender de un planificador concreto. Al vencer una oferta se promueve a quien corresponda.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Cuántas ofertas se vencieron.',
+        content: { 'application/json': { schema: RespuestaExpiracion } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   return registro;
 }
 
@@ -1941,6 +2527,16 @@ export function construirDocumentoOpenApi() {
         name: 'Cuadrante',
         description:
           'Módulo 3: aulas, lapsos, guardias docentes y la rejilla del cuadrante. Las rutas de administración exigen rol admin; `/api/v1/mi-horario` sirve el horario propio a docentes y estudiantes.',
+      },
+      {
+        name: 'Secciones',
+        description:
+          'El catálogo de secciones: el grupo concreto de una materia en un lapso. Es lo que el cuadrante usa para colgar sus clases y lo que un estudiante elige al inscribirse. Requiere rol admin.',
+      },
+      {
+        name: 'Inscripciones',
+        description:
+          'Módulo 4: cupos, cola FIFO y ofertas con vencimiento. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito.',
       },
     ],
   });

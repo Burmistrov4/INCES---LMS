@@ -4,10 +4,10 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-18 · **Módulo 3 completo y desplegado**
+> **Última actualización:** 2026-09-17 · **Módulo 3 completo y desplegado**
 > (esquema, backend de 14 rutas y frontend), con su humo de integración en verde
-> contra la nube. **Módulo 4 — Inscripciones y Cupos: Fase 1 (esquema) aplicada y
-> verificada en la nube**; backend y frontend pendientes. Módulo 1 cerrado y
+> contra la nube. **Módulo 4 — Inscripciones y Cupos: Fases 1 (esquema) y 2
+> (backend) cerradas**; queda el frontend. Módulo 1 cerrado y
 > Módulo 2 completo. **D10 resuelta** (libro mayor de migraciones con checksums).
 > Puertos y CORS alineados. Repositorio publicado en GitHub.
 >
@@ -16,6 +16,14 @@
 > **22** a **29 rutas** y de **40** a **62 esquemas**). `test/openapi.test.ts`
 > compara ahora el documento contra las rutas **reales** en las dos direcciones,
 > así que una ruta nueva sin documentar ya no puede pasar.
+>
+> **El Módulo 4 tiene las Fases 1 y 2 cerradas.** 14 rutas nuevas (3 del catálogo
+> de secciones, 5 de estudiante y 6 de administración), `reglas-inscripciones.ts`
+> con las reglas puras, `PuertaSecciones` y `PuertaInscripciones` con sus
+> implementaciones, esquemas Zod y contrato. El recuento pasó de **29 a 42 rutas** y
+> de **62 a 79 esquemas**, y `m4_inscripciones` quedó **encendido** en
+> `system_modules`. **Falta el frontend (Fase 3) y el humo de concurrencia real
+> (Fase 4).**
 >
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
@@ -47,7 +55,7 @@
 | **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ✅ **Completo** (PASO 4) |
 | **Módulo 3 (frontend)** | Pantallas de aulas, lapsos, guardias y cuadrante (rejilla `CuadranteGrid`, `MiHorarioPanel`) | ✅ Completo |
 | **Módulo 4 (esquema)** | Inscripciones y cupos: cola FIFO, ofertas con vencimiento, anti-acaparamiento y **frontera de escritura por RPC** | ✅ **Aplicado y verificado** (2026-09-18) |
-| **Módulo 4 (backend)** | Rutas de inscripción, puerto, repositorio y traducción de errores | ⏳ Pendiente |
+| **Módulo 4 (backend)** | Las 14 rutas de inscripciones y del catálogo de secciones | ✅ **Completo** |
 | **Módulo 4 (frontend)** | Catálogo de secciones, solicitud y aceptación de cupo, panel de cola en el cPanel | ⏳ Pendiente |
 | **Fase 5+** | M5 Archivos … M8 Pasantías | ⏳ Pendiente |
 
@@ -59,12 +67,12 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **307 / 307** en verde — **última medición válida, 2026-09-15**. No re-ejecutable en este entorno (ver aviso) |
-| `npm test` (backend) | **341 / 341** en verde (16 archivos) |
+| `npm test` (backend) | **428 / 428** en verde (19 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **222 / 222** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3 + 41 de M4 + 6 de la frontera de escritura + **10 del ajuste de reglas institucionales**) |
-| **Migraciones en la nube** | **14 / 14** registradas en `schema_migrations` |
+| Validador SQL contra PostgreSQL real (pglite) | **223 / 223** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3 + 41 de M4 + 6 de la frontera de escritura + 10 del ajuste de reglas institucionales + **1 del encendido del módulo**) |
+| **Migraciones en la nube** | **15 / 15** registradas en `schema_migrations` |
 | **Verificación independiente del esquema en la nube** | **92 / 92** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
 | **Libro mayor de migraciones (D10)** | 14 versiones aplicadas con checksum SHA-256 válido |
 | **Migraciones de M2, M3 y M4 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 el 2026-09-18) — 17 tablas + **5 vistas**, con RLS activo en las 17 (ver §3) |
@@ -76,7 +84,7 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
-| Documento OpenAPI | OpenAPI 3.1.0 · **29 rutas · 62 esquemas** (las 14 de M3 incluidas) |
+| Documento OpenAPI | OpenAPI 3.1.0 · **42 rutas · 79 esquemas** (las 14 de M3 y las 14 de M4 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -100,7 +108,7 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 > **válida**, del 2026-09-15, **no una medición de hoy**. Cualquier cifra de
 > Flutter que se cite sin re-ejecutar arrastra esa fecha. La nota del `HANDOVER.md`
 > que afirmaba que `flutter test` sí funcionaba aquí **es falsa** y quedó corregida.
-> Las demás redes (SQL 222/222, esquema 92/92, libro mayor 14/14) **sí** se
+> Las demás redes (SQL 223/223, esquema 92/92, libro mayor 15/15) **sí** se
 > re-ejecutaron el 2026-09-18 y están al día.
 
 > **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
@@ -115,7 +123,7 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **catorce** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **quince** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **17 tablas** con RLS activo **en las 17**, **5 vistas** (`cursos` de D12, las
@@ -142,6 +150,11 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 > cambian**: esa migración reemplaza cuerpos de función y recrea la vista sin
 > alterar su número. El resto de la aritmética se mantiene intacta, que es
 > exactamente lo que se espera de una migración de ajuste.
+>
+> **Y tras `202609200002`** (encender el módulo): **ningún objeto nuevo** — sólo
+> `m4_inscripciones` pasa a `habilitado = true`, así que los módulos encendidos van
+> de **4 a 5 de 9**. Que esta migración no mueva ninguna otra cifra es la
+> comprobación de que hizo exactamente una cosa.
 
 **`classrooms`, `teacher_duties` y `schedule_slots` están vacías, y es lo
 correcto.** No se sembró ni un aula ni una guardia: el inventario de espacios del
@@ -662,7 +675,35 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 | `PATCH` | `/api/v1/admin/cuadrante/:id` | Mueve o edita una clase |
 | `GET` | `/api/v1/mi-horario` | **sesión** — Docente: sus clases **y** sus guardias. Estudiante: las de su sección. Un `admin` recibe 403 `PERFIL_SIN_ROL` |
 
-**29 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+**Módulo 4 — Inscripciones y Cupos (14 rutas):**
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/secciones` | Catálogo de secciones, paginado (`?periodo=`, `?programaId=`, `?materiaId=`, `?activa=`) |
+| `POST` | `/api/v1/admin/secciones` | Crea una sección (201). Nombre repetido → **409 `REGISTRO_DUPLICADO`** |
+| `PATCH` | `/api/v1/admin/secciones/:id` | `nombre`, `cupoMaximo`, `activa`. **No borra**: archivar es `activa: false` |
+| `GET` | `/api/v1/ofertas` | **sesión** — Secciones activas con su ocupación. Trae `ofertaVigente` **y** `cuposDisponibles` por separado |
+| `GET` | `/api/v1/mis-inscripciones` | **sesión** — Las propias, incluidos los `DROPPED`, con `posicionEnCola` |
+| `POST` | `/api/v1/inscripciones` | **sesión** — Pide un asiento (201). Devuelve `ENROLLED` o `WAITLISTED` |
+| `POST` | `/api/v1/inscripciones/:id/aceptar` | **sesión** — Acepta una oferta. Vencida → **410 `OFERTA_VENCIDA`** |
+| `POST` | `/api/v1/inscripciones/:id/renunciar` | **sesión** — Deja `DROPPED` y promueve al siguiente |
+| `GET` | `/api/v1/admin/ocupacion` | Panel de ocupación. **Sí** incluye las archivadas |
+| `GET` | `/api/v1/admin/secciones/:id/cola` | La cola FIFO, en orden de llegada |
+| `GET` | `/api/v1/admin/secciones/:id/inscripciones` | Quién está en la sección, **en cualquier estado** |
+| `POST` | `/api/v1/admin/secciones/:id/promover` | Promueve al siguiente. `promovida: null` → **200 con explicación, no 404** |
+| `POST` | `/api/v1/admin/inscripciones/reincorporar` | `DROPPED` → `ENROLLED`. **Puede exceder la capacidad** |
+| `POST` | `/api/v1/admin/inscripciones/expirar` | Vence las ofertas caducadas. **Idempotente** |
+
+> ⚠️ **En `/api/v1/inscripciones/:id/...`, `:id` es el identificador de la
+> SECCIÓN**, no el de la inscripción. Una inscripción no tiene identidad propia en
+> la API: se identifica por el par (estudiante, sección), y el estudiante es el de
+> la sesión. Es el mismo parámetro que reciben las RPC (`p_section_id`).
+>
+> **Ninguna ruta de M4 escribe en `enrollments` directo.** La tabla tiene
+> `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` revocados para `anon` y `authenticated`
+> (R-23): todo pasa por RPC `security definer`. Ver §11 y `REPORTE_ARIA.md` R-23.
+
+**42 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
@@ -1074,7 +1115,7 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las catorce migraciones**, y ejecuta **222** aserciones
+aplica el shim de Supabase y **las quince migraciones**, y ejecuta **223** aserciones
 sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
@@ -1116,7 +1157,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 | Elemento | Estado |
 | --- | --- |
 | Base de datos en la nube | ✅ Migrada y verificada (92/92) |
-| Libro mayor de migraciones | ✅ 14/14 con checksum (D10 resuelta) |
+| Libro mayor de migraciones | ✅ 15/15 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |
@@ -1159,7 +1200,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 5. ~~Aplicar el esquema de M3~~ — **hecho** el 2026-09-15
    (`202609180001` + la corrección `202609180002`). Ver §12.
 6. ~~Implementar las 14 rutas de M3~~ — **hecho** el 2026-09-15. Las 14 rutas
-   existen y están documentadas en `openapi.json` (29 rutas, 62 esquemas): las 13
+   existen y están documentadas en `openapi.json` (42 rutas, 79 esquemas): las 13
    de administración bajo `/api/v1/admin` —`/aulas`, `/periodos`, `/guardias`,
    `/cuadrante`— más `/api/v1/mi-horario`. Incluye el código de error nuevo
    `CHOQUE_DE_AGENDA` (409) y la traducción del `23514` de colisión por el texto

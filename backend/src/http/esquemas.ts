@@ -641,6 +641,145 @@ export const esquemaMiHorario = z.object({
   periodo: codigoPeriodo.optional(),
 });
 
+// --- Módulo 4: secciones, inscripciones y cupos ------------------------------
+
+export const esquemaIdSeccion = idDeRecurso('sección');
+export const esquemaIdEstudiante = idDeRecurso('estudiante');
+
+/**
+ * Nombre de una sección (`varchar(5)` en la base).
+ *
+ * Los cinco caracteres no son un descuido del esquema: el nombre de una sección
+ * es un **identificador corto** dentro del lapso ('SA', 'SC'), no una descripción.
+ * El nombre largo de la materia vive en `subjects.name`, y la interfaz compone
+ * los dos. Se replica el límite aquí para que el error diga qué pasó en vez de
+ * dejar que Postgres lo trunque o lo rechace con un `22001` que el traductor no
+ * reconoce y saldría como un `500`.
+ */
+const nombreSeccion = z
+  .string()
+  .trim()
+  .min(1, 'El nombre de la sección no puede estar vacío.')
+  .max(5, 'El nombre de la sección no puede pasar de 5 caracteres (es un identificador corto, como "SA").');
+
+/**
+ * Cupo de una sección.
+ *
+ * **`null` y `0` no son lo mismo, y por eso el campo es anulable.**
+ * `null` = «usa el cupo global del centro» (`cupo_maximo_por_seccion`).
+ * `0`    = «esta sección no admite inscripciones» → todo el mundo a la cola.
+ *
+ * La columna se hizo anulable precisamente para que el fallback fuera
+ * alcanzable: era `not null default 0` y el global nunca se consultaba.
+ */
+const cupoSeccion = z
+  .number()
+  .int('El cupo debe ser un número entero.')
+  .min(0, 'El cupo no puede ser negativo.')
+  .nullable();
+
+export const esquemaListadoSecciones = z.object({
+  busqueda: z.string().trim().min(1).max(80).optional(),
+  periodo: codigoPeriodo.optional(),
+  programaId: z.string().uuid().optional(),
+  materiaId: z.string().uuid().optional(),
+  activa: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * Alta de una sección.
+ *
+ * El período se acepta del cliente —a diferencia de una clase del cuadrante, que
+ * lo hereda de su sección— porque la sección **es** la que fija el lapso: no hay
+ * nada de donde heredarlo.
+ *
+ * `cupoMaximo` es opcional y por defecto `null`, que significa «usa el global».
+ * Mandar `0` es una decisión distinta y deliberada: una sección sin cupo.
+ */
+export const esquemaCrearSeccion = z
+  .object({
+    programaId: z.string().uuid({ message: 'El programa debe ser un UUID válido.' }),
+    materiaId: z.string().uuid({ message: 'La materia debe ser un UUID válido.' }),
+    periodo: codigoPeriodo,
+    nombre: nombreSeccion,
+    cupoMaximo: cupoSeccion.optional().default(null),
+  })
+  .strict();
+
+/**
+ * Cambios de una sección.
+ *
+ * `programaId`, `materiaId`, `periodo` **no están**: los tres forman la identidad
+ * de la sección —`unique (period_code, subject_id, name)`— y `sections` está en
+ * `on delete restrict` desde tres sitios. Cambiarlos no sería editar la sección,
+ * sería convertirla en otra llevándose por delante el historial de inscripciones
+ * que cuelga de su `id`.
+ */
+export const esquemaActualizarSeccion = z
+  .object({
+    nombre: nombreSeccion.optional(),
+    cupoMaximo: cupoSeccion.optional(),
+    activa: z.boolean().optional(),
+  })
+  .strict()
+  .refine((valor) => Object.keys(valor).length > 0, {
+    message: 'Indica al menos un cambio (nombre, cupoMaximo o activa).',
+  });
+
+/**
+ * Filtros del catálogo de ofertas y del panel de ocupación.
+ *
+ * `soloConCupo` filtra por **asiento realmente ofrecible**, no por
+ * `cupos_disponibles > 0`: con una oferta en el aire la vista informa que hay
+ * hueco, pero el asiento está comprometido y ofrecerlo sería prometer algo que la
+ * base va a negar (la doble venta de R-23).
+ */
+export const esquemaListadoOfertas = z.object({
+  busqueda: z.string().trim().min(1).max(80).optional(),
+  periodo: codigoPeriodo.optional(),
+  programaId: z.string().uuid().optional(),
+  materiaId: z.string().uuid().optional(),
+  soloConCupo: z
+    .enum(['true', 'false'])
+    .transform((valor) => valor === 'true')
+    .optional(),
+  limite: z.coerce.number().int().min(1).max(100).default(25),
+  desplazamiento: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * Solicitud de un asiento.
+ *
+ * La sección va en el **cuerpo** y no en la ruta porque no es un identificador de
+ * recurso: se está creando una inscripción, y la sección es un dato de esa
+ * creación. (En `aceptar` y `renunciar` sí es una ruta, porque ahí se opera sobre
+ * una inscripción que ya existe.)
+ */
+export const esquemaSolicitarInscripcion = z
+  .object({
+    seccionId: esquemaIdSeccion,
+  })
+  .strict();
+
+/**
+ * Reincorporación de un estudiante dado de baja.
+ *
+ * Lleva **estudiante y sección** porque un administrador no se reincorpora a sí
+ * mismo: la RPC `reincorporar_inscripcion(p_student_id, p_section_id)` es la
+ * única del módulo que actúa sobre otra persona.
+ */
+export const esquemaReincorporar = z
+  .object({
+    estudianteId: esquemaIdEstudiante,
+    seccionId: esquemaIdSeccion,
+  })
+  .strict();
+
 export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
 export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
 export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
@@ -653,6 +792,12 @@ export type RejillaEntrada = z.infer<typeof esquemaRejilla>;
 export type CrearClaseEntrada = z.infer<typeof esquemaCrearClase>;
 export type ActualizarClaseEntrada = z.infer<typeof esquemaActualizarClase>;
 export type MiHorarioEntrada = z.infer<typeof esquemaMiHorario>;
+export type ListadoSeccionesEntrada = z.infer<typeof esquemaListadoSecciones>;
+export type CrearSeccionEntrada = z.infer<typeof esquemaCrearSeccion>;
+export type ActualizarSeccionEntrada = z.infer<typeof esquemaActualizarSeccion>;
+export type ListadoOfertasEntrada = z.infer<typeof esquemaListadoOfertas>;
+export type SolicitarInscripcionEntrada = z.infer<typeof esquemaSolicitarInscripcion>;
+export type ReincorporarEntrada = z.infer<typeof esquemaReincorporar>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.
