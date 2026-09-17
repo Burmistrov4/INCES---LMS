@@ -1,13 +1,20 @@
 # HANDOVER — INCES LMS
 
 > **Módulo 4 (Inscripciones y Cupos) — Fase 1 (esquema) cerrada el 2026-09-18:**
-> migración `202609190001_mod4_inscripciones.sql` aplicada en la nube (libro mayor
-> **13/13**, 0 deriva). Motor de cupos con 6 RPC `security definer`, cola FIFO,
-> ventana de bids opcional (`habilitar_sistema_bids`, **apagada** por defecto),
-> cerrojo por sección y frontera de escritura cerrada (ver **§2.7** y
-> `REPORTE_ARIA.md` **R-23**). Backend 341/341, Flutter 307/307, SQL **212/212**.
-> **Fase 2 (backend) y Fase 3 (frontend) pendientes**, más **4 decisiones de
-> producto** que esperan respuesta de Lorenzo (§2.7).
+> migración `202609190001_mod4_inscripciones.sql` aplicada en la nube, más
+> `202609200001_mod4_reglas_ajuste.sql` que **ajusta las reglas institucionales**
+> (libro mayor **14/14**, 0 deriva). Motor de cupos con 6 RPC `security definer`,
+> cola FIFO, ventana de bids opcional (`habilitar_sistema_bids`, **apagada** por
+> defecto), cerrojo por sección y frontera de escritura cerrada (ver **§2.7** y
+> `REPORTE_ARIA.md` **R-23**). Backend 341/341, Flutter 307/307, SQL **222/222**,
+> esquema **92/92**.
+> **Fase 2 (backend) y Fase 3 (frontend) pendientes.** Las **4 decisiones de
+> producto ya fueron resueltas por Lorenzo** (§2.7) y están implementadas.
+> **Bloqueante abierto: Cloudflare R2 da `AccessDenied` porque el token todavía no
+> está vigente (`not_before: 2026-09-18T08:59:52Z`, unos 10 h en el futuro).**
+> El bucket y la cuenta son correctos, y el reloj ya se corrigió (el desfase de
+> 12 h era la causa *original* del `not_before` desplazado). Ver §2.8 y
+> `REPORTE_ARIA.md` **R-24** (allí está por qué el primer diagnóstico fue erróneo).
 >
 > Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14**,
 > puesto al día el **2026-09-15** (Módulo 2 completo) y **actualizado el
@@ -106,6 +113,7 @@ $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
   aplicada   202609180002_mod3_trigger_agenda_definer.sql
   aplicada   202609180003_r06_periodo_sa26_2_y_modulos.sql
   aplicada   202609190001_mod4_inscripciones.sql
+  aplicada   202609200001_mod4_reglas_ajuste.sql
 
   0 pendiente(s), 0 con deriva.
 ```
@@ -115,8 +123,8 @@ $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
 > 2026-09-18, junto con M4. *Cerrado en el repo* no es *aplicado en producción*.
 > Antes de dar por bueno un arreglo, corre `--check`.
 
-`node supabase/verificar-esquema.mjs` → **89/89 OK, 0 fallos** (comprobado el
-2026-09-18; venía de 80/81). Incluye las aserciones de M2 (`cursos` es vista con
+`node supabase/verificar-esquema.mjs` → **92/92 OK, 0 fallos** (comprobado el
+2026-09-18 tras `202609200001`; venía de 89/89). Incluye las aserciones de M2 (`cursos` es vista con
 `security_invoker`, `programs.type`/`is_active`, `sections.program_id`, los dos
 constraint triggers, las dos funciones del asistente), **las de M3**: las 4
 tablas nuevas con sus columnas, la FK `sections.period_code → academic_periods`,
@@ -125,7 +133,9 @@ columna generada, y —la más importante— **`prosecdef` de los dos envoltorio
 anti-colisión debe ser `DEFINER`** (ver §2.6); y **las de M4** (bloque 8 nuevo):
 las RPC como `DEFINER`, `authenticated` **sin** INSERT/UPDATE sobre `enrollments`,
 `sections.max_capacity` anulable, el parámetro de bids sembrado, el trigger
-anti-duplicado y la vista con `security_invoker`.
+anti-duplicado, la vista con `security_invoker`, **la ayuda `existe_oferta_vigente`
+como `DEFINER` (con `authenticated` sí y `anon` no)** y **la columna
+`oferta_vigente` de la vista**.
 
 ---
 
@@ -137,7 +147,12 @@ anti-duplicado y la vista con `security_invoker`.
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
 | Flutter | **307 / 307** en verde — ⚠️ **última medición válida (2026-09-15)**; hoy **no re-ejecutable** en este entorno (ver la corrección más abajo) | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **212 / 212** en verde · 13 migraciones | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **222 / 222** en verde · 14 migraciones | `cd supabase/tests && npm test` |
+
+**Humos contra la nube real** (necesitan `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
+no el `sbp_`): currículo **15/15** (medido el 2026-09-18 — resuelve la discrepancia
+14 vs 15: **gana 15**), invitaciones 17/17, cuadrante 53/53 (no re-ejecutados).
+Se corren con `node --env-file-if-exists=backend/.env supabase/humo-*.mjs --confirmar`.
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
 > tocaste. En el cierre de M2, correr los archivos sueltos daba verde y la suite
@@ -739,7 +754,8 @@ RPC. Esto es lo que hay:
 | `sections.max_capacity` **anulable** | Era `NOT NULL DEFAULT 0`. Sin esto, la regla «si es nulo usa el global» **nunca disparaba** |
 | `habilitar_sistema_bids` | Parámetro nuevo (boolean, privado). Arranca **apagado** |
 | `cupo_efectivo(sección)` | `coalesce(max_capacity, cupo_maximo_por_seccion, 0)` |
-| `cupos_ocupados(sección)` | Cuenta `ENROLLED` **+ `PENDING_BID`**: una oferta viva reserva el asiento |
+| `cupos_ocupados(sección)` | Cuenta **sólo `ENROLLED`** (regla institucional: una solicitud `PENDING_BID` **no** reserva cupo) |
+| `existe_oferta_vigente(sección)` | **El guardián que hace segura la regla anterior.** Devuelve `true` si hay un `PENDING_BID` **no vencido** (`bid_expires_at` nulo o futuro). Sin él, la regla «sólo cuenta `ENROLLED`» abre una **doble venta** — ver más abajo |
 | Trigger `enrollments_seccion_unica_por_materia` | Un estudiante no puede tener dos secciones vivas de la misma materia en el lapso. Excluye `DROPPED` **y la propia fila** |
 | 6 RPC `security definer` | `solicitar_inscripcion`, `aceptar_cupo`, `renunciar_cupo`, `promover_siguiente`, `expirar_ofertas_cupo` (idempotente, sin `pg_cron`), `reincorporar_inscripcion` |
 | Cerrojo | `pg_advisory_xact_lock` **por sección**, no global |
@@ -755,23 +771,56 @@ como rol real (`set role` + `request.jwt.claims`, en transacción con `rollback`
 escribe. Y el módulo **sigue operable**: un no-admin real llega a la lógica por
 `solicitar_inscripcion`.
 
-**Las 4 decisiones de producto que esperan a Lorenzo** (no se eligen por cuenta
-propia):
+**Las 4 decisiones de producto — RESUELTAS por Lorenzo el 2026-09-18** (migración
+`202609200001_mod4_reglas_ajuste.sql`). Quedan aquí con el porqué, porque cada una
+tiene una consecuencia que no es obvia:
 
-1. `habilitar_sistema_bids` arranca **apagado** — el ROADMAP llama a M4 «Motor de
-   Bids», ¿debe nacer encendido?
-2. `reincorporar_inscripcion` **exige cupo libre**: el admin puede hacer la
-   excepción sobre el `unique`, pero **no sobrevender**.
-3. `cupos_ocupados` cuenta `ENROLLED` + `PENDING_BID`. Si sólo contara `ENROLLED`,
-   dos ofertas podrían vender el mismo asiento.
-4. Con bids encendido, una solicitud **con cupo libre sigue entrando directo a
-   `ENROLLED`**; los bids sólo actúan al liberarse un cupo.
+1. `habilitar_sistema_bids` arranca **apagado**. → **Se mantiene apagado.** El
+   ROADMAP llama a M4 «Motor de Bids», pero la bandera nace en `false` y se
+   enciende desde administración cuando el CENATE lo pida.
+2. `reincorporar_inscripcion` **exigía cupo libre**. → **Regla institucional: el
+   Administrador PUEDE exceder la capacidad.** «Si el admin autoriza, el sistema
+   obedece». Se **quitó** la comprobación de cupo del RPC (queda el chequeo de rol,
+   el cerrojo y el trigger anti-acaparamiento). El exceso queda **deliberado y
+   registrado**, no es un agujero: es una decisión de administración.
+3. `cupos_ocupados` contaba `ENROLLED` **+ `PENDING_BID`**. → **Ahora cuenta sólo
+   `ENROLLED`**: una solicitud pendiente **no** reserva cupo.
+4. Con bids encendido, una solicitud con cupo libre **entra directo a `ENROLLED`**.
+   → **Confirmado tal cual.**
 
-**Pendiente de confirmar:** Lorenzo pidió añadir
+> ### ⚠️ La regla 3, sola, causaba una doble venta
+>
+> Esto es lo más importante de esta migración. Si `PENDING_BID` deja de sumar al
+> contador, el contador **dice que hay hueco mientras una oferta está en el aire**:
+>
+> ```
+> cupo = 1 · A renuncia            → hueco libre (0/1)
+> B es promovido (PENDING_BID)     → ocupados = 0  ← B no cuenta
+> C entra directo (hay "hueco")    → ENROLLED      ← 1/1
+> B acepta su oferta               → ENROLLED      ← 2/1
+> ```
+>
+> **Dos personas en un asiento de uno.** Por eso `202609200001` añade
+> `existe_oferta_vigente()` y la mete como puerta en **`solicitar_inscripcion`**
+> (no entra directo si hay oferta viva) y en **`promover_siguiente_de_cola`** (no
+> promueve si ya hay una oferta viva), y `aceptar_cupo` pasa a tomar el cerrojo
+> por sección (ahora también mueve el contador). La vista expone
+> `oferta_vigente` para que el frontend pueda mostrar «asiento comprometido».
+> **Una oferta vencida no cuenta**: el asiento está genuinamente libre aunque el
+> barrido (`expirar_ofertas_cupo`) no haya corrido todavía.
+>
+> El escenario está **probado**: `supabase/tests/validate.mjs` §17.5 reproduce la
+> traza de arriba y verifica que C termina en `WAITLISTED`, no en `ENROLLED`.
+>
+> **Lección reutilizable:** cuando una regla de negocio cambia un **contador**,
+> hay que preguntarse qué **invariante** sostenía ese contador. Aquí el contador
+> hacía de cerrojo de facto. Quitarlo sin sustituirlo rompe la exclusión mutua.
+
+**Resuelto también:** Lorenzo pidió añadir
 `max_faltas_consecutivas_permitidas` a los parámetros, pero
 **`max_faltas_consecutivas = 3` ya existía** (`202609120002:401`, categoría
-`asistencia`). Se **no** creó el duplicado —sería un segundo sitio con la misma
-verdad—. Confirmar o renombrar el existente.
+`asistencia`). **Se usa la global existente**; no se creó el duplicado —sería un
+segundo sitio con la misma verdad—. M4 lo consumirá desde ahí.
 
 #### Lo que falta de M4
 
@@ -785,6 +834,105 @@ verdad—. Confirmar o renombrar el existente.
 - **Sin probar, y hay que decirlo:** PGlite es Postgres real pero **no es
   Supabase**. No se ejercitó PostgREST ni GoTrue, así que la traducción de `42501`
   a un 403 en el backend **no está comprobada** — le toca a la Fase 2.
+
+### 2.8 Almacenamiento — Cloudflare R2: configurado, pero **el token aún no está vigente** 🔴
+
+**Lo que el código espera** (fuente: `backend/src/config/env.ts`, líneas 75-91 y
+161-166). Son **cuatro** variables y **no** son las que suelen darse de memoria:
+
+| Variable | Nota |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | El endpoint **se deriva** de aquí |
+| `R2_ACCESS_KEY_ID` | |
+| `R2_SECRET_ACCESS_KEY` | |
+| `R2_BUCKET` | ⚠️ **`R2_BUCKET`**, no `R2_BUCKET_NAME` |
+
+**No existe `R2_ENDPOINT_URL`.** El endpoint se construye como
+`https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`. Si se define
+`R2_BUCKET_NAME` o `R2_ENDPOINT_URL`, el código **no las lee** y fallará como si
+no hubiera configuración.
+
+`configuracionR2()` devuelve `null` si **no hay ninguna** variable (modo
+degradado), pero **lanza** si hay un juego parcial: *«una configuración a medias
+no es un modo degradado: es un error de despliegue»*.
+
+**Lo que ya está confirmado y no hay que volver a preguntar** (verificado en el
+panel el 2026-09-18): el bucket `inces-lms-media` **existe**, está **vacío**
+(0 B, «Your bucket is ready»), con acceso público **deshabilitado** (correcto:
+todo va por URL prefirmada), en la cuenta `c2722758a39bd150eeeaf747827db47c`,
+jurisdicción **default** (no EU/FedRAMP). **El nombre del bucket y la cuenta son
+correctos.** Las cuatro variables están bien escritas en `backend/.env`
+(git-ignorado, `.gitignore:10`).
+
+**Causa raíz — medida, no inferida (ver `REPORTE_ARIA.md` R-24).** Son dos
+problemas apilados, y **ninguno es el alcance del token**:
+
+1. **El reloj de la máquina va ~12 h desviado** (sigue así: el reloj marca 06:15
+   cuando son las 18:15). SigV4 firma con la hora local y R2 rechaza con
+   `RequestTimeTooSkewed` toda firma fuera de 15 minutos. **El SDK de AWS corrige
+   el desfase solo y reintenta**, así que ese error nunca se ve: se ve el
+   resultado del reintento. Eso fue lo que disfrazó el diagnóstico.
+2. **El token de R2 todavía no está vigente.** El endpoint `verify` de la API de
+   Cloudflare devuelve sus metadatos:
+
+   ```json
+   {"id":"e558f9149000a6c0701c926a76c472a1","status":"active",
+    "not_before":"2026-09-18T08:59:52Z","expires_on":"2026-11-30T16:00:00Z"}
+   ```
+
+   Ese `id` **es** el `R2_ACCESS_KEY_ID`. El token se creó mientras el reloj iba
+   adelantado, así que su `not_before` quedó **en el futuro**, y el propio mensaje
+   de Cloudflare lo dice: *«This API Token can not be used before 2026-09-18
+   08:59:52+00»*. **R2 responde 403 `AccessDenied` a un token que existe y aún no
+   puede usarse.**
+
+**El control que lo destapó** (esto es lo que faltaba antes):
+
+| Prueba | Resultado |
+|---|---|
+| Credenciales reales | **403** `AccessDenied` |
+| **Access key ID inventado** | **401 `Unauthorized`** |
+| Bucket inventado (credenciales reales) | 403 `AccessDenied` |
+
+Que una clave inventada dé **401** y la real **403** prueba que R2 **sí** distingue
+«la clave no existe» de «la clave no tiene permiso». La conclusión anterior —«la
+firma es válida, luego es alcance»— **estaba sin medir y era falsa**.
+
+> ⚠️ **No repitas ese atajo.** `AccessDenied` en R2 colapsa **tres** causas
+> distintas: firma incorrecta, permiso insuficiente y **token no vigente**. El
+> discriminador es el control con una credencial falsa, no el nombre del error.
+
+**Estado al cierre (2026-09-17, con el reloj ya corregido):**
+
+| Comprobación | Resultado |
+|---|---|
+| Reloj de la máquina | ✅ **Corregido** — desfase de 24 s contra el servidor (era 12 h) |
+| `ListObjectsV2` / `PutObject` con las credenciales actuales | ❌ **403 `AccessDenied`** |
+| Vigencia del token (`verify`) | `status: active` pero **`not_before: 2026-09-18T08:59:52Z`** |
+
+Es decir: **corregir el reloj no desbloqueó R2**, y eso *confirma* el diagnóstico.
+La causa es la vigencia del token, no el reloj en sí. El token sirve a partir del
+`2026-09-18T08:59:52Z`; a la hora de cerrar esto faltaban ~10 h 38 min.
+
+**Desbloqueo — le toca a Lorenzo (una sola cosa):**
+
+**Emitir un token nuevo de R2** con permiso *Object Read & Write* sobre
+`inces-lms-media`, y pasarme el **Access Key ID** y el **Secret**. Ahora que el
+reloj está bien, su `not_before` será ≈ ahora y funcionará de inmediato. (La
+alternativa —esperar a que entre en vigencia el actual— también sirve, pero es más
+lento y no aporta nada.)
+
+> El bucket `inces-lms-media` existe y la cuenta es correcta: **no hay nada que
+> revisar en el panel** salvo emitir el token.
+
+**Efecto colateral a recordar:** con el reloj desviado, las **URL prefirmadas** de
+M5 se firman con una hora falsa y R2 las verá vencidas o demasiado futuras según el
+signo. Es un fallo intermitente que no se reproduce en una máquina con la hora
+bien — mejor arreglar el reloj antes de tocar M5.
+
+> **Nota de seguridad:** el `R2_SECRET_ACCESS_KEY`, el token `cfat_…` y el
+> `sbp_…` se pegaron en el chat. El `cfat_` ya no sirve. **Conviene rotar el
+> secreto de R2 y el `sbp_`** cuando se cierre este punto.
 
 ---
 
@@ -877,7 +1025,8 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
 - Modulo 3 COMPLETO: esquema aplicado y corregido, backend completo (las 14 rutas
   del contrato existen y estan documentadas en openapi.json) y frontend
   construido (rejilla del cuadrante, Mi Horario, aulas, lapsos y guardias).
-- Modulo 4: FASE 1 (ESQUEMA) APLICADA Y VERIFICADA. El motor de cupos vive entero
+- Modulo 4: FASE 1 (ESQUEMA) APLICADA Y VERIFICADA, y ADEMAS AJUSTADA a las reglas
+  institucionales (migracion 202609200001). El motor de cupos vive entero
   en la base: 6 RPC security definer, cola FIFO, bids opcionales (apagados),
   cerrojo por seccion y frontera de escritura cerrada (ver HANDOVER §2.7 y
   REPORTE_ARIA.md R-23). FALTAN backend y frontend. `m4_inscripciones` sigue
@@ -889,9 +1038,16 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
 - Decisiones que NO son tuyas (R-06 ya resuelta: el lapso vigente es `SA26-2` y m2/m3 habilitados):
   R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).
   Las cuatro se cambian sin tocar codigo: son datos, o una funcion de una linea.
-- Decisiones de PRODUCTO de M4 que esperan a Lorenzo, no las elijas tu:
-  si `habilitar_sistema_bids` nace encendido; si `reincorporar_inscripcion`
-  debe permitir sobreventa; y si el parametro de faltas se renombra. Ver §2.7.
+- Decisiones de PRODUCTO de M4: YA RESUELTAS por Lorenzo el 2026-09-18 e
+  implementadas. No las reabras; lee §2.7 y el aviso de doble venta.
+  (1) bids siguen apagados; (2) el admin SI puede exceder la capacidad en una
+  reincorporacion; (3) `PENDING_BID` NO cuenta como ocupacion — y por eso existe
+  `existe_oferta_vigente()`; (4) con cupo libre se entra directo a ENROLLED.
+  El parametro de faltas: se usa el global `max_faltas_consecutivas = 3`, sin duplicar.
+- BLOQUEANTE ABIERTO: Cloudflare R2 da `AccessDenied` porque el token aun no esta
+  vigente (`not_before` unos 10 h en el futuro). El bucket y la cuenta SON
+  correctos y el reloj ya se corrigio. Falta solo que Lorenzo emita un token nuevo.
+  Ver §2.8 y REPORTE_ARIA.md R-24 antes de escribir la subida de archivos.
 
 LA TRAMPA QUE MAS CARO COSTO
 ----------------------------
@@ -908,13 +1064,24 @@ la operacion falla. Corolario: no basta con revocar la politica; hay que revocar
 el GRANT, y Supabase concede `grant all` por defecto (incluido `TRUNCATE`, que la
 RLS NO gobierna).
 
+Y una tercera, de diagnostico (R-24): **no inferir la causa del NOMBRE del error.**
+`AccessDenied` en R2 colapsa tres causas distintas (firma incorrecta, permiso
+insuficiente, token aun no vigente). El discriminador es un EXPERIMENTO DE CONTROL
+—una credencial deliberadamente falsa—, no la lectura del codigo de error. Y antes
+de culpar al servicio remoto, mira el reloj: un desfase de 12 h rompe SigV4 y el
+SDK de AWS lo corrige en silencio, disfrazando el error real.
+
 TAREA INMEDIATA
 ---------------
 Antes de escribir una línea de código, haz esto y repórtalo:
+0. **Comprueba el reloj**: `date -u` contra la cabecera `Date` de cualquier
+   servidor (`curl -s -I https://api.cloudflare.com/client/v4/`). Si hay desfase,
+   avisa ANTES de tocar nada firmado (R2, URL prefirmadas): un desfase >15 min
+   rompe SigV4 y el SDK de AWS lo oculta corrigiéndolo solo. Ha pasado (R-24).
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test` y `cd supabase/tests && npm test` para confirmar que
-   heredas verde (341 / 212). **`flutter test` no corre en este entorno** (falla al
+   heredas verde (341 / 222). **`flutter test` no corre en este entorno** (falla al
    cargar, WebSocket de `flutter_tester`): el 307/307 es la ultima medicion valida
    del 2026-09-15, no la re-ejecutes esperando verde. Usa `flutter analyze`, que si
    funciona.
@@ -922,9 +1089,12 @@ Antes de escribir una línea de código, haz esto y repórtalo:
    (a) M4 Fase 2 — el backend de inscripciones (~10-12 rutas, puerto,
        repositorio, Zod, OpenAPI, y encender `m4_inscripciones`): el esquema ya
        está desplegado y verificado, así que es el siguiente paso natural,
-   (b) verificar el dominio en Resend (desbloquea el correo a terceros), o
-   (c) abrir la pantalla de activación en un navegador real (mitad-UI de M1).
-   Recomiendo (a), pero ANTES necesito las 4 decisiones de producto de §2.7.
+   (b) desbloquear R2 (§2.8) para poder subir archivos,
+   (c) verificar el dominio en Resend (desbloquea el correo a terceros), o
+   (d) abrir la pantalla de activación en un navegador real (mitad-UI de M1).
+   Recomiendo (a): las 4 decisiones de producto de §2.7 ya estan resueltas, asi
+   que no hay nada que esperar. R2 (b) solo bloquea la subida de archivos, que no
+   es de la Fase 2.
 
 REGLAS DE TRABAJO
 -----------------

@@ -821,6 +821,84 @@ huecos: `anon` no escribe, `anon` no lee, y **ni un admin escribe directo**).
 
 ---
 
+## R-24 · Diagnostiqué R2 con una inferencia que no medí: el token todavía no existía
+
+**Qué pasó.** Al configurar Cloudflare R2 (Fase 2 de M4), la sonda contra el bucket
+devolvió `AccessDenied` en todas las operaciones. Concluí —y lo dejé escrito en el
+handover y en la memoria— que *«la firma es válida, así que el problema es de
+alcance del token, no del cliente»*, y pedí a Lorenzo el nombre del bucket, el
+alcance del token y la cuenta. **El diagnóstico era incorrecto y la petición
+también.** Estuve a punto de mandarlo a revisar un panel que estaba bien.
+
+**Qué pasaba de verdad.** Dos causas apiladas, ninguna de las cuales era el alcance
+del token:
+
+1. **El reloj de la máquina iba ~12 h desviado.** SigV4 firma con la hora local, y
+   R2 rechaza cualquier firma fuera de la ventana de 15 minutos con
+   `RequestTimeTooSkewed`. El SDK de AWS **corrige el desfase solo y reintenta**,
+   así que ese error limpio nunca llegaba a la superficie: veía el resultado del
+   reintento. El corrector automático convirtió un error claro en uno engañoso.
+2. **El token de R2 no estaba vigente.** El endpoint `verify` de la API de
+   Cloudflare devolvió los metadatos del propio token:
+
+   ```json
+   {"id":"e558f9149000a6c0701c926a76c472a1","status":"active",
+    "not_before":"2026-09-18T08:59:52Z","expires_on":"2026-11-30T16:00:00Z"}
+   ```
+   y el mensaje explícito: *«This API Token can not be used before 2026-09-18
+   08:59:52+00»*. Ese `id` **es** el `R2_ACCESS_KEY_ID`: el token nació mientras el
+   reloj iba 12 h adelantado, así que su `not_before` quedó **en el futuro**. Al
+   corregirse la fecha, el token pasó a estar «activo pero no vigente todavía».
+   R2 responde **403 `AccessDenied`** a un token que existe y aún no puede usarse.
+
+**La medición que lo destapó.** Un experimento de control, no una lectura:
+
+| Prueba | Resultado |
+|---|---|
+| Credenciales reales | **403** `AccessDenied` |
+| **Access key ID inventado** | **401 `Unauthorized`** |
+| Bucket inventado (credenciales reales) | 403 `AccessDenied` |
+
+Que una clave inventada dé **401** y la real **403** demuestra que R2 **sí**
+distingue «esta clave no existe» de «esta clave no tiene permiso». Yo había
+afirmado lo contrario **sin haberlo probado**: di por sentado que R2 se comportaba
+como S3 y no lo verifiqué.
+
+**Un tercer error propio, en la misma cadena.** Había concluido que el token `cfat_`
+era **inválido**, porque `/user/tokens/verify` devolvía `1000 Invalid API Token`. No
+era inválido: es un token **de cuenta**, y ese endpoint es el de tokens **de
+usuario**. Contra `/accounts/{account_id}/tokens/verify` responde **HTTP 200**. Un
+token correcto probado en la puerta equivocada parece roto — y encima me sirvió de
+excusa para no poder desempatar el diagnóstico anterior. Dos inferencias no medidas
+se apuntalaron mutuamente.
+
+**La lección.** `AccessDenied` **no** significa por sí solo «la firma es válida, es
+cuestión de alcance». R2 colapsa en el mismo 403 la firma incorrecta, el permiso
+insuficiente **y el token aún no vigente** — tres causas con tres arreglos
+distintos. El discriminador es el **experimento de control** (una credencial
+deliberadamente falsa), no el nombre del error.
+
+**Dos corolarios que generalizan:**
+
+- **Antes de culpar al servicio remoto, mira el reloj.** Un desfase de 12 h rompe
+  SigV4, y la corrección automática del SDK lo disfraza. Cuando una herramienta
+  «se arregla sola» un error, hay que preguntarse qué está ocultando.
+- **La vigencia es parte de la credencial.** `not_before` y `expires_on` se leen
+  del propio token; inferir el estado de una credencial a partir de cómo falla es
+  adivinar con pasos extra.
+
+**Efecto colateral que hay que recordar:** con el reloj desviado, las **URL
+prefirmadas** de M5 se firman con una hora falsa y R2 las verá vencidas (o
+demasiado futuras) según el signo del desfase. Es exactamente el tipo de fallo
+intermitente que no se reproduce en una máquina con la hora bien.
+
+**Estado:** causa raíz identificada y **confirmada por medición**. El reloj ya se
+corrigió (24 s de desfase, era 12 h) y **R2 siguió dando `AccessDenied`**, lo que
+descarta el reloj como causa inmediata y confirma que es la **vigencia del token**.
+Desbloqueo: **emitir un token nuevo de R2** (o esperar al `2026-09-18T08:59:52Z`).
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -848,3 +926,4 @@ huecos: `anon` no escribe, `anon` no lee, y **ni un admin escribe directo**).
 | R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación ahora captura nombres/apellidos** y los pasa a `user_metadata` (migración 202609130002 + commit de R-21) | ✅ **Resuelta (2026-09-15)** |
 | R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |
 | R-23 | `enrollments_insert_own` dejaba a cualquier autenticado auto-inscribirse en `ENROLLED` y saltarse el motor de cupos; `DELETE`/`TRUNCATE` permitidos contradecían conservar `DROPPED` | Escrituras movidas a RPC `security definer` + `revoke` total de `anon` y `authenticated` (migración 202609190001, parte 6) | ✅ Resuelta y verificada en producción (212/212) |
+| R-24 | Diagnostiqué el `AccessDenied` de R2 como «problema de alcance» **sin medirlo**: el reloj iba 12 h desviado (el SDK lo corregía en silencio) y el token tenía el `not_before` en el futuro | Causa raíz medida con un control (clave falsa → 401, clave real → 403) y con `verify` de la API de Cloudflare. Desbloqueo: token nuevo con el reloj corregido | 🔴 Causa identificada; **espera a Lorenzo** |
