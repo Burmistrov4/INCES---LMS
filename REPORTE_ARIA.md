@@ -892,10 +892,24 @@ prefirmadas** de M5 se firman con una hora falsa y R2 las verá vencidas (o
 demasiado futuras) según el signo del desfase. Es exactamente el tipo de fallo
 intermitente que no se reproduce en una máquina con la hora bien.
 
-**Estado:** causa raíz identificada y **confirmada por medición**. El reloj ya se
-corrigió (24 s de desfase, era 12 h) y **R2 siguió dando `AccessDenied`**, lo que
-descarta el reloj como causa inmediata y confirma que es la **vigencia del token**.
-Desbloqueo: **emitir un token nuevo de R2** (o esperar al `2026-09-18T08:59:52Z`).
+**Estado:** 🟢 **Resuelto — verificado en vivo el 2026-09-18.** La causa raíz era
+la vigencia del token (`not_before: 2026-09-18T08:59:52Z`), no el alcance ni el
+reloj (este último ya corregido a 24 s de desfase). Al 2026-09-18T12:30Z UTC esa
+ventana ya había pasado, y una **sonda de ciclo completo** contra el bucket
+`inces-lms-media` — `backend/scripts/probe-r2.mts`, con el **mismo `S3Client` que
+producción** (`region:'auto'`, `forcePathStyle:true`, endpoint derivado de
+`CLOUDFLARE_ACCOUNT_ID`) — devolvió:
+
+```
+HeadBucket 200 · PutObject 200 · GetObject 200 (contenido coincide)
+ListObjectsV2 200 · DeleteObject 204   → bucket vacío tras la purga
+```
+
+**No hace falta emitir un token nuevo**: las credenciales actuales de
+`backend/.env` autentican correctamente y el token sigue vigente hasta
+`expires_on: 2026-11-30T16:00:00Z` (≈73 días). R2 queda desbloqueado para retomar
+la integración de almacenamiento de **M5**. Nota: el efecto colateral de las
+URL prefirmadas (§corolario) ya no aplica porque el reloj local está correcto.
 
 ---
 
@@ -1163,6 +1177,6 @@ poder inyectarles el repositorio fake.
 | R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación ahora captura nombres/apellidos** y los pasa a `user_metadata` (migración 202609130002 + commit de R-21) | ✅ **Resuelta (2026-09-15)** |
 | R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |
 | R-23 | `enrollments_insert_own` dejaba a cualquier autenticado auto-inscribirse en `ENROLLED` y saltarse el motor de cupos; `DELETE`/`TRUNCATE` permitidos contradecían conservar `DROPPED` | Escrituras movidas a RPC `security definer` + `revoke` total de `anon` y `authenticated` (migración 202609190001, parte 6) | ✅ Resuelta y verificada en producción (212/212) |
-| R-24 | Diagnostiqué el `AccessDenied` de R2 como «problema de alcance» **sin medirlo**: el reloj iba 12 h desviado (el SDK lo corregía en silencio) y el token tenía el `not_before` en el futuro | Causa raíz medida con un control (clave falsa → 401, clave real → 403) y con `verify` de la API de Cloudflare. Desbloqueo: token nuevo con el reloj corregido | 🔴 Causa identificada; **espera a Lorenzo** |
+| R-24 | Diagnostiqué el `AccessDenied` de R2 como «problema de alcance» **sin medirlo**: el reloj iba 12 h desviado (el SDK lo corregía en silencio) y el token tenía el `not_before` en el futuro | Causa raíz medida con un control (clave falsa → 401, clave real → 403) y con `verify` de la API de Cloudflare. El 2026-09-18 la ventana `not_before` (08:59:52Z) ya pasó y una sonda de ciclo completo contra `inces-lms-media` devolvió 200/200/200/200/204: **token vigente, sin reemitir** | 🟢 **Resuelta y verificada en vivo (2026-09-18)** |
 | R-25 | `promover_siguiente` devuelve el `student_id`, pero el repositorio leía la inscripción con `.eq('id', …)`: la promoción **sí ocurría** y la API respondía **404** (medido en Fase 4) | Arreglo aplicado (2026-09-18): `InscripcionesSupabase.promover()` lee por `student_id` + `section_id` (no toca la base). Humo Fase 4 invirtió su bloque para certificar el 200 y `promovida.estudianteId === idBeta` | 🟢 **Resuelta y verificada (2026-09-18)** |
 | R-26 | Los POST sin cuerpo del M4 anunciaban `Content-Type: application/json` y daban 500 (`FST_ERR_CTP_EMPTY_JSON_BODY`); ninguna de las 428 pruebas del backend lo veía porque no hay cliente Flutter en su suite | `ApiClient.post/patch/put` declara `Content-Type: application/json` **sólo si hay cuerpo** (Capa 1 de la Fase 3, `lib/core/network/api_client.dart`) | ✅ Resuelta y verificada (Fase 3 · 307/307 · build limpio) |
