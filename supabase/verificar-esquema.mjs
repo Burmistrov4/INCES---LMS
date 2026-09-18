@@ -559,6 +559,34 @@ comprobar(
   rpcM4.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', ') || 'AUSENTES',
 );
 
+// El helper del ajuste del 2026-09-18. Es lo que hace segura la regla «una
+// oferta pendiente no reserva cupo»: como PENDING_BID ya no suma a
+// `cupos_ocupados`, el contador por sí solo diría que hay hueco mientras una
+// oferta está en el aire, y el mismo asiento se entregaría dos veces.
+//
+// SÍ necesita EXECUTE para `authenticated` aunque las RPC que lo usan sean
+// `definer`: la vista `v_ocupacion_secciones` es `security_invoker`, así que la
+// llamada dentro de su SELECT se evalúa con los privilegios de quien consulta.
+const helperOferta = await consultar(
+  'select p.prosecdef, ' +
+    "has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede, " +
+    "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede " +
+    'from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' and p.proname = 'existe_oferta_vigente';",
+);
+comprobar(
+  'existe_oferta_vigente existe y es security DEFINER',
+  helperOferta.length === 1 && helperOferta[0].prosecdef === true,
+  helperOferta.length === 1 ? `prosecdef=${helperOferta[0].prosecdef}` : 'AUSENTE',
+);
+comprobar(
+  'authenticated SÍ ejecuta existe_oferta_vigente (la vista invoker lo necesita); anon NO',
+  helperOferta[0]?.auth_puede === true && helperOferta[0]?.anon_puede === false,
+  helperOferta[0]
+    ? `authenticated=${helperOferta[0].auth_puede}, anon=${helperOferta[0].anon_puede}`
+    : 'AUSENTE',
+);
+
 // LA aserción de la frontera: sin esto, `enrollments_insert_own` volvería a
 // dejar al estudiante escribir su propia fila con ENROLLED y el motor sería
 // decorativo. Es exactamente la regresión que esta fase cierra.
@@ -604,6 +632,20 @@ comprobar(
   vistaOcupacion
     ? `relkind = ${vistaOcupacion.relkind}, opciones = ${opcionesOcupacion || 'NINGUNA'}`
     : 'AUSENTE',
+);
+
+// La columna que evita que el panel mienta: con PENDING_BID fuera del recuento,
+// `cupos_disponibles` puede ser > 0 con una oferta en el aire. Sin
+// `oferta_vigente`, la interfaz ofrecería un asiento que no puede dar.
+const columnasOcupacion = await consultar(
+  "select column_name from information_schema.columns " +
+    "where table_schema = 'public' and table_name = 'v_ocupacion_secciones';",
+);
+const nombresOcupacion = columnasOcupacion.map((c) => c.column_name);
+comprobar(
+  'v_ocupacion_secciones declara oferta_vigente (si no, el panel ofrecería un asiento ya prometido)',
+  nombresOcupacion.includes('oferta_vigente'),
+  nombresOcupacion.join(', ') || 'AUSENTE',
 );
 
 console.log(

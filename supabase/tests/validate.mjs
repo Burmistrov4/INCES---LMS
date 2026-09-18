@@ -1525,6 +1525,31 @@ async function main() {
     rpcM4.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', '),
   );
 
+  // El helper del ajuste del 2026-09-18. Es la guarda que hace segura la regla
+  // «PENDING_BID no reserva cupo»: sin él, un asiento con oferta en el aire se
+  // entregaría también por la vía directa.
+  //
+  // SÍ necesita EXECUTE para `authenticated`, aunque las RPC que lo usan sean
+  // `definer` y no lo necesitaran: la vista `v_ocupacion_secciones` es
+  // `security_invoker`, así que la llamada dentro de su SELECT se evalúa con los
+  // privilegios de quien consulta. Revocarlo rompería la vista para todos.
+  const helperOferta = (
+    await db.query(
+      "select p.prosecdef, " +
+        "has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede, " +
+        "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede " +
+        "from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname = 'public' and p.proname = 'existe_oferta_vigente'",
+    )
+  ).rows[0];
+  check('existe el helper existe_oferta_vigente', Boolean(helperOferta));
+  check('existe_oferta_vigente es security DEFINER', helperOferta?.prosecdef === true);
+  check(
+    'authenticated SÍ puede ejecutar existe_oferta_vigente (la vista invoker lo necesita)',
+    helperOferta?.auth_puede === true,
+  );
+  check('anon NO puede ejecutar existe_oferta_vigente', helperOferta?.anon_puede === false);
+
   // LA aserción que impide que la frontera se reabra en silencio: la escritura
   // directa de `authenticated` sobre `enrollments` debe estar revocada.
   const escrituraDirecta = (
@@ -1573,6 +1598,7 @@ async function main() {
   const ALU7 = '22222222-2222-2222-2222-222222222277';
   const ALU8 = '22222222-2222-2222-2222-222222222288';
   const ALU9 = '22222222-2222-2222-2222-222222222299';
+  const ALU10 = '22222222-2222-2222-2222-222222222200';
   const MAT_M4 = '99999999-9999-4999-8999-999999999991';
   const SEC_M4A = 'bbbbbbb1-0000-4000-8000-000000000001';
   const SEC_M4B = 'bbbbbbb2-0000-4000-8000-000000000002';
@@ -1585,7 +1611,8 @@ async function main() {
       ('${ALU6}', 'alu6@inces.test', '{"nombres":"Elena","apellidos":"Ruiz"}'::jsonb),
       ('${ALU7}', 'alu7@inces.test', '{"nombres":"Fabián","apellidos":"Luz"}'::jsonb),
       ('${ALU8}', 'alu8@inces.test', '{"nombres":"Gina","apellidos":"Paz"}'::jsonb),
-      ('${ALU9}', 'alu9@inces.test', '{"nombres":"Hugo","apellidos":"Mar"}'::jsonb);
+      ('${ALU9}', 'alu9@inces.test', '{"nombres":"Hugo","apellidos":"Mar"}'::jsonb),
+      ('${ALU10}', 'alu10@inces.test', '{"nombres":"Iris","apellidos":"Vega"}'::jsonb);
   `);
 
   await db.exec(
@@ -1672,20 +1699,37 @@ async function main() {
   check('con bids apagado, el primero de la cola pasa directo a ENROLLED', promovidoFifo === 'ENROLLED', String(promovidoFifo));
 
   // Reincorporación: es una excepción de administración, no una vía del estudiante.
-  const sinCupo = await esperaError('reincorporar sin cupo libre se rechaza', () =>
-    como('authenticated', ADMIN2_ID, () =>
-      db.query(`select public.reincorporar_inscripcion('${ALU3}', '${SEC_M4A}') as s`),
-    ),
+  // REGLA INSTITUCIONAL (2026-09-18): el administrador PUEDE exceder la capacidad.
+  // Antes esto se rechazaba con 23514; ahora debe PROCEDER. La aserción se
+  // invirtió a propósito, y se comprueba el exceso de verdad, no sólo el estado.
+  const antesReinc = (
+    await db.query(
+      `select cupos_ocupados, cupo_efectivo from public.v_ocupacion_secciones where id = '${SEC_M4A}'`,
+    )
+  ).rows[0];
+  check(
+    'antes de reincorporar, la sección está llena (no hay hueco que dar)',
+    antesReinc.cupos_ocupados === antesReinc.cupo_efectivo,
+    `${antesReinc.cupos_ocupados}/${antesReinc.cupo_efectivo}`,
   );
-  check('la reincorporación sin cupo sale como 23514', sinCupo?.code === '23514', `código ${sinCupo?.code}`);
 
-  // Se libera un asiento y el admin reincorpora.
-  await como('authenticated', ALU4, () => db.query(`select public.renunciar_cupo('${SEC_M4A}')`));
   const reinc = await como('authenticated', ADMIN2_ID, () =>
     db.query(`select public.reincorporar_inscripcion('${ALU3}', '${SEC_M4A}') as s`),
   );
   check('un administrador reincorpora a un DROPPED como ENROLLED', reinc.rows[0].s === 'ENROLLED', String(reinc.rows[0].s));
 
+  const despuesReinc = (
+    await db.query(
+      `select cupos_ocupados, cupo_efectivo from public.v_ocupacion_secciones where id = '${SEC_M4A}'`,
+    )
+  ).rows[0];
+  check(
+    'el administrador PUDO exceder la capacidad de la sección',
+    despuesReinc.cupos_ocupados > despuesReinc.cupo_efectivo,
+    `${despuesReinc.cupos_ocupados}/${despuesReinc.cupo_efectivo}`,
+  );
+
+  // Y el estudiante no puede hacerlo por su cuenta: la excepción es del admin.
   const noAdmin = await esperaError('un estudiante no puede reincorporar inscripciones', () =>
     como('authenticated', ALU5, () =>
       db.query(`select public.reincorporar_inscripcion('${ALU4}', '${SEC_M4A}')`),
@@ -1705,6 +1749,18 @@ async function main() {
   check('con bids encendido, un cupo libre sigue admitiendo ENROLLED', b1.rows[0].s === 'ENROLLED', String(b1.rows[0].s));
   const b2 = await inscribe(ALU7, SEC_M4B);
   check('con la sección llena, el siguiente va a WAITLISTED', b2.rows[0].s === 'WAITLISTED', String(b2.rows[0].s));
+
+  // La prueba de que el recuento no lo filtra la RLS: ALU7 consulta la vista y
+  // debe ver el asiento de ALU6, que NO es suyo. Si la vista fuera `invoker` sin
+  // funciones definer, vería 0 y el cupo parecería siempre vacío.
+  const vistaAjena = await como('authenticated', ALU7, () =>
+    db.query(`select cupos_ocupados from public.v_ocupacion_secciones where id = '${SEC_M4B}'`),
+  );
+  check(
+    'la vista cuenta asientos AJENOS: los definer saltan la RLS del llamante',
+    vistaAjena.rows[0]?.cupos_ocupados === 1,
+    JSON.stringify(vistaAjena.rows[0] ?? {}),
+  );
 
   await como('authenticated', ALU6, () => db.query(`select public.renunciar_cupo('${SEC_M4B}')`));
   const oferta = (
@@ -1762,14 +1818,65 @@ async function main() {
   const expiradas2 = (await db.query('select public.expirar_ofertas_cupo() as n')).rows[0].n;
   check('expirar_ofertas_cupo es idempotente (la segunda vez devuelve 0)', expiradas2 === 0, `devolvió ${expiradas2}`);
 
-  // La vista de ocupación no debe falsear el recuento con la RLS del llamante.
+  // ---------------------- 17.5 reglas institucionales (ajuste del 2026-09-18)
+  //  Dos reglas cambiaron respecto a la primera versión del motor, y la segunda
+  //  trae una consecuencia que hay que vigilar: si una oferta viva no cuenta como
+  //  ocupación, el contador dice que hay hueco mientras la oferta está en el aire.
   const ocupacion = await como('authenticated', ALU5, () =>
-    db.query(`select cupo_efectivo, cupos_ocupados from public.v_ocupacion_secciones where id = '${SEC_M4B}'`),
+    db.query(
+      `select cupo_efectivo, cupos_ocupados, cupos_disponibles, oferta_vigente
+         from public.v_ocupacion_secciones where id = '${SEC_M4B}'`,
+    ),
+  );
+  const oc = ocupacion.rows[0] ?? {};
+
+  check(
+    'una oferta viva NO suma a cupos_ocupados: sólo cuenta ENROLLED',
+    oc.cupos_ocupados === 0,
+    `cupos_ocupados = ${oc.cupos_ocupados}`,
   );
   check(
-    'la vista de ocupación cuenta TODOS los asientos, no sólo los del llamante',
-    ocupacion.rows.length === 1 && ocupacion.rows[0].cupos_ocupados === 1,
-    JSON.stringify(ocupacion.rows[0] ?? {}),
+    'pero la vista DECLARA la oferta en el aire, para que la interfaz no mienta',
+    oc.oferta_vigente === true,
+    `oferta_vigente = ${oc.oferta_vigente}`,
+  );
+  check(
+    'el contador por sí solo diría que hay hueco — por eso la guarda es imprescindible',
+    oc.cupos_disponibles > 0,
+    `cupos_disponibles = ${oc.cupos_disponibles}`,
+  );
+
+  // LA GUARDA ANTI-DOBLE-VENTA. Sin ella este recién llegado entraría directo a
+  // ENROLLED (el contador dice que hay hueco) y después ALU9 aceptaría su oferta:
+  // dos personas en un asiento de uno.
+  const b10 = await inscribe(ALU10, SEC_M4B);
+  check(
+    'con una oferta viva, un recién llegado NO entra directo a ENROLLED',
+    b10.rows[0].s === 'WAITLISTED',
+    String(b10.rows[0].s),
+  );
+
+  // Al resolverse la oferta, el asiento pasa a contar y la guarda se levanta.
+  await como('authenticated', ALU9, () => db.query(`select public.aceptar_cupo('${SEC_M4B}')`));
+  const trasAceptar9 = (
+    await db.query(
+      `select cupo_efectivo, cupos_ocupados, oferta_vigente
+         from public.v_ocupacion_secciones where id = '${SEC_M4B}'`,
+    )
+  ).rows[0];
+  check(
+    'al aceptar ALU9, el asiento cuenta y la oferta deja de estar vigente',
+    trasAceptar9.cupos_ocupados === 1 && trasAceptar9.oferta_vigente === false,
+    JSON.stringify(trasAceptar9),
+  );
+
+  const alu10Estado = (
+    await db.query(`select status from public.enrollments where student_id='${ALU10}' and section_id='${SEC_M4B}'`)
+  ).rows[0]?.status;
+  check(
+    'ALU10 sigue en la cola: aceptar no promueve a nadie por detrás',
+    alu10Estado === 'WAITLISTED',
+    String(alu10Estado),
   );
 
   // ---------------------------------------------------------------- resumen
