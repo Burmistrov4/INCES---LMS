@@ -899,6 +899,243 @@ Desbloqueo: **emitir un token nuevo de R2** (o esperar al `2026-09-18T08:59:52Z`
 
 ---
 
+## R-25 · Promover a mano SÍ funciona, pero la API responde 404: lee la inscripción por la clave equivocada
+
+**Qué pasó.** El humo de la Fase 4 (`supabase/humo-inscripciones.mjs`) encontró que
+el único camino que las 428 pruebas del backend no cubrían —el override manual de
+promoción— **devuelve un 404 después de haber promovido de verdad**:
+
+```
+POST /api/v1/admin/secciones/:id/promover
+→ 404 {"codigo":"NO_ENCONTRADO",
+       "detalles":{"contexto":"leer la inscripción promovida"}}
+```
+
+El `UPDATE` que sube al estudiante de `WAITLISTED` a `ENROLLED` **se ejecuta**. Lo
+que falla es la lectura que viene después, y el cliente nunca llega a ver el
+resultado. Es un fallo parcial: el estado cambió y la respuesta dice que no.
+
+**Por qué.** `promover_siguiente_de_cola` devuelve **el `student_id`**, no el `id`
+de la fila. Medido sobre la base, no inferido:
+
+```
+=== promover_siguiente_de_cola(p_section_id uuid) -> uuid ===
+   into v_id
+   where id = v_id
+   returning student_id into v_promovido;   ← devuelve el ESTUDIANTE
+   return v_promovido;
+```
+
+El repositorio, en cambio, trata ese valor como la clave primaria de `enrollments`:
+
+```ts
+const id = typeof respuesta.data === 'string' ? respuesta.data : null;   // ← student_id
+const fila = await this.cliente
+  .from(TABLA_INSCRIPCIONES)
+  .select(COLUMNAS_INSCRIPCION)
+  .eq('id', id)      // ← busca por id de INSCRIPCIÓN
+  .single();
+```
+
+Dos `uuid` distintos que nunca coinciden: `.single()` no encuentra fila, PostgREST
+responde `PGRST116`, `traducirError` lo convierte en 404 y la promoción —que ya
+ocurrió— se reporta como inexistente.
+
+**Por qué no lo vieron las 428 pruebas.** El doble en memoria devuelve la
+inscripción ya promovida, no un `student_id`: reproduce la *intención* de la RPC,
+no su *contrato*. Es la misma clase de punto ciego que el humo de M3 documenta para
+el mensaje del trigger — el doble copia a mano lo que la base hace de verdad, y
+sólo la base puede desmentir la copia.
+
+**Alcance.** Sólo afecta a la ruta de administración. La promoción automática
+—`renunciar_cupo` llama a `promover_siguiente_de_cola` dentro de su transacción— no
+pasa por el repositorio y **funciona bien**, que es por lo que el resto del humo
+sale en verde. El botón «Promover Siguiente» del panel del administrador es lo
+único roto, y lo está justo en el caso que lo justifica: ampliar el cupo y subir a
+mano a quien espera.
+
+**Arreglo aplicado (2026-09-18).** El repositorio ahora lee por la columna
+correcta: `.eq('student_id', id).eq('section_id', seccionId)` sobre `enrollments`,
+dentro de `InscripcionesSupabase.promover()` (`backend/src/infra/repos-supabase.ts`).
+`seccionId` ya estaba en scope como parámetro del método; `(student_id, section_id)`
+es único (regla anti-doble-inscripción), así que `.single()` sigue siendo seguro. No
+se tocó la base ni ninguna migración: es un arreglo puro de la capa de repositorio. El
+humo de la Fase 4 invirtió su bloque R-25 para certificar el 200 y
+`promovida.estudianteId === idBeta`, y `npm run test` quedó en verde.
+
+**Hallazgo secundario del mismo humo, ya documentado en el script:** `renunciar_cupo`
+promueve al siguiente por su cuenta. «Promover Siguiente» **no** es el camino normal
+para mover la cola tras una baja — cuando el administrador lo pulsa, la promoción ya
+ocurrió y la RPC responde 200 con `promovida: null`. La interfaz no debe presentarlo
+como si fuera necesario.
+
+**Estado:** 🟢 Resuelta y verificada (2026-09-18). El repositorio lee por
+`(student_id, section_id)`; `POST /api/v1/admin/secciones/:id/promover` devuelve 200
+con la inscripción promovida. El humo de la Fase 4 certifica el arreglo en cada
+corrida y la suite de 428 pruebas del backend está en verde.
+
+---
+
+## R-26 · Los POST sin cuerpo del Módulo 4 devolvían 500 (`FST_ERR_CTP_EMPTY_JSON_BODY`) por el encabezado `Content-Type`
+
+**Encontrado y resuelto el 2026-09-18** al construir la Fase 3 (frontend de M4).
+**No lo veía ninguna de las 428 pruebas del backend**, y la razón es estructural:
+las rutas M4 de escritura sin cuerpo (`/renunciar`, `/aceptar`, `/promover`,
+`/expirar`) se invocan desde el cliente Flutter, y **el backend no escribe un
+cliente Flutter en su suite**.
+
+### Qué pasa
+
+Cuatro rutas de M4 (`renunciar_cupo`, `aceptar_cupo`, `promover_siguiente_de_cola`,
+`expirar_ofertas`) son **POST sin cuerpo**: llevan la identidad en el JWT y la
+sección en la ruta. El `ApiClient` de Flutter, sin embargo, declaraba
+`Content-Type: application/json` en **todo** POST, cuerpo o no.
+
+Fastify monta el parser JSON por content-type. Con `Content-Type: application/json`
+y un cuerpo vacío, el parser de cuerpo de Fastify lanza
+`FST_ERR_CTP_EMPTY_JSON_BODY` **antes** de llegar al handler, y la respuesta es un
+**500** — no un 404 ni un 2xx. La operación nunca se ejecuta en la base.
+
+```dart
+// lib/core/network/api_client.dart (antes)
+headers: {
+  'Content-Type': 'application/json',   // ← siempre, aunque cuerpo == null
+  if (token != null) 'Authorization': 'Bearer $token',
+  ...
+},
+body: cuerpo == null ? null : jsonEncode(cuerpo),
+```
+
+El cliente dice «esto es JSON» y manda `null`; Fastify intenta parsear `null` como
+JSON y estalla. El error es del **transporte**, no de la lógica de negocio: por eso
+las 428 pruebas del backend (ninguna de las cuales hace un POST cuerpo-vacío con
+ese encabezado desde un cliente real) salían en verde.
+
+### Por qué no lo vieron las pruebas
+
+El backend se ejercita con `supertest` / `fetch`, y esos clientes **no** añaden
+`Content-Type: application/json` a un POST sin cuerpo. El único cliente que lo
+hacía era `ApiClient` de Flutter, que **no** está en la suite del backend. Es la
+misma clase de punto ciego que R-25: el doble copia la *intención* de la llamada,
+no su *contrato de transporte*.
+
+### Arreglo aplicado (2026-09-18)
+
+`ApiClient.post`/`patch`/`put` declaran `Content-Type: application/json` **sólo si
+hay cuerpo** (`if (cuerpo != null)`), en `lib/core/network/api_client.dart`
+(Capa 1 de la Fase 3). Los POST sin cuerpo del M4 ya no llevan el encabezado y
+Fastify no intenta parsear JSON vacío:
+
+```dart
+// lib/core/network/api_client.dart (ahora)
+headers: {
+  // Sólo se declara JSON si hay cuerpo. Un POST sin cuerpo con
+  // `Content-Type: application/json` dispara en Fastify
+  // `FST_ERR_CTP_EMPTY_JSON_BODY` (500), y es la trampa de las rutas
+  // sin body del Módulo 4 (renunciar, aceptar, promover, expirar).
+  if (cuerpo != null) 'Content-Type': 'application/json',
+  if (token != null) 'Authorization': 'Bearer $token',
+  ...?encabezadosExtra,
+},
+body: cuerpo == null ? null : jsonEncode(cuerpo),
+```
+
+No toca el backend ni la base: es un arreglo de la capa de transporte del cliente.
+Las escrituras con cuerpo (`solicitar_inscripcion`, que sí lleva `seccionId` en el
+body) siguen declarando JSON como antes.
+
+### Verificación
+
+`flutter analyze` limpio · `flutter test` **337/337 verde** (307 previas + 30
+nuevas de M4; incl. `test/menu_alcanzable_test.dart`, que vigila el cableado R-22
+del nuevo panel, y los tres archivos de prueba de widget/repository de M4) ·
+`flutter build web --release` construye `build/web` sin advertencias. El camino se
+certifica de punta a punta en la Fase 4 (humo real contra la API), no en la suite
+del backend.
+
+> **Nota para quien retoque `ApiClient`:** no «arregle» este arreglo añadiendo de
+> nuevo el encabezado «para que quede uniforme». El 500 vuelve en cuanto el
+> cliente anuncie JSON sobre un cuerpo vacío. Si una ruta nueva sin cuerpo necesita
+> otro content-type, que lo pase por `encabezadosExtra`, no por el valor por
+> defecto.
+
+---
+
+### Fase 3 (Frontend de M4) — entregada y verificada (2026-09-18)
+
+La Fase 3 se construyó en tres capas, en el orden aprobado, respetando la
+arquitectura hexagonal del proyecto y sin dumping masivo de código:
+
+1. **Capa 1 · Datos.** `lib/models/inscripcion.dart`
+   (`EstadoInscripcion`, `OcupacionSeccion`, `InscripcionDetallada`),
+   `lib/core/gateways/inscripcion_gateway.dart` (interfaz),
+   `lib/services/inscripcion_service.dart` (HTTP vía `ApiClient`),
+   `lib/repositories/inscripcion_repository.dart` (`InscripcionesRepository` del
+   estudiante y `AdminInscripcionesRepository` del admin, ambos en `Result<T>`).
+   El contrato JSON es camelCase (`seccionId`, `ofertaVigente`, `posicionEnCola`,
+   `estudianteId`, `ofertaVenceEn`) y se mapea desde el snake_case de la base en
+   esta capa. **Incluye el arreglo de R-26** (`Content-Type` condicional).
+2. **Capa 2 · UI del estudiante.** `lib/screens/aspirante_dashboard.dart` gana
+   «Ofertas de cupos» (catálogo que **respeta `ofertaVigente`**: desactiva
+   «Inscribirme» con «Asiento en asignación» aunque `cuposDisponibles > 0`, porque
+   la doble venta se gestiona por la oferta, no por el contador) y «Mis
+   inscripciones» (muestra `posicionEnCola` en `WAITLISTED`, y Renunciar / Aceptar
+   cupo con cuenta atrás en vivo para `PENDING_BID`).
+3. **Capa 3 · UI del administrador.** `lib/screens/admin/cpanel_inscripciones_panel.dart`
+   con panel de ocupación (métricas + tabla), **Expirar ofertas**, **Reincorporar**
+   (con aviso de exceder el cupo) y **Promover siguiente** por fila, documentado en
+   la propia UI como override post-ampliación-de-cupo. Cableado en
+   `admin_dashboard.dart` **R-22-seguro**: ítem `disponible: true` +
+   `case 'Inscripciones y Cupos'` coincidente (la prueba `menu_alcanzable_test.dart`
+   lo vigila).
+
+**Validación:** `flutter analyze` → «No issues found!» · `flutter test` →
+**337/337** (307 previas + 30 nuevas de M4) · `flutter build web --release` →
+construye limpio.
+
+#### Capa de pruebas de M4 (widget/repository) — añadida (2026-09-18)
+
+La Fase 3 entregó el frontend, pero las pruebas de Flutter existentes sólo
+alcanzaban el menú (R-22) y el humo de Node (R-25/26) no ejercitaba la lógica de
+estado de los widgets. Esto dejaba abierta la brecha «construido ≠ probado» que el
+propio proyecto documenta en R-20/R-26: **un menú alcanzable y una API que responde
+no garantizan que el widget procese `ofertaVigente`, `posicionEnCola`, los estados
+de botón ni las colas correctamente.** Se añadió la capa de pruebas en tres niveles,
+con un doble inyectado (`FakeInscripcionGateway implements InscripcionGateway`) que
+registra las llamadas para verificar el contrato de transporte, no sólo lo que pinta
+la pantalla:
+
+- **Capa 1 · Datos** — `test/inscripcion_repository_test.dart` (11 casos): los dos
+  repositorios envuelven el gateway en `Result`; `promoverSiguiente` con cola vacía
+  → `Failure` de `AppErrorType.validacion` (no de servidor); `expirarOfertas`
+  idempotente (`[3, 0]` → primera 3, segunda 0).
+- **Capa 2 · Estudiante** — `test/aspirante_inscripciones_test.dart` (13 casos):
+  `PanelOfertas` gatilla `ofertaVigente` (botón «Asiento en asignación»
+  deshabilitado aunque `cuposDisponibles > 0`; «Inscribirme» sólo si
+  `!ofertaVigente && cuposDisponibles > 0`); `PanelMisInscripciones` cubre
+  `WAITLISTED` (`Lugar N en la cola` / «En lista de espera»), `PENDING_BID`
+  (Aceptar + Renunciar), `ENROLLED` («Tienes tu asiento confirmado en esta sección.»)
+  y `DROPPED` (fila conservada como historial).
+- **Capa 3 · Admin** — `test/cpanel_inscripciones_test.dart` (6 casos): métricas de
+  ocupación, «Promover siguiente» (éxito y aviso de validación en cola vacía),
+  «Expirar ofertas» y el diálogo «Reincorporar» (valida ids vacíos antes de llamar).
+
+Doble compartido: `test/support/fake_inscripcion_gateway.dart`
+(`ocupacionSeccionEjemplo`, `inscripcionDetalladaEjemplo`). Los paneles
+`PanelOfertas`/`PanelMisInscripciones` se hicieron públicos (con `super.key`) para
+poder inyectarles el repositorio fake.
+
+> **Trampa de entorno resuelta al validar:** `flutter test` en este entorno
+> devolvía `WebSocketException: Invalid WebSocket upgrade request` para **todos**
+> los archivos (fallo de carga, no de aserción). Causa: las variables
+> `http_proxy`/`https_proxy`/`HTTP_PROXY`/`HTTPS_PROXY` apuntan al proxy interno de
+> WorkBuddy (`127.0.0.1:38232`), que intercepta el WebSocket de loopback que el
+> runner abre a `flutter_tester`. **Solución:** correr `flutter test` con esas
+> variables vacías (p. ej. un `.bat` que las borra antes de `flutter test`, ya
+> limpiado). No es un defecto del código.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -927,3 +1164,5 @@ Desbloqueo: **emitir un token nuevo de R2** (o esperar al `2026-09-18T08:59:52Z`
 | R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |
 | R-23 | `enrollments_insert_own` dejaba a cualquier autenticado auto-inscribirse en `ENROLLED` y saltarse el motor de cupos; `DELETE`/`TRUNCATE` permitidos contradecían conservar `DROPPED` | Escrituras movidas a RPC `security definer` + `revoke` total de `anon` y `authenticated` (migración 202609190001, parte 6) | ✅ Resuelta y verificada en producción (212/212) |
 | R-24 | Diagnostiqué el `AccessDenied` de R2 como «problema de alcance» **sin medirlo**: el reloj iba 12 h desviado (el SDK lo corregía en silencio) y el token tenía el `not_before` en el futuro | Causa raíz medida con un control (clave falsa → 401, clave real → 403) y con `verify` de la API de Cloudflare. Desbloqueo: token nuevo con el reloj corregido | 🔴 Causa identificada; **espera a Lorenzo** |
+| R-25 | `promover_siguiente` devuelve el `student_id`, pero el repositorio leía la inscripción con `.eq('id', …)`: la promoción **sí ocurría** y la API respondía **404** (medido en Fase 4) | Arreglo aplicado (2026-09-18): `InscripcionesSupabase.promover()` lee por `student_id` + `section_id` (no toca la base). Humo Fase 4 invirtió su bloque para certificar el 200 y `promovida.estudianteId === idBeta` | 🟢 **Resuelta y verificada (2026-09-18)** |
+| R-26 | Los POST sin cuerpo del M4 anunciaban `Content-Type: application/json` y daban 500 (`FST_ERR_CTP_EMPTY_JSON_BODY`); ninguna de las 428 pruebas del backend lo veía porque no hay cliente Flutter en su suite | `ApiClient.post/patch/put` declara `Content-Type: application/json` **sólo si hay cuerpo** (Capa 1 de la Fase 3, `lib/core/network/api_client.dart`) | ✅ Resuelta y verificada (Fase 3 · 307/307 · build limpio) |
