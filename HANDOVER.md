@@ -1,5 +1,14 @@
 # HANDOVER — INCES LMS
 
+> **Módulo 4 (Inscripciones y Cupos) — Fase 1 (esquema) cerrada el 2026-09-18:**
+> migración `202609190001_mod4_inscripciones.sql` aplicada en la nube (libro mayor
+> **13/13**, 0 deriva). Motor de cupos con 6 RPC `security definer`, cola FIFO,
+> ventana de bids opcional (`habilitar_sistema_bids`, **apagada** por defecto),
+> cerrojo por sección y frontera de escritura cerrada (ver **§2.7** y
+> `REPORTE_ARIA.md` **R-23**). Backend 341/341, Flutter 307/307, SQL **212/212**.
+> **Fase 2 (backend) y Fase 3 (frontend) pendientes**, más **4 decisiones de
+> producto** que esperan respuesta de Lorenzo (§2.7).
+>
 > Traspaso de mando generado el **2026-09-13**, revisado el **2026-09-14**,
 > puesto al día el **2026-09-15** (Módulo 2 completo) y **actualizado el
 > 2026-09-15 con el Módulo 3 completo**: esquema aplicado, verificado y
@@ -42,8 +51,10 @@ git log --oneline -8                                   # los últimos commits
 Los commits más recientes se consultan con `git log --oneline -8`. A partir del
 2026-09-15 se sumaron, entre otros: el frontend de M3 (rejilla, Mi Horario,
 aulas/lapsos/guardias), el cierre de **R-21** (nombres en la invitación de docente)
-y la resolución de **R-06** (lapso `SA26-2` + módulos `m2`/`m3` habilitados). Este
-documento no repite los SHA a propósito: el commit que lo contiene lo movería.
+y la resolución de **R-06** (lapso `SA26-2` + módulos `m2`/`m3` habilitados); y el
+2026-09-18, la **Fase 1 del Módulo 4** (motor de cupos, frontera de escritura
+cerrada y el cierre de **R-23**). Este documento no repite los SHA a propósito: el
+commit que lo contiene lo movería.
 
 > **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
 > sesiones con `fatal: could not read Username for 'https://github.com': terminal
@@ -59,37 +70,48 @@ Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
 sí se versiona a propósito (es la plantilla documentada, sin valores reales).
 `.workbuddy-ai/` también está ignorado: la memoria del proyecto no viaja al repo.
 
-### ✅ Migraciones de M2 y M3 aplicadas en la nube (verificado, no supuesto)
+### ✅ Migraciones de M2, M3 y M4 aplicadas en la nube (verificado, no supuesto)
 
-Las 10 migraciones están aplicadas. El libro mayor lo confirma:
+Las **13** migraciones están aplicadas. El libro mayor lo confirma:
 
 ```
 $ SUPABASE_ACCESS_TOKEN=sbp_… node supabase/apply-migrations.mjs --check
   Proyecto : twdppwnxlnmxkiejbrei   (ACTIVE_HEALTHY, sa-east-1)
-  Migraciones: 10
+  Migraciones: 13
 
   aplicada   202609100001_init.sql
   aplicada   202609120001_phase1_onboarding.sql
   aplicada   202609120002_phase3_admin_core.sql
   aplicada   202609120003_proteger_ultimo_admin.sql
   aplicada   202609130001_invitaciones_docente.sql
+  aplicada   202609130002_invitaciones_nombres.sql
   aplicada   202609150001_mod2_curriculo.sql
   aplicada   202609160001_resolucion_d12_d13.sql
   aplicada   202609170001_mod2_rpc_curriculo.sql
   aplicada   202609180001_mod3_cuadrante_aulas.sql
   aplicada   202609180002_mod3_trigger_agenda_definer.sql
+  aplicada   202609180003_r06_periodo_sa26_2_y_modulos.sql
+  aplicada   202609190001_mod4_inscripciones.sql
 
   0 pendiente(s), 0 con deriva.
 ```
 
-`node supabase/verificar-esquema.mjs` → **81/81 OK, 0 fallos** (comprobado el
-2026-09-15). Incluye las aserciones de M2 (`cursos` es vista con
+> **Ojo con `202609130002`.** Estaba en el repo desde el 2026-09-15 —R-21 se
+> cerró en código— pero **nunca había llegado a la nube**: se aplicó el
+> 2026-09-18, junto con M4. *Cerrado en el repo* no es *aplicado en producción*.
+> Antes de dar por bueno un arreglo, corre `--check`.
+
+`node supabase/verificar-esquema.mjs` → **89/89 OK, 0 fallos** (comprobado el
+2026-09-18; venía de 80/81). Incluye las aserciones de M2 (`cursos` es vista con
 `security_invoker`, `programs.type`/`is_active`, `sections.program_id`, los dos
-constraint triggers, las dos funciones del asistente) y **las de M3**: las 4
+constraint triggers, las dos funciones del asistente), **las de M3**: las 4
 tablas nuevas con sus columnas, la FK `sections.period_code → academic_periods`,
 el lapso vigente registrado, las 3 vistas con `security_invoker`, el `turno` como
 columna generada, y —la más importante— **`prosecdef` de los dos envoltorios
-anti-colisión debe ser `DEFINER`** (ver §2.6).
+anti-colisión debe ser `DEFINER`** (ver §2.6); y **las de M4** (bloque 8 nuevo):
+las RPC como `DEFINER`, `authenticated` **sin** INSERT/UPDATE sobre `enrollments`,
+`sections.max_capacity` anulable, el parámetro de bids sembrado, el trigger
+anti-duplicado y la vista con `security_invoker`.
 
 ---
 
@@ -101,7 +123,7 @@ anti-colisión debe ser `DEFINER`** (ver §2.6).
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
 | Flutter | **307 / 307** en verde | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **165 / 165** en verde · 12 migraciones | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **212 / 212** en verde · 13 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
 > tocaste. En el cierre de M2, correr los archivos sueltos daba verde y la suite
@@ -167,6 +189,11 @@ Arreglado con `Flexible`, y hay una prueba nueva que los monta **dentro de
 
 **g) Módulo 3 backend completo** — las 14 rutas de cuadrante, aulas y guardias,
 en el mismo reparto hexagonal que M2. Ver §2.6.
+
+**h) Módulo 4 — Fase 1 (esquema) desplegada y verificada.** El motor de cupos
+vive **entero** en la base de datos: 6 RPC `security definer`, cola FIFO,
+ventana de bids opcional, cerrojo por sección y frontera de escritura cerrada.
+No hay backend ni frontend todavía. Ver §2.7.
 
 ---
 
@@ -665,6 +692,7 @@ el mismo criterio y el mismo motivo que `PENSUM_EN_USO` en M2.
 | `teacher_duties` | **0** | Depende del inventario y del cuadrante real |
 | `schedule_slots` | **0** | Ídem |
 | `academic_periods` | **1** | Sólo `SA26-2`, **leído de `system_settings` (fijado por la migración 202609180003)**, no escrito a mano |
+| `enrollments` | **0** | El motor de M4 está desplegado pero **no tiene backend ni frontend**: nadie puede inscribirse todavía. Sembrar inscripciones sería inventarse matrícula |
 
 Consecuencia que la UI tendrá que explicar: **mientras `classrooms` esté vacía el
 cuadrante no se puede usar** —una clase sin aula no existe—, así que un
@@ -673,6 +701,67 @@ desplegable vacío sin mensaje hará pensar que la pantalla está rota.
 Y las fechas del lapso (`start_date` / `end_date`) son **nulas**: el centro no las
 ha cargado y no se inventan (R-17).
 
+### 2.7 Módulo 4 — Inscripciones y Cupos: **esquema ✅ · backend ⏳ · frontend ⏳**
+
+**Estado: Fase 1 (esquema) cerrada el 2026-09-18.** Migración
+`202609190001_mod4_inscripciones.sql` (748 líneas) aplicada en la nube. `sha256`
+= `e4688586f422f456cd297f5f417010b32d2d342b4a04823195ecd18878c05ce2`.
+
+**El motor vive entero en la base de datos.** El cliente no escribe: sólo llama
+RPC. Esto es lo que hay:
+
+| Pieza | Qué hace |
+|---|---|
+| `sections.max_capacity` **anulable** | Era `NOT NULL DEFAULT 0`. Sin esto, la regla «si es nulo usa el global» **nunca disparaba** |
+| `habilitar_sistema_bids` | Parámetro nuevo (boolean, privado). Arranca **apagado** |
+| `cupo_efectivo(sección)` | `coalesce(max_capacity, cupo_maximo_por_seccion, 0)` |
+| `cupos_ocupados(sección)` | Cuenta `ENROLLED` **+ `PENDING_BID`**: una oferta viva reserva el asiento |
+| Trigger `enrollments_seccion_unica_por_materia` | Un estudiante no puede tener dos secciones vivas de la misma materia en el lapso. Excluye `DROPPED` **y la propia fila** |
+| 6 RPC `security definer` | `solicitar_inscripcion`, `aceptar_cupo`, `renunciar_cupo`, `promover_siguiente`, `expirar_ofertas_cupo` (idempotente, sin `pg_cron`), `reincorporar_inscripcion` |
+| Cerrojo | `pg_advisory_xact_lock` **por sección**, no global |
+| Vista `v_ocupacion_secciones` | `security_invoker` + funciones definer (una vista invoker que contara `enrollments` directo mostraría a cada alumno sólo su propia fila) |
+
+**Frontera de seguridad — cerrada y probada contra producción.** Ver
+`REPORTE_ARIA.md` **R-23**: `enrollments` nació con `enrollments_insert_own`, que
+dejaba a **cualquier** autenticado auto-insertarse en `ENROLLED` y saltarse el
+motor de cupos entero. Se revocó `INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER`
+de **`anon` y `authenticated`**; queda sólo `SELECT` para `authenticated`. Probado
+como rol real (`set role` + `request.jwt.claims`, en transacción con `rollback`):
+`INSERT`/`UPDATE`/`DELETE` → **42501**; `SELECT` propio funciona; `anon` no lee ni
+escribe. Y el módulo **sigue operable**: un no-admin real llega a la lógica por
+`solicitar_inscripcion`.
+
+**Las 4 decisiones de producto que esperan a Lorenzo** (no se eligen por cuenta
+propia):
+
+1. `habilitar_sistema_bids` arranca **apagado** — el ROADMAP llama a M4 «Motor de
+   Bids», ¿debe nacer encendido?
+2. `reincorporar_inscripcion` **exige cupo libre**: el admin puede hacer la
+   excepción sobre el `unique`, pero **no sobrevender**.
+3. `cupos_ocupados` cuenta `ENROLLED` + `PENDING_BID`. Si sólo contara `ENROLLED`,
+   dos ofertas podrían vender el mismo asiento.
+4. Con bids encendido, una solicitud **con cupo libre sigue entrando directo a
+   `ENROLLED`**; los bids sólo actúan al liberarse un cupo.
+
+**Pendiente de confirmar:** Lorenzo pidió añadir
+`max_faltas_consecutivas_permitidas` a los parámetros, pero
+**`max_faltas_consecutivas = 3` ya existía** (`202609120002:401`, categoría
+`asistencia`). Se **no** creó el duplicado —sería un segundo sitio con la misma
+verdad—. Confirmar o renombrar el existente.
+
+#### Lo que falta de M4
+
+- **Fase 2 (backend)**: ~10-12 rutas, `reglas-inscripciones.ts`, puerto,
+  repositorio Supabase, esquemas Zod, OpenAPI, y **encender
+  `m4_inscripciones`** en `system_modules` (sigue apagado).
+- **Fase 3 (frontend)**: paneles de inscripción y ocupación.
+- **Fase 4**: `humo-inscripciones.mjs` con `--confirmar` y purga. **Es el único
+  sitio donde puede probarse la concurrencia real** (dos conexiones en paralelo):
+  el cerrojo está diseñado para eso pero **no se ha visto funcionar bajo carga**.
+- **Sin probar, y hay que decirlo:** PGlite es Postgres real pero **no es
+  Supabase**. No se ejercitó PostgREST ni GoTrue, así que la traducción de `42501`
+  a un 403 en el backend **no está comprobada** — le toca a la Fase 2.
+
 ---
 
 ## 3. Mapa de Documentos Vivos
@@ -680,7 +769,7 @@ ha cargado y no se inventan (R-17).
 | Documento | Qué es | Cuándo leerlo |
 |---|---|---|
 | **`ESTADO_DEL_SISTEMA.md`** | **Fuente de verdad.** Estado por fase, esquema, deudas D1–D13, recetas de arranque. **Ojo: se desincroniza solo** — verifica las cifras | **Primero, siempre** |
-| `REPORTE_ARIA.md` | Contradicciones del enunciado y fallos propios, resueltos uno por uno (R-01…R-20) | Si algo del diseño te chirría |
+| `REPORTE_ARIA.md` | Contradicciones del enunciado y fallos propios, resueltos uno por uno (R-01…**R-23**) | Si algo del diseño te chirría |
 | **`docs/CONTRATO_API_MODULO3.md`** | **El contrato de M3**: 14 rutas, tipos, errores, y por qué no hay un `unique` de colisión. **§10 explica el fallo `42501`** | **Antes de tocar nada de M3** |
 | `docs/CONTRATO_API_MODULO2.md` | Contrato de M2 (currículo y pensum), ya implementado | Al tocar M2 |
 | `ROADMAP.md` | ⚠️ **Desactualizado** — no lo tomes como referencia de estado | Sólo contexto histórico |
@@ -699,9 +788,10 @@ ha cargado y no se inventan (R-17).
 | `temas/api-backend.md` | Backend, PostgREST, por qué los dobles en memoria engañan |
 | `temas/modulo2.md` | M2: las dos reglas, las dos RPC y el cliente Flutter |
 | `temas/modulo3.md` | **M3**: las 4 tablas, la colisión que cruza dos tablas, la RLS comprobada y el reparto del backend |
+| `temas/modulo4.md` | **M4**: la frontera de seguridad, el modelo, la máquina de estados, los códigos de error, las decisiones abiertas y lo que queda sin probar |
 | `temas/infraestructura.md` | Supabase, R2, despliegue dual |
 | `temas/interfaz.md` | Flutter, tema, componentes |
-| `2026-09-11.md` … `15.md` | Logs diarios. El del 13 cierra el Módulo 1; el del **15** cierra el M3 (esquema, el fallo `42501`, el contrato y el backend) |
+| `2026-09-11.md` … `18.md` | Logs diarios. El del 13 cierra el Módulo 1; el del **15** cierra el M3 (esquema, el fallo `42501`, el contrato y el backend); el del **17** despliega M3 en la nube; el del **18** cierra la Fase 1 de M4 |
 
 ---
 
@@ -740,34 +830,43 @@ DOCUMENTACIÓN VIVA (léela antes de escribir código)
                                    verifica las cifras contra el código.
 3. .workbuddy-ai/memory/MEMORY.md y temas/convenciones.md -> reglas y convenciones.
    convenciones.md es OBLIGATORIO antes de tocar cualquier archivo de código.
-4. docs/CONTRATO_API_MODULO3.md -> el contrato de lo que toca ahora (M3), y en
+   temas/modulo4.md -> todo lo de M4: frontera de seguridad, máquina de estados,
+   códigos de error y lo que quedó sin probar.
+4. docs/CONTRATO_API_MODULO3.md -> el contrato de M3 (ya implementado), y en
                                    su §10 el fallo que casi se cuela a produccion.
 5. ROADMAP.md está DESACTUALIZADO: no lo uses como referencia de estado.
 6. backend/.env.example tiene todas las variables explicadas.
 
-ESTADO ACTUAL (verificado el 2026-09-15, no estimado)
+ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
 -----------------------------------------------------
 - Backend: 341/341 tests, typecheck y eslint limpios.
 - Flutter: 307/307 tests, `flutter analyze` sin incidencias.
-- SQL: 165/165 aserciones en pglite, sobre las 12 migraciones.
-- Esquema en la nube: 81/81 comprobaciones (verificar-esquema.mjs).
+- SQL: 212/212 aserciones en pglite, sobre las 13 migraciones.
+- Esquema en la nube: 89/89 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
 - HEAD en `main` = `origin/main` (comprueba con
   `git rev-list --left-right --count origin/main...HEAD` -> `0  0`). Working tree
   limpio. No se escribe el SHA: nace obsoleto, ver arriba.
 - Modulo 1 completo y verificado de extremo a extremo contra la base real.
 - Modulo 2 completo: base, backend y UI.
-- Modulo 3: ESQUEMA APLICADO Y CORREGIDO Y BACKEND COMPLETO (las 14 rutas del
-  contrato existen y estan documentadas en openapi.json: 29 rutas, 62 esquemas).
-  Falta solo el frontend. Su migracion de correccion no es cosmetica: sin ella
-  toda alta de guardia o clase fallaba con 42501 (ver HANDOVER §2.6).
-- Modulos 4-8: solo diseno.
+- Modulo 3 COMPLETO: esquema aplicado y corregido, backend completo (las 14 rutas
+  del contrato existen y estan documentadas en openapi.json) y frontend
+  construido (rejilla del cuadrante, Mi Horario, aulas, lapsos y guardias).
+- Modulo 4: FASE 1 (ESQUEMA) APLICADA Y VERIFICADA. El motor de cupos vive entero
+  en la base: 6 RPC security definer, cola FIFO, bids opcionales (apagados),
+  cerrojo por seccion y frontera de escritura cerrada (ver HANDOVER §2.7 y
+  REPORTE_ARIA.md R-23). FALTAN backend y frontend. `m4_inscripciones` sigue
+  APAGADO en system_modules: lo enciende la Fase 2.
+- Modulos 5-8: solo diseno.
 - Deudas abiertas: D7 (verificacion de tokens en cache), D9 (URL prefirmada de
   PUT sin limite de tamano; latente, M5 apagado).
 - Resueltas: D8, D10, D11, D12, D13.
 - Decisiones que NO son tuyas (R-06 ya resuelta: el lapso vigente es `SA26-2` y m2/m3 habilitados):
   R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).
   Las cuatro se cambian sin tocar codigo: son datos, o una funcion de una linea.
+- Decisiones de PRODUCTO de M4 que esperan a Lorenzo, no las elijas tu:
+  si `habilitar_sistema_bids` nace encendido; si `reincorporar_inscripcion`
+  debe permitir sobreventa; y si el parametro de faltas se renombra. Ver §2.7.
 
 LA TRAMPA QUE MAS CARO COSTO
 ----------------------------
@@ -777,19 +876,27 @@ tablas (el dueño se salta la comprobacion de EXECUTE). Antes de escribir una
 prueba de trigger: preguntate como que rol esta escribiendo. Detalle en
 REPORTE_ARIA.md R-20.
 
+Y su hermana, en la frontera de escritura (R-23): un `SQLSTATE` solo NO identifica
+la causa. El `42501` de un INSERT puede venir del GRANT que falta o de la politica
+RLS, y son arreglos distintos. Comprueba que el privilegio no existe, no solo que
+la operacion falla. Corolario: no basta con revocar la politica; hay que revocar
+el GRANT, y Supabase concede `grant all` por defecto (incluido `TRUNCATE`, que la
+RLS NO gobierna).
+
 TAREA INMEDIATA
 ---------------
 Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
 2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (341 / 307 / 165).
+   para confirmar que heredas verde (341 / 307 / 212).
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
-   (a) el frontend de M3 (aulas, lapsos, guardias y la rejilla del cuadrante:
-       es lo único que falta del módulo, y el backend ya está),
+   (a) M4 Fase 2 — el backend de inscripciones (~10-12 rutas, puerto,
+       repositorio, Zod, OpenAPI, y encender `m4_inscripciones`): el esquema ya
+       está desplegado y verificado, así que es el siguiente paso natural,
    (b) verificar el dominio en Resend (desbloquea el correo a terceros), o
    (c) abrir la pantalla de activación en un navegador real (mitad-UI de M1).
-   Recomiendo (a): cierra M3 entero.
+   Recomiendo (a), pero ANTES necesito las 4 decisiones de producto de §2.7.
 
 REGLAS DE TRABAJO
 -----------------

@@ -137,7 +137,10 @@ async function main() {
   // ------------------------------------------------- 3. semilla de settings
   seccion('3. Semilla de system_settings');
   const settings = (await db.query('select clave, valor, tipo, es_publico from public.system_settings')).rows;
-  check('hay 8 parámetros sembrados', settings.length === 8, `hay ${settings.length}`);
+  // 8 de la semilla de 202609120002 + `habilitar_sistema_bids`, que siembra M4
+  // (202609190001). El conteo es fijo a propósito: obliga a actualizarlo —y a
+  // pensarlo— cuando alguien añade un parámetro.
+  check('hay 9 parámetros sembrados', settings.length === 9, `hay ${settings.length}`);
   check(
     'modo_mantenimiento es público (la UI necesita leerlo)',
     settings.find((s) => s.clave === 'modo_mantenimiento')?.es_publico === true,
@@ -304,7 +307,7 @@ async function main() {
   const settingsAdmin = await como('authenticated', ADMIN_ID, () =>
     db.query('select count(*)::int as n from public.system_settings'),
   );
-  check('SÍ puede leer todos los parámetros', settingsAdmin.rows[0].n === 8, `ve ${settingsAdmin.rows[0].n}`);
+  check('SÍ puede leer todos los parámetros', settingsAdmin.rows[0].n === 9, `ve ${settingsAdmin.rows[0].n}`);
 
   const adminPuedeAjustar = await como('authenticated', ADMIN_ID, () =>
     db.query("select public.is_admin() as es"),
@@ -1471,6 +1474,302 @@ async function main() {
     'la llamada directa se rechaza por privilegios (42501)',
     llamadaDirecta?.code === '42501',
     `código: ${llamadaDirecta?.code}`,
+  );
+
+  // ------------------------------------------- 17. Módulo 4 — Inscripciones
+  seccion('17. Módulo 4 — Inscripciones y cupos (cola FIFO, ofertas y reincorporación)');
+
+  // ------------------------------------------------- 17.1 esquema de la frontera
+  // El fallback de la decisión 5 sólo puede dispararse si `max_capacity` es
+  // nullable: con `not null default 0`, el 0 tapa el parámetro global.
+  const nullableCap = (
+    await db.query(
+      "select is_nullable from information_schema.columns " +
+        "where table_schema='public' and table_name='sections' and column_name='max_capacity'",
+    )
+  ).rows[0]?.is_nullable;
+  check(
+    'sections.max_capacity es nullable (sin esto el fallback nunca dispara)',
+    nullableCap === 'YES',
+    String(nullableCap),
+  );
+
+  const bidsSetting = (
+    await db.query(
+      "select valor, tipo, es_publico from public.system_settings where clave = 'habilitar_sistema_bids'",
+    )
+  ).rows[0];
+  check('habilitar_sistema_bids está sembrado', Boolean(bidsSetting));
+  check(
+    'habilitar_sistema_bids es boolean, privado y arranca apagado',
+    bidsSetting?.tipo === 'boolean' && bidsSetting?.es_publico === false && bidsSetting?.valor === false,
+    JSON.stringify(bidsSetting),
+  );
+
+  // Las RPC de M4 son `security definer` a propósito (se saltan la RLS y hacen
+  // su propia autorización). Si alguna volviera a `invoker`, la escritura
+  // directa que acabamos de cerrar seguiría cerrada, pero la función dejaría de
+  // poder ver toda la tabla y el motor de cupos sería ciego.
+  const rpcM4 = (
+    await db.query(
+      "select p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname = 'public' and p.proname in " +
+        "('solicitar_inscripcion','aceptar_cupo','renunciar_cupo','promover_siguiente'," +
+        "'expirar_ofertas_cupo','reincorporar_inscripcion') order by p.proname",
+    )
+  ).rows;
+  check('existen las 6 RPC de la máquina de estados de M4', rpcM4.length === 6, `hay ${rpcM4.length}`);
+  check(
+    'las 6 RPC de M4 son security DEFINER',
+    rpcM4.length === 6 && rpcM4.every((f) => f.prosecdef === true),
+    rpcM4.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', '),
+  );
+
+  // LA aserción que impide que la frontera se reabra en silencio: la escritura
+  // directa de `authenticated` sobre `enrollments` debe estar revocada.
+  const escrituraDirecta = (
+    await db.query(
+      "select has_table_privilege('authenticated','public.enrollments','INSERT') as i, " +
+        "has_table_privilege('authenticated','public.enrollments','UPDATE') as u, " +
+        "has_table_privilege('authenticated','public.enrollments','DELETE') as d",
+    )
+  ).rows[0];
+  check('authenticated NO puede INSERT directo en enrollments', escrituraDirecta.i === false);
+  check('authenticated NO puede UPDATE directo en enrollments', escrituraDirecta.u === false);
+  check('authenticated NO puede DELETE directo en enrollments', escrituraDirecta.d === false);
+
+  const politicasEnrollments = (
+    await db.query(
+      "select policyname from pg_policies where schemaname='public' and tablename='enrollments'",
+    )
+  ).rows.map((p) => p.policyname);
+  check(
+    'las políticas de escritura propias fueron eliminadas',
+    !['enrollments_insert_own', 'enrollments_update_own', 'enrollments_delete_own'].some((p) =>
+      politicasEnrollments.includes(p),
+    ),
+    politicasEnrollments.join(', '),
+  );
+  check('enrollments_read_own sigue en pie', politicasEnrollments.includes('enrollments_read_own'));
+  check('enrollments_admin_all sigue en pie', politicasEnrollments.includes('enrollments_admin_all'));
+
+  const triggersM4 = (
+    await db.query(
+      "select t.tgname from pg_trigger t join pg_class c on c.oid = t.tgrelid " +
+        "where c.relname = 'enrollments' and not t.tgisinternal",
+    )
+  ).rows.map((t) => t.tgname);
+  check(
+    'existe el trigger anti-duplicado por (estudiante, materia, lapso)',
+    triggersM4.includes('enrollments_seccion_unica_por_materia'),
+    triggersM4.join(', '),
+  );
+
+  // ------------------------------------------------- 17.2 el motor, bids APAGADO
+  const ALU3 = '22222222-2222-2222-2222-222222222233';
+  const ALU4 = '22222222-2222-2222-2222-222222222244';
+  const ALU5 = '22222222-2222-2222-2222-222222222255';
+  const ALU6 = '22222222-2222-2222-2222-222222222266';
+  const ALU7 = '22222222-2222-2222-2222-222222222277';
+  const ALU8 = '22222222-2222-2222-2222-222222222288';
+  const ALU9 = '22222222-2222-2222-2222-222222222299';
+  const MAT_M4 = '99999999-9999-4999-8999-999999999991';
+  const SEC_M4A = 'bbbbbbb1-0000-4000-8000-000000000001';
+  const SEC_M4B = 'bbbbbbb2-0000-4000-8000-000000000002';
+
+  await db.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${ALU3}', 'alu3@inces.test', '{"nombres":"Bruno","apellidos":"Díaz"}'::jsonb),
+      ('${ALU4}', 'alu4@inces.test', '{"nombres":"Carla","apellidos":"Gil"}'::jsonb),
+      ('${ALU5}', 'alu5@inces.test', '{"nombres":"Diego","apellidos":"Soto"}'::jsonb),
+      ('${ALU6}', 'alu6@inces.test', '{"nombres":"Elena","apellidos":"Ruiz"}'::jsonb),
+      ('${ALU7}', 'alu7@inces.test', '{"nombres":"Fabián","apellidos":"Luz"}'::jsonb),
+      ('${ALU8}', 'alu8@inces.test', '{"nombres":"Gina","apellidos":"Paz"}'::jsonb),
+      ('${ALU9}', 'alu9@inces.test', '{"nombres":"Hugo","apellidos":"Mar"}'::jsonb);
+  `);
+
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours)
+     values ('${MAT_M4}', 'M4-I', 'Materia de M4', 48)`,
+  );
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity) values
+       ('${SEC_M4A}', '${PROG_ID}', '${MAT_M4}', '${PERIODO}', 'MA', 2),
+       ('${SEC_M4B}', '${PROG_ID}', '${MAT_M4}', '${PERIODO}', 'MB', 1)`,
+  );
+
+  const inscribe = (alumno, seccion) =>
+    como('authenticated', alumno, () =>
+      db.query(`select public.solicitar_inscripcion('${seccion}') as s`),
+    );
+
+  const s1 = await inscribe(ALU3, SEC_M4A);
+  check('el primer estudiante entra ENROLLED', s1.rows[0].s === 'ENROLLED', String(s1.rows[0].s));
+  const s2 = await inscribe(ALU4, SEC_M4A);
+  check('el segundo llena el cupo (2/2) como ENROLLED', s2.rows[0].s === 'ENROLLED', String(s2.rows[0].s));
+  const s3 = await inscribe(ALU5, SEC_M4A);
+  check('el tercero, con la sección llena, va a WAITLISTED', s3.rows[0].s === 'WAITLISTED', String(s3.rows[0].s));
+
+  // La escritura directa ahora es un rechazo de privilegios, no un insert.
+  const directo = await esperaError('un autenticado no puede insertar una inscripción a mano', () =>
+    como('authenticated', ALU3, () =>
+      db.exec(
+        `insert into public.enrollments (student_id, section_id, status)
+         values ('${ALU3}', '${SEC_M4B}', 'ENROLLED')`,
+      ),
+    ),
+  );
+  check('el rechazo directo es de privilegios (42501)', directo?.code === '42501', `código ${directo?.code}`);
+
+  // `anon` no tiene NADA que hacer con `enrollments`: ni leer. Sin GRANT de
+  // SELECT la RLS ni se evalúa, así que el rechazo tiene que ser de privilegios
+  // (42501) y no una lista vacía. Comprobar sólo la escritura dejaría abierta la
+  // puerta de la lectura, que también expone datos de menores.
+  const anonIns = await esperaError('anon no puede insertar en enrollments', () =>
+    como('anon', null, () =>
+      db.exec(
+        `insert into public.enrollments (student_id, section_id, status)
+         values ('${ALU3}', '${SEC_M4B}', 'ENROLLED')`,
+      ),
+    ),
+  );
+  check('el rechazo de anon al ESCRIBIR es de privilegios (42501)', anonIns?.code === '42501', `código ${anonIns?.code}`);
+  const anonSel = await esperaError('anon no puede leer enrollments', () =>
+    como('anon', null, () => db.query('select * from public.enrollments limit 1')),
+  );
+  check('el rechazo de anon al LEER es de privilegios (42501)', anonSel?.code === '42501', `código ${anonSel?.code}`);
+
+  // Ni un ADMIN escribe directo: el GRANT está revocado para TODO
+  // `authenticated`. Si esto pasara, la frontera tendría una puerta trasera que
+  // el `revoke` no cubre y el motor de cupos volvería a ser decorativo.
+  const adminDirecto = await esperaError('ni un admin puede insertar directo en enrollments', () =>
+    como('authenticated', ADMIN2_ID, () =>
+      db.exec(
+        `insert into public.enrollments (student_id, section_id, status)
+         values ('${ADMIN2_ID}', '${SEC_M4B}', 'ENROLLED')`,
+      ),
+    ),
+  );
+  check('el rechazo del admin directo también es de privilegios (42501)', adminDirecto?.code === '42501', `código ${adminDirecto?.code}`);
+
+  // Decisión 6: dos secciones de la misma materia en el mismo lapso.
+  const dup = await esperaError(
+    'un estudiante no puede tener dos secciones de la misma materia en el lapso',
+    () => inscribe(ALU3, SEC_M4B),
+  );
+  check('el duplicado sale como 23514 y no como un error de unicidad', dup?.code === '23514', `código ${dup?.code}`);
+
+  // Renuncia con bids APAGADO: promoción FIFO directa a ENROLLED.
+  const baja = await como('authenticated', ALU3, () =>
+    db.query(`select public.renunciar_cupo('${SEC_M4A}') as s`),
+  );
+  check('renunciar devuelve DROPPED', baja.rows[0].s === 'DROPPED', String(baja.rows[0].s));
+  const promovidoFifo = (
+    await db.query(
+      `select status from public.enrollments where student_id='${ALU5}' and section_id='${SEC_M4A}'`,
+    )
+  ).rows[0]?.status;
+  check('con bids apagado, el primero de la cola pasa directo a ENROLLED', promovidoFifo === 'ENROLLED', String(promovidoFifo));
+
+  // Reincorporación: es una excepción de administración, no una vía del estudiante.
+  const sinCupo = await esperaError('reincorporar sin cupo libre se rechaza', () =>
+    como('authenticated', ADMIN2_ID, () =>
+      db.query(`select public.reincorporar_inscripcion('${ALU3}', '${SEC_M4A}') as s`),
+    ),
+  );
+  check('la reincorporación sin cupo sale como 23514', sinCupo?.code === '23514', `código ${sinCupo?.code}`);
+
+  // Se libera un asiento y el admin reincorpora.
+  await como('authenticated', ALU4, () => db.query(`select public.renunciar_cupo('${SEC_M4A}')`));
+  const reinc = await como('authenticated', ADMIN2_ID, () =>
+    db.query(`select public.reincorporar_inscripcion('${ALU3}', '${SEC_M4A}') as s`),
+  );
+  check('un administrador reincorpora a un DROPPED como ENROLLED', reinc.rows[0].s === 'ENROLLED', String(reinc.rows[0].s));
+
+  const noAdmin = await esperaError('un estudiante no puede reincorporar inscripciones', () =>
+    como('authenticated', ALU5, () =>
+      db.query(`select public.reincorporar_inscripcion('${ALU4}', '${SEC_M4A}')`),
+    ),
+  );
+  check('la reincorporación sin ser admin se rechaza por permisos (42501)', noAdmin?.code === '42501', `código ${noAdmin?.code}`);
+
+  // ------------------------------------------------- 17.3 el motor, bids ENCENDIDO
+  await db.exec("update public.system_settings set valor = 'true'::jsonb where clave = 'habilitar_sistema_bids'");
+  check(
+    'el interruptor de bids quedó encendido',
+    (await db.query("select valor from public.system_settings where clave='habilitar_sistema_bids'")).rows[0]
+      .valor === true,
+  );
+
+  const b1 = await inscribe(ALU6, SEC_M4B);
+  check('con bids encendido, un cupo libre sigue admitiendo ENROLLED', b1.rows[0].s === 'ENROLLED', String(b1.rows[0].s));
+  const b2 = await inscribe(ALU7, SEC_M4B);
+  check('con la sección llena, el siguiente va a WAITLISTED', b2.rows[0].s === 'WAITLISTED', String(b2.rows[0].s));
+
+  await como('authenticated', ALU6, () => db.query(`select public.renunciar_cupo('${SEC_M4B}')`));
+  const oferta = (
+    await db.query(
+      `select status, bid_expires_at from public.enrollments where student_id='${ALU7}' and section_id='${SEC_M4B}'`,
+    )
+  ).rows[0];
+  check('con bids encendido, el primero de la cola recibe una OFERTA (PENDING_BID)', oferta?.status === 'PENDING_BID', String(oferta?.status));
+  check(
+    'la oferta nace con vencimiento futuro (bid_expires_at)',
+    oferta?.bid_expires_at != null && new Date(oferta.bid_expires_at).getTime() > Date.now(),
+    String(oferta?.bid_expires_at),
+  );
+
+  const acepta = await como('authenticated', ALU7, () =>
+    db.query(`select public.aceptar_cupo('${SEC_M4B}') as s`),
+  );
+  check('aceptar la oferta confirma ENROLLED', acepta.rows[0].s === 'ENROLLED', String(acepta.rows[0].s));
+  const trasAceptar = (
+    await db.query(
+      `select status, bid_expires_at from public.enrollments where student_id='${ALU7}' and section_id='${SEC_M4B}'`,
+    )
+  ).rows[0];
+  check('al aceptar se limpia el vencimiento', trasAceptar.status === 'ENROLLED' && trasAceptar.bid_expires_at === null);
+
+  // ---------------------------------------------- 17.4 expiración idempotente
+  const b8 = await inscribe(ALU8, SEC_M4B);
+  check('otro estudiante con la sección llena va a WAITLISTED', b8.rows[0].s === 'WAITLISTED', String(b8.rows[0].s));
+  await como('authenticated', ALU7, () => db.query(`select public.renunciar_cupo('${SEC_M4B}')`));
+  const oferta8 = (
+    await db.query(`select status from public.enrollments where student_id='${ALU8}' and section_id='${SEC_M4B}'`)
+  ).rows[0]?.status;
+  check('el primero de la cola recibe la nueva oferta', oferta8 === 'PENDING_BID', String(oferta8));
+
+  // Un segundo en cola, detrás de la oferta viva.
+  const b9 = await inscribe(ALU9, SEC_M4B);
+  check('detrás de una oferta viva, el siguiente queda en WAITLISTED', b9.rows[0].s === 'WAITLISTED', String(b9.rows[0].s));
+
+  // Se fuerza el vencimiento de la oferta y se barre.
+  await db.exec(
+    `update public.enrollments set bid_expires_at = now() - interval '1 hour'
+     where student_id='${ALU8}' and section_id='${SEC_M4B}'`,
+  );
+  const expiradas = (await db.query('select public.expirar_ofertas_cupo() as n')).rows[0].n;
+  check('expirar_ofertas_cupo devuelve 1 oferta expirada', expiradas === 1, `devolvió ${expiradas}`);
+  const alu8Tras = (
+    await db.query(`select status from public.enrollments where student_id='${ALU8}' and section_id='${SEC_M4B}'`)
+  ).rows[0]?.status;
+  check('la oferta vencida queda DROPPED', alu8Tras === 'DROPPED', String(alu8Tras));
+  const alu9Tras = (
+    await db.query(`select status from public.enrollments where student_id='${ALU9}' and section_id='${SEC_M4B}'`)
+  ).rows[0]?.status;
+  check('tras expirar, se promueve al siguiente de la cola (PENDING_BID)', alu9Tras === 'PENDING_BID', String(alu9Tras));
+
+  const expiradas2 = (await db.query('select public.expirar_ofertas_cupo() as n')).rows[0].n;
+  check('expirar_ofertas_cupo es idempotente (la segunda vez devuelve 0)', expiradas2 === 0, `devolvió ${expiradas2}`);
+
+  // La vista de ocupación no debe falsear el recuento con la RLS del llamante.
+  const ocupacion = await como('authenticated', ALU5, () =>
+    db.query(`select cupo_efectivo, cupos_ocupados from public.v_ocupacion_secciones where id = '${SEC_M4B}'`),
+  );
+  check(
+    'la vista de ocupación cuenta TODOS los asientos, no sólo los del llamante',
+    ocupacion.rows.length === 1 && ocupacion.rows[0].cupos_ocupados === 1,
+    JSON.stringify(ocupacion.rows[0] ?? {}),
   );
 
   // ---------------------------------------------------------------- resumen

@@ -4,11 +4,12 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-15 · **Módulo 3 con esquema Y backend
-> completos** (cuadrante, aulas, guardias docentes, triggers anti-colisión y las
-> **14 rutas** de `docs/CONTRATO_API_MODULO3.md`). Módulo 1 cerrado y Módulo 2
-> completo. **D10 resuelta** (libro mayor de migraciones con checksums). Puertos y
-> CORS alineados. Repositorio publicado en GitHub.
+> **Última actualización:** 2026-09-18 · **Módulo 3 completo y desplegado**
+> (esquema, backend de 14 rutas y frontend), con su humo de integración en verde
+> contra la nube. **Módulo 4 — Inscripciones y Cupos: Fase 1 (esquema) aplicada y
+> verificada en la nube**; backend y frontend pendientes. Módulo 1 cerrado y
+> Módulo 2 completo. **D10 resuelta** (libro mayor de migraciones con checksums).
+> Puertos y CORS alineados. Repositorio publicado en GitHub.
 >
 > **El Módulo 3 está completo (frontend incluido).** Las 14 rutas ya existen, están
 > registradas en Fastify y documentadas en `openapi.json` (el recuento pasó de
@@ -19,9 +20,11 @@
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
-> base real, y **volvió a corregirse el 2026-09-15** (341 backend / 203 Flutter /
-> 164 SQL / 10 migraciones / 17 tablas). **Si vuelve a haber discrepancia, gana el
-> código**: verifica antes de citar una cifra de aquí.
+> base real el 2026-09-15, **y volvió a hacer falta el 2026-09-18** (quedaba en
+> 203 Flutter / 164 SQL / 10 migraciones / 81 comprobaciones cuando el código iba
+> por **307 / 212 / 13 / 89**). **Si vuelve a haber discrepancia, gana el
+> código**: verifica antes de citar una cifra de aquí. La lección se ha cumplido
+> ya tres veces: este documento se desincroniza solo.
 
 ---
 
@@ -43,10 +46,14 @@
 | **Módulo 3 (esquema)** | Cuadrante, aulas, guardias: 4 tablas, 2 triggers anti-colisión, 3 vistas | ✅ **Aplicado y verificado** |
 | **Módulo 3 (backend)** | Las 14 rutas de `CONTRATO_API_MODULO3.md` | ✅ **Completo** (PASO 4) |
 | **Módulo 3 (frontend)** | Pantallas de aulas, lapsos, guardias y cuadrante (rejilla `CuadranteGrid`, `MiHorarioPanel`) | ✅ Completo |
-| **Fase 4+** | M4 Inscripciones … M8 Pasantías | ⏳ Pendiente |
+| **Módulo 4 (esquema)** | Inscripciones y cupos: cola FIFO, ofertas con vencimiento, anti-acaparamiento y **frontera de escritura por RPC** | ✅ **Aplicado y verificado** (2026-09-18) |
+| **Módulo 4 (backend)** | Rutas de inscripción, puerto, repositorio y traducción de errores | ⏳ Pendiente |
+| **Módulo 4 (frontend)** | Catálogo de secciones, solicitud y aceptación de cupo, panel de cola en el cPanel | ⏳ Pendiente |
+| **Fase 5+** | M5 Archivos … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del **2026-09-15**;
-migraciones de M3 aplicadas y verificadas el **2026-09-15**
+**Verificación al cierre de esta iteración** — suites del **2026-09-18**
+(backend 341, Flutter 307, SQL 212, esquema 89/89); migraciones de M3 aplicadas y
+verificadas el **2026-09-17** y la de M4 el **2026-09-18**
 
 | Comprobación | Resultado |
 | --- | --- |
@@ -56,11 +63,14 @@ migraciones de M3 aplicadas y verificadas el **2026-09-15**
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **164 / 164** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3) |
-| **Migraciones en la nube** | **10 / 10** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **81 / 81** comprobaciones (`supabase/verificar-esquema.mjs`) |
-| **Libro mayor de migraciones (D10)** | 10 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M3 en la nube** | ✅ **Aplicadas** el 2026-09-15 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
+| Validador SQL contra PostgreSQL real (pglite) | **212 / 212** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3 + 41 de M4 + 6 de la frontera de escritura) |
+| **Migraciones en la nube** | **13 / 13** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **89 / 89** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 13 versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2 y M3 en la nube** | ✅ **Aplicadas** el 2026-09-17 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
+| **Migración de M4 en la nube** | ✅ **Aplicada** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` |
+| **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
+| **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **14 / 14** (`supabase/humo-curriculo.mjs`), incluida la atomicidad |
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |

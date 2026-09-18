@@ -696,6 +696,131 @@ uno estaba cubierto.
 
 ---
 
+## R-23 · `enrollments` dejaba que cualquier usuario se auto-inscribiera: el motor de cupos nacía decorativo
+
+**Encontrado el 2026-09-18** al construir la Fase 1 (Esquema) del Módulo 4.
+**Ninguna prueba lo habría visto**, porque el defecto no está en el código que se
+escribió para M4: está en el que ya estaba desde la migración inicial, y **se
+vuelve dañino precisamente cuando M4 existe**.
+
+### Qué pasa
+
+`202609100001_init.sql:225-229` creó una política que permite a **cualquier**
+usuario autenticado insertar su propia fila de inscripción:
+
+```sql
+create policy enrollments_insert_own
+on public.enrollments
+for insert
+to authenticated
+with check (student_id = auth.uid());
+```
+
+Y su hermana, `enrollments_update_own` (`:231-236`), deja **editar la propia
+fila** —incluida la columna `status`— con el mismo criterio. Con
+`enrollments_delete_own` (`:238-242`) se puede además **borrar la fila**.
+
+La condición `student_id = auth.uid()` es correcta en lo que dice: nadie toca la
+fila de otro. El problema es lo que **no** dice: no dice nada sobre `status`,
+sobre el cupo de la sección, sobre la cola, ni sobre la ventana de bids.
+
+### Por qué importa
+
+En Fase 0, M4 no existía y estas políticas eran un andamio razonable. Al entrar
+M4, el sistema pasa a tener un **motor de cupos**: `cupo_efectivo()`,
+`cupos_ocupados()`, la cola FIFO, el estado `WAITLISTED`, la ventana de 24 h de
+`PENDING_BID`, el cerrojo por sección. Todo ese motor vive en RPC
+`security definer`.
+
+**Y el cliente no lo necesita.** Con `enrollments_insert_own` vigente, un
+estudiante autenticado hace un `insert` directo vía PostgREST con
+`status = 'ENROLLED'` y **entra a la sección que quiera, aunque esté llena, sin
+pasar por ninguna RPC**. El motor de cupos queda como una capa de cortesía: se
+puede ignorar por completo.
+
+Es exactamente el patrón de R-20, un escalón antes: no un módulo inoperable, sino
+un módulo **operable y eludible**. La frontera de seguridad que el proyecto
+declaró en ADR-003 (la RLS es el único control, porque la publishable key viaja
+al cliente) **no estaba cerrada**.
+
+### El agravante que sólo se ve midiendo
+
+La decisión de producto nº 2 de M4 es **conservar la fila en `DROPPED` como
+historial**. `enrollments_delete_own` **permite borrarla**: el propio estudiante
+puede destruir el registro que el sistema quiere preservar.
+
+Y hay un privilegio peor, que ninguna política de RLS gobierna: medido contra la
+nube, `anon` **y** `authenticated` tenían el `grant all` por defecto de Supabase
+sobre la tabla, **incluido `TRUNCATE`**. `TRUNCATE` **no pasa por la RLS**: no hay
+política que lo detenga. Una sola sentencia vacía la tabla de inscripciones.
+
+### Arreglo aplicado
+
+Parte 6 de `202609190001_mod4_inscripciones.sql`:
+
+```sql
+revoke all on public.enrollments from anon, authenticated;
+grant select on public.enrollments to authenticated;
+
+drop policy if exists enrollments_insert_own on public.enrollments;
+drop policy if exists enrollments_update_own on public.enrollments;
+drop policy if exists enrollments_delete_own on public.enrollments;
+```
+
+Toda escritura pasa ahora por las seis RPC `security definer`, que se
+auto-autorizan con `auth.uid()` en su interior. `enrollments_admin_all` **sigue
+declarada**, pero queda **inerte**: sin el `GRANT`, no hay privilegio que la RLS
+pueda permitir.
+
+### Verificación
+
+Probado **contra producción y como rol real** (`set role authenticated` +
+`request.jwt.claims`, en transacción con `rollback` — no como el dueño de la
+tabla, que es justo la trampa de R-20):
+
+| Operación | Resultado |
+| --- | --- |
+| `INSERT` directo | **42501** `permission denied for table enrollments` |
+| `UPDATE` directo | **42501** |
+| `DELETE` directo | **42501** |
+| `SELECT` propio | funciona |
+| `anon`, cualquier cosa | **42501** |
+
+Y el módulo **sigue siendo operable**, que es la mitad que R-20 enseñó a no
+olvidar: un **no-admin real** (`c05df98e-…`) llega a la lógica de negocio a
+través de `solicitar_inscripcion` (**23514** «La sección … no existe»), mientras
+que las RPC de administrador le devuelven **42501**. Es decir: la frontera cierra
+al cliente **y** deja pasar al estudiante legítimo.
+
+### La lección, que es la parte reutilizable
+
+**Un `SQLSTATE` solo no identifica la causa.** El `42501` del `INSERT` lo produce
+la **falta de GRANT**, no la política borrada. Si alguien devolviera el `GRANT`,
+la política ya no está y la RLS volvería a dar `42501` — **el mismo código por
+otro motivo**. Para probar el arreglo hay que comprobar **además** que el
+privilegio no existe, no sólo que la operación falla. Es la lección de R-20 («no
+basta con que dé *algún* error») aplicada al arreglo mismo.
+
+La QA lo comprobó con un **fail-first real**: neutralizó el `revoke` **en
+memoria** —nunca tocó el archivo— y con la regla desactivada el `INSERT` directo
+**pasó**. La aserción tiene dientes. El `sha256` de la migración es idéntico antes
+y después:
+`e4688586f422f456cd297f5f417010b32d2d342b4a04823195ecd18878c05ce2`.
+
+**Verificación:** libro mayor 13/13 · `verificar-esquema.mjs` 89/89 · suite SQL
+**212/212** (206 del arnés + 6 aserciones que añadió la QA para cerrar tres
+huecos: `anon` no escribe, `anon` no lee, y **ni un admin escribe directo**).
+
+> **Lo que queda sin probar, dicho sin adornos.** PGlite es Postgres real pero
+> **no es Supabase**: no se ejercitó PostgREST ni GoTrue, así que la traducción de
+> `42501` a un 403 en el backend **no está comprobada aquí** — corresponde a la
+> Fase 2. Tampoco se probó **concurrencia real** (dos conexiones en paralelo): el
+> cerrojo `pg_advisory_xact_lock` por sección está diseñado para eso, pero no se
+> ha visto funcionar bajo carga. Ese es el trabajo del humo de la Fase 4, y es el
+> único sitio donde puede probarse.
+
+---
+
 ## Resumen
 
 | ID | Contradicción | Resolución | Estado |
@@ -722,3 +847,4 @@ uno estaba cubierto.
 | R-20 | Trigger `invoker` + función revocada: módulo inoperable | Envoltorios a `security definer` (migración 202609180002) | ✅ Resuelta y verificada |
 | R-21 | El nombre del docente llega vacío al cuadrante: `nombre_para_mostrar()` devuelve NULL | La función está bien; **el canal de invitación ahora captura nombres/apellidos** y los pasa a `user_metadata` (migración 202609130002 + commit de R-21) | ✅ **Resuelta (2026-09-15)** |
 | R-22 | El panel de M2 estaba construido y probado, pero su ítem del menú seguía deshabilitado: **inalcanzable** | Bandera obsoleta quitada + `test/menu_alcanzable_test.dart`, que lee el dashboard y exige que secciones y ramas coincidan | ✅ Resuelta y verificada (203/203) |
+| R-23 | `enrollments_insert_own` dejaba a cualquier autenticado auto-inscribirse en `ENROLLED` y saltarse el motor de cupos; `DELETE`/`TRUNCATE` permitidos contradecían conservar `DROPPED` | Escrituras movidas a RPC `security definer` + `revoke` total de `anon` y `authenticated` (migración 202609190001, parte 6) | ✅ Resuelta y verificada en producción (212/212) |

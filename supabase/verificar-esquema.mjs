@@ -15,6 +15,9 @@
  *      tablas del currículo (M2)?
  *   7. ¿Está el Módulo 3 desplegado — aulas, períodos, guardias, cuadrante,
  *      sus vistas y sus triggers anti-colisión?
+ *   8. ¿Está el Módulo 4 desplegado — RPC `security definer`, escritura directa
+ *      revocada, `max_capacity` nullable, semilla de bids y trigger
+ *      anti-duplicado?
  *
  * Uso: SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
  */
@@ -106,6 +109,7 @@ const vistasEsperadas = [
   'cursos',
   'v_cuadrante_clases',
   'v_cuadrante_guardias',
+  'v_ocupacion_secciones',
   'v_periodo_vigente',
 ];
 const presentes = tablas.map((t) => t.tablename);
@@ -202,18 +206,22 @@ comprobar(
   'm0_cpanel arranca habilitado',
   modulos.some((m) => m.clave === 'm0_cpanel' && m.habilitado === true),
 );
-// La semilla enciende exactamente dos: el panel y el onboarding. El resto de
-// módulos nace apagado y se enciende desde el cPanel.
+// La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero la
+// migración 202609180003 enciende `m2_curriculo` y `m3_cuadrante` a propósito:
+// están construidos y verificados de extremo a extremo. Exigir «sólo dos»
+// quedaría obsoleto y marcaría como fallo un estado correcto. Se fija el estado
+// real: m0…m3 encendidos y m4…m8 apagados hasta que se construyan (m4 lo
+// encenderá su propia migración cuando el dueño lo decida).
+const habilitados = modulos
+  .filter((m) => m.habilitado)
+  .map((m) => m.clave)
+  .sort();
 comprobar(
-  'sólo m0_cpanel y m1_onboarding habilitados',
-  modulos.filter((m) => m.habilitado).length === 2 &&
-    modulos
-      .filter((m) => m.habilitado)
-      .every((m) => ['m0_cpanel', 'm1_onboarding'].includes(m.clave)),
-  modulos
-    .filter((m) => m.habilitado)
-    .map((m) => m.clave)
-    .join(', '),
+  'm0…m3 habilitados y m4…m8 apagados',
+  JSON.stringify(habilitados) ===
+    JSON.stringify(['m0_cpanel', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante']) &&
+    modulos.filter((m) => !m.habilitado).every((m) => /^m[4-8]_/.test(m.clave)),
+  `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');
 comprobar('parámetros sembrados', ajustes[0].n > 0, `${ajustes[0].n} filas`);
@@ -504,6 +512,98 @@ comprobar(
   anonSuperficie.length === 4 &&
     anonSuperficie.every((t) => (t.relname === 'academic_periods') === t.puede),
   anonSuperficie.map((t) => `${t.relname}=${t.puede ? 'PUEDE' : 'no'}`).join(', '),
+);
+
+console.log('\n  8. M4: inscripciones, cupos y la frontera de escritura\n');
+
+// El fallback al cupo global (decisión 5) sólo puede dispararse si
+// `max_capacity` es nullable. Con `not null default 0`, el 0 taparía el
+// parámetro y la jerarquía de cupo sería decorativa.
+const capNullable = await consultar(
+  "select is_nullable from information_schema.columns " +
+    "where table_schema = 'public' and table_name = 'sections' and column_name = 'max_capacity';",
+);
+comprobar(
+  'sections.max_capacity es nullable (si no, el fallback al cupo global no dispara)',
+  capNullable[0]?.is_nullable === 'YES',
+  capNullable[0]?.is_nullable ?? 'AUSENTE',
+);
+
+const bidsSeed = await consultar(
+  "select tipo, es_publico from public.system_settings where clave = 'habilitar_sistema_bids';",
+);
+comprobar(
+  'habilitar_sistema_bids está sembrado (boolean, privado)',
+  bidsSeed.length === 1 && bidsSeed[0].tipo === 'boolean' && bidsSeed[0].es_publico === false,
+  bidsSeed.length === 1 ? `tipo=${bidsSeed[0].tipo}, publico=${bidsSeed[0].es_publico}` : 'AUSENTE',
+);
+
+// Las RPC de M4 son `security definer` por diseño: se saltan la RLS de
+// `enrollments` y hacen su propia autorización con `auth.uid()`/`is_admin()`.
+// Si alguna volviera a `invoker`, el motor de cupos quedaría ciego: la RLS le
+// escondería las inscripciones de los demás y no podría contar la ocupación.
+const rpcM4 = await consultar(
+  'select p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' and p.proname in " +
+    "('solicitar_inscripcion','aceptar_cupo','renunciar_cupo','promover_siguiente'," +
+    "'expirar_ofertas_cupo','reincorporar_inscripcion') order by p.proname;",
+);
+comprobar(
+  'existen las 6 RPC de la máquina de estados de M4',
+  rpcM4.length === 6,
+  rpcM4.map((f) => f.proname).join(', ') || 'ninguna',
+);
+comprobar(
+  'las RPC de M4 son security DEFINER',
+  rpcM4.length === 6 && rpcM4.every((f) => f.prosecdef === true),
+  rpcM4.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', ') || 'AUSENTES',
+);
+
+// LA aserción de la frontera: sin esto, `enrollments_insert_own` volvería a
+// dejar al estudiante escribir su propia fila con ENROLLED y el motor sería
+// decorativo. Es exactamente la regresión que esta fase cierra.
+const escrituraEnroll = await consultar(
+  "select has_table_privilege('authenticated','public.enrollments','INSERT') as i, " +
+    "has_table_privilege('authenticated','public.enrollments','UPDATE') as u;",
+);
+comprobar(
+  'authenticated NO tiene INSERT ni UPDATE directo sobre enrollments',
+  escrituraEnroll.length === 1 && escrituraEnroll[0].i === false && escrituraEnroll[0].u === false,
+  escrituraEnroll.length === 1 ? `INSERT=${escrituraEnroll[0].i}, UPDATE=${escrituraEnroll[0].u}` : 'AUSENTE',
+);
+
+const policiesEnroll = await consultar(
+  "select policyname from pg_policies where schemaname = 'public' and tablename = 'enrollments' order by policyname;",
+);
+const nombresPoliticasEnroll = policiesEnroll.map((p) => p.policyname);
+comprobar(
+  'las políticas de escritura propias de enrollments ya no existen',
+  !['enrollments_insert_own', 'enrollments_update_own', 'enrollments_delete_own'].some((p) =>
+    nombresPoliticasEnroll.includes(p),
+  ),
+  nombresPoliticasEnroll.join(', ') || 'ninguna',
+);
+
+const triggerM4 = await consultar(
+  "select t.tgname from pg_trigger t join pg_class c on c.oid = t.tgrelid " +
+    "where c.relname = 'enrollments' and not t.tgisinternal;",
+);
+comprobar(
+  'existe el trigger anti-duplicado (estudiante, materia, lapso)',
+  triggerM4.some((t) => t.tgname === 'enrollments_seccion_unica_por_materia'),
+  triggerM4.map((t) => t.tgname).join(', ') || 'ninguno',
+);
+
+const vistaOcupacion = relaciones.find((r) => r.relname === 'v_ocupacion_secciones');
+const opcionesOcupacion = (vistaOcupacion?.reloptions ?? []).join(',');
+comprobar(
+  'v_ocupacion_secciones existe, es vista y usa security_invoker',
+  vistaOcupacion?.relkind === 'v' &&
+    (opcionesOcupacion.includes('security_invoker=true') ||
+      opcionesOcupacion.includes('security_invoker=on')),
+  vistaOcupacion
+    ? `relkind = ${vistaOcupacion.relkind}, opciones = ${opcionesOcupacion || 'NINGUNA'}`
+    : 'AUSENTE',
 );
 
 console.log(
