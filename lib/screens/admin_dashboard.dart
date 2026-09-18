@@ -12,6 +12,7 @@ import 'admin/cpanel_parametros_panel.dart';
 import 'admin/cpanel_invitaciones_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
 import 'admin/cpanel_cuadrante_panel.dart';
+import 'admin/cpanel_inscripciones_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
@@ -79,6 +80,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       icono: Icons.menu_book_outlined,
       titulo: 'Programas Académicos',
       categoria: 'Gestión académica',
+    ),
+    ItemNavegacion(
+      icono: Icons.confirmation_number_outlined,
+      titulo: 'Inscripciones y Cupos',
+      categoria: 'Gestión académica',
+      disponible: true,
     ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
@@ -165,6 +172,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Gestión académica', 'Programas Académicos'],
           child: CpanelProgramasPanel(),
+        );
+      case 'Inscripciones y Cupos':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Gestión académica', 'Inscripciones y Cupos'],
+          child: CpanelInscripcionesPanel(),
         );
       case 'Cuadrante y Horarios':
         return const ContenidoSeccion(

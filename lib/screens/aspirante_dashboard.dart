@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../core/result.dart';
 import '../models/aspirante_model.dart';
+import '../models/inscripcion.dart';
 import '../repositories/aspirante_repository.dart';
+import '../repositories/inscripcion_repository.dart';
 import '../services/auth_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
@@ -14,6 +19,12 @@ import '../widgets/comunes.dart';
 /// muestra como error con reintento, **nunca** como "no tienes ficha": ése era
 /// el bug que ocultaba datos, y es la razón de que los tres estados (cargando,
 /// error, vacío) estén separados aquí.
+///
+/// El Módulo 4 (Inscripciones y Cupos) añade dos secciones disponibles: el
+/// catálogo de ofertas y "Mis inscripciones". Ambas usan [InscripcionesRepository]
+/// y respetan la regla de negocio del backend: si `ofertaVigente == true` el
+/// asiento está en asignación y no se puede solicitar, **aunque** queden cupos
+/// libres (es la "doble venta" que el diseño evita).
 class AspiranteDashboardScreen extends StatefulWidget {
   const AspiranteDashboardScreen({super.key, this.repositorio, this.auth});
 
@@ -29,6 +40,7 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   late final AspiranteRepository _repo =
       widget.repositorio ?? AspiranteRepository();
   late final AuthService _auth = widget.auth ?? AuthService();
+  final InscripcionesRepository _inscripciones = InscripcionesRepository();
 
   bool _cargando = true;
   AspiranteModel? _aspirante;
@@ -41,6 +53,16 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       icono: Icons.badge_outlined,
       titulo: 'Mi inscripción',
       categoria: 'Mi cuenta',
+    ),
+    ItemNavegacion(
+      icono: Icons.explore_outlined,
+      titulo: 'Ofertas de cupos',
+      categoria: 'Académico',
+    ),
+    ItemNavegacion(
+      icono: Icons.playlist_add_check_outlined,
+      titulo: 'Mis inscripciones',
+      categoria: 'Académico',
     ),
     ItemNavegacion(
       icono: Icons.class_outlined,
@@ -107,18 +129,29 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   }
 
   Widget _contenido() {
-    if (_seleccionada != 0) {
-      final item = _items[_seleccionada];
-      return ContenidoSeccion(
-        migas: ['Inicio', item.categoria, item.titulo],
-        child: PanelVacio(
-          titulo: item.titulo,
-          mensaje: 'Esta sección se habilitará cuando tu curso esté activo.',
-          icono: item.icono,
-        ),
-      );
+    final item = _items[_seleccionada];
+    switch (_seleccionada) {
+      case 0:
+        return _panelMiInscripcion();
+      case 1:
+        return PanelOfertas(repositorio: _inscripciones);
+      case 2:
+        return PanelMisInscripciones(repositorio: _inscripciones);
+      default:
+        // Secciones aún no construidas: se muestran atenuadas en el menú y, si
+        // alguien llega aquí, un panel vacío que explica por qué.
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: PanelVacio(
+            titulo: item.titulo,
+            mensaje: 'Esta sección se habilitará cuando tu curso esté activo.',
+            icono: item.icono,
+          ),
+        );
     }
+  }
 
+  Widget _panelMiInscripcion() {
     return ContenidoSeccion(
       migas: const ['Inicio', 'Mi cuenta', 'Mi inscripción'],
       child: _cargando
@@ -309,6 +342,575 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
     return combinadas.isEmpty ? '?' : combinadas;
   }
 }
+
+/// Catálogo de ofertas de cupo del estudiante (Módulo 4, capa estudiante).
+///
+/// Regla de negocio visible en la UI: si `ofertaVigente == true` el asiento está
+/// en asignación automática y el botón "Inscribirme" queda deshabilitado con la
+/// etiqueta "Asiento en asignación", **aunque** `cuposDisponibles > 0`. No se
+/// puede "robar" un cupo que el backend está asignando a quien viene de la cola.
+class PanelOfertas extends StatefulWidget {
+  const PanelOfertas({super.key, required this.repositorio});
+
+  final InscripcionesRepository repositorio;
+
+  @override
+  State<PanelOfertas> createState() => _PanelOfertasState();
+}
+
+class _PanelOfertasState extends State<PanelOfertas> {
+  bool _cargando = true;
+  String? _error;
+  List<OcupacionSeccion> _secciones = const [];
+  final Set<String> _inscribiendo = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+
+    final resultado = await widget.repositorio.obtenerOfertas();
+    if (!mounted) return;
+
+    setState(() {
+      _cargando = false;
+      switch (resultado) {
+        case Success(value: final secciones):
+          _secciones = secciones;
+        case Failure(error: final fallo):
+          _error = fallo.message;
+      }
+    });
+  }
+
+  Future<void> _inscribirse(OcupacionSeccion o) async {
+    setState(() => _inscribiendo.add(o.seccionId));
+    final resultado = await widget.repositorio.inscribirse(o.seccionId);
+    if (!mounted) return;
+    setState(() => _inscribiendo.remove(o.seccionId));
+
+    resultado.when(
+      success: (estado) {
+        mostrarAviso(
+          context,
+          'Solicitud enviada. Estado: ${_etiquetaEstado(estado)}.',
+          exito: true,
+        );
+        _cargar();
+      },
+      failure: (fallo) => mostrarAviso(context, fallo.message, error: true),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContenidoSeccion(
+      migas: const ['Inicio', 'Académico', 'Ofertas de cupos'],
+      child: EstadoPanel(
+        cargando: _cargando,
+        error: _error,
+        onReintentar: _cargar,
+        child: _contenido(),
+      ),
+    );
+  }
+
+  Widget _contenido() {
+    if (_secciones.isEmpty) {
+      return const PanelVacio(
+        titulo: 'No hay secciones abiertas',
+        mensaje:
+            'Cuando el centro formativo habilite secciones con cupo las '
+            'verás listadas aquí, con su disponibilidad en tiempo real.',
+        icono: Icons.explore_outlined,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TituloSeccion(
+          'Ofertas de cupos',
+          subtitulo: '${_secciones.length} sección(es) en este período.',
+          acciones: [
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _cargando ? null : _cargar,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const AvisoEnLinea(
+          texto:
+              'Si una sección dice «Asiento en asignación» no puedes pedirla: '
+              'el sistema está dando ese cupo a quien viene de la lista de '
+              'espera, aunque aparezcan cupos libres. Vuelve a mirar más tarde.',
+          icono: Icons.hourglass_empty_outlined,
+          tono: TonoAviso.info,
+        ),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final o in _secciones) _tarjetaOferta(o),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tarjetaOferta(OcupacionSeccion o) {
+    final theme = Theme.of(context);
+    final enAsignacion = o.ofertaVigente;
+    final conCupo = o.cuposDisponibles > 0;
+    final puedeInscribirse = !enAsignacion && conCupo;
+    final ocupado = _inscribiendo.contains(o.seccionId);
+
+    final titulo = o.materiaNombre ?? o.nombre;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (o.programaNombre != null) o.programaNombre!,
+                      o.periodo,
+                    ].join(' · '),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      Etiqueta(texto: 'Cupo ${o.resumenCupo}'),
+                      Etiqueta(
+                        texto: conCupo
+                            ? '${o.cuposDisponibles} disponible(s)'
+                            : 'Sin cupos',
+                      ),
+                      if (enAsignacion)
+                        const Etiqueta(
+                          texto: 'Asiento en asignación',
+                          destacada: true,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (enAsignacion)
+              FilledButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.hourglass_empty_outlined, size: 16),
+                label: const Text('Asiento en\nasignación'),
+              )
+            else if (puedeInscribirse)
+              FilledButton.icon(
+                onPressed: ocupado ? null : () => _inscribirse(o),
+                icon: ocupado
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_outlined, size: 16),
+                label: Text(ocupado ? 'Enviando…' : 'Inscribirme'),
+              )
+            else
+              FilledButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.block_outlined, size: 16),
+                label: const Text('Sin cupos'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// "Mis inscripciones" del estudiante (Módulo 4, capa estudiante).
+///
+/// Honra el ciclo de estados: `WAITLISTED` (en cola, muestra `posicionEnCola` y
+/// permite renunciar), `PENDING_BID` (oferta en el aire, muestra cuenta regresiva
+/// desde `ofertaVenceEn` y permite aceptar o renunciar) y `ENROLLED` (adentro).
+class PanelMisInscripciones extends StatefulWidget {
+  const PanelMisInscripciones({required this.repositorio});
+
+  final InscripcionesRepository repositorio;
+
+  @override
+  State<PanelMisInscripciones> createState() => _PanelMisInscripcionesState();
+}
+
+class _PanelMisInscripcionesState extends State<PanelMisInscripciones> {
+  bool _cargando = true;
+  String? _error;
+  List<InscripcionDetallada> _inscripciones = const [];
+  final Set<String> _actuando = {};
+
+  /// Refresca la cuenta regresiva de las ofertas `PENDING_BID` una vez por
+  /// segundo. Solo provoca `setState` (re-pinta); no vuelve a pedir datos.
+  Timer? _temporizador;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+    _temporizador = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _temporizador?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _cargar() async {
+    setState(() {
+      _cargando = true;
+      _error = null;
+    });
+
+    final resultado = await widget.repositorio.obtenerMisInscripciones();
+    if (!mounted) return;
+
+    setState(() {
+      _cargando = false;
+      switch (resultado) {
+        case Success(value: final lista):
+          _inscripciones = lista;
+        case Failure(error: final fallo):
+          _error = fallo.message;
+      }
+    });
+  }
+
+  Future<void> _aceptar(InscripcionDetallada i) async {
+    setState(() => _actuando.add(i.seccionId));
+    final resultado = await widget.repositorio.aceptarOferta(i.seccionId);
+    if (!mounted) return;
+    setState(() => _actuando.remove(i.seccionId));
+
+    resultado.when(
+      success: (_) {
+        mostrarAviso(context, '¡Cupo aceptado! Ya tienes tu asiento.', exito: true);
+        _cargar();
+      },
+      failure: (fallo) => mostrarAviso(context, fallo.message, error: true),
+    );
+  }
+
+  Future<void> _renunciar(InscripcionDetallada i) async {
+    setState(() => _actuando.add(i.seccionId));
+    final resultado = await widget.repositorio.renunciar(i.seccionId);
+    if (!mounted) return;
+    setState(() => _actuando.remove(i.seccionId));
+
+    resultado.when(
+      success: (_) {
+        mostrarAviso(context, 'Renunciaste a este cupo.', exito: true);
+        _cargar();
+      },
+      failure: (fallo) => mostrarAviso(context, fallo.message, error: true),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ContenidoSeccion(
+      migas: const ['Inicio', 'Académico', 'Mis inscripciones'],
+      child: EstadoPanel(
+        cargando: _cargando,
+        error: _error,
+        onReintentar: _cargar,
+        child: _contenido(),
+      ),
+    );
+  }
+
+  Widget _contenido() {
+    if (_inscripciones.isEmpty) {
+      return const PanelVacio(
+        titulo: 'Aún no tienes inscripciones',
+        mensaje:
+            'Cuando solicites un cupo —o el sistema te asigne uno desde la '
+            'lista de espera— lo verás aquí, con su estado en tiempo real.',
+        icono: Icons.playlist_add_check_outlined,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TituloSeccion(
+          'Mis inscripciones',
+          subtitulo: '${_inscripciones.length} inscripción(es).',
+          acciones: [
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: _cargando ? null : _cargar,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final i in _inscripciones) _tarjetaInscripcion(i),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tarjetaInscripcion(InscripcionDetallada i) {
+    final theme = Theme.of(context);
+    final ocupado = _actuando.contains(i.seccionId);
+    final titulo = i.materiaNombre ?? i.seccionNombre;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(titulo, style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        [if (i.programaNombre != null) i.programaNombre!, i.periodo]
+                            .join(' · '),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _InsigniaEstado(i.estado),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Contexto específico por estado.
+            if (i.estado.enCola) ...[
+              if (i.posicionEnCola != null)
+                Etiqueta(texto: 'Lugar ${i.posicionEnCola} en la cola')
+              else
+                const Etiqueta(texto: 'En lista de espera'),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: ocupado ? null : () => _renunciar(i),
+                  icon: ocupado
+                      ? const SizedBox(
+                          width: 15,
+                          height: 15,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.exit_to_app_outlined, size: 16),
+                  label: Text(ocupado ? 'Renunciando…' : 'Renunciar'),
+                ),
+              ),
+            ] else if (i.estado.esOfertaViva) ...[
+              _CuentaRegresiva(ofertaVenceEn: i.ofertaVenceEn),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: ocupado ? null : () => _renunciar(i),
+                    icon: const Icon(Icons.exit_to_app_outlined, size: 16),
+                    label: const Text('Renunciar'),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton.icon(
+                    onPressed: ocupado ? null : () => _aceptar(i),
+                    icon: ocupado
+                        ? const SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.check_circle_outline, size: 16),
+                    label: Text(ocupado ? 'Aceptando…' : 'Aceptar cupo'),
+                  ),
+                ],
+              ),
+            ] else if (i.estado.estaAdentro) ...[
+              const AvisoEnLinea(
+                texto: 'Tienes tu asiento confirmado en esta sección.',
+                icono: Icons.check_circle_outline,
+                tono: TonoAviso.exito,
+              ),
+            ] else ...[
+              // DROPPED: se conserva la fila como historial, sin acción.
+              const AvisoEnLinea(
+                texto: 'Renunciaste a este cupo. La fila se conserva como '
+                    'historial.',
+                icono: Icons.info_outline,
+                tono: TonoAviso.info,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Insignia de color del estado de una inscripción.
+class _InsigniaEstado extends StatelessWidget {
+  const _InsigniaEstado(this.estado);
+
+  final EstadoInscripcion estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (color, texto, icono) = switch (estado) {
+      EstadoInscripcion.enrolled =>
+        (IncesTheme.exito, 'Matriculado', Icons.check_circle_outline),
+      EstadoInscripcion.waitlisted =>
+        (IncesTheme.advertencia, 'En cola', Icons.people_outline),
+      EstadoInscripcion.pendingBid => (
+        theme.colorScheme.primary,
+        'Oferta en el aire',
+        Icons.local_offer_outlined,
+      ),
+      EstadoInscripcion.dropped => (
+        theme.colorScheme.onSurfaceVariant,
+        'Renunciado',
+        Icons.do_not_disturb_on_outlined,
+      ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icono, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            texto,
+            style: GoogleFonts.inter(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cuenta regresiva para una oferta `PENDING_BID`.
+///
+/// `ofertaVenceEn` viene en ISO 8601. Si no se puede parsear, se muestra la
+/// fecha tal cual: la regla de negocio (caducidad) vive en el backend; aquí solo
+/// informamos.
+class _CuentaRegresiva extends StatelessWidget {
+  const _CuentaRegresiva({required this.ofertaVenceEn});
+
+  final String? ofertaVenceEn;
+
+  @override
+  Widget build(BuildContext context) {
+    final vence = ofertaVenceEn == null
+        ? null
+        : DateTime.tryParse(ofertaVenceEn!);
+
+    if (vence == null) {
+      return AvisoEnLinea(
+        texto: 'Tienes una oferta de cupo. Acepta antes de que venza.',
+        icono: Icons.local_offer_outlined,
+        tono: TonoAviso.advertencia,
+      );
+    }
+
+    final restante = vence.difference(DateTime.now());
+    final vencida = restante.isNegative;
+
+    final texto = vencida
+        ? 'Esta oferta ya venció.'
+        : 'Oferta por ${_formatoHumano(restante)}. Acepta antes de que venza.';
+
+    return AvisoEnLinea(
+      texto: texto,
+      icono: vencida ? Icons.timer_off_outlined : Icons.timer_outlined,
+      tono: vencida ? TonoAviso.peligro : TonoAviso.advertencia,
+    );
+  }
+
+  /// «2 h 5 min», «3 min 12 s», «45 s». Omite partes en cero salvo la última.
+  static String _formatoHumano(Duration d) {
+    final total = d.isNegative ? Duration.zero : d;
+    final horas = total.inHours;
+    final minutos = total.inMinutes.remainder(60);
+    final segundos = total.inSeconds.remainder(60);
+
+    if (horas > 0) return '$horas h ${minutos.toString().padLeft(2, '0')} min';
+    if (minutos > 0) return '$minutos min ${segundos.toString().padLeft(2, '0')} s';
+    return '$segundos s';
+  }
+}
+
+/// Etiqueta en español de un estado, para los avisos de acción.
+String _etiquetaEstado(EstadoInscripcion estado) => switch (estado) {
+      EstadoInscripcion.enrolled => 'Matriculado',
+      EstadoInscripcion.waitlisted => 'En lista de espera',
+      EstadoInscripcion.pendingBid => 'Oferta en el aire',
+      EstadoInscripcion.dropped => 'Renunciado',
+    };
 
 /// Fila de dato etiqueta/valor.
 class _FilaDato extends StatelessWidget {
