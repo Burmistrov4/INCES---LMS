@@ -32,7 +32,11 @@ class ApiClient {
     final respuesta = await _http.post(
       _resolver(ruta),
       headers: {
-        'Content-Type': 'application/json',
+        // Sólo se declara JSON si hay cuerpo. Un POST sin cuerpo con
+        // `Content-Type: application/json` dispara en Fastify
+        // `FST_ERR_CTP_EMPTY_JSON_BODY` (500), y es la trampa de las rutas
+        // sin body del Módulo 4 (renunciar, aceptar, promover, expirar).
+        if (cuerpo != null) 'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
         ...?encabezadosExtra,
       },
@@ -57,7 +61,7 @@ class ApiClient {
     final respuesta = await _http.patch(
       _resolver(ruta),
       headers: {
-        'Content-Type': 'application/json',
+        if (cuerpo != null) 'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
         ...?encabezadosExtra,
       },
@@ -83,7 +87,7 @@ class ApiClient {
     final respuesta = await _http.put(
       _resolver(ruta),
       headers: {
-        'Content-Type': 'application/json',
+        if (cuerpo != null) 'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
         ...?encabezadosExtra,
       },

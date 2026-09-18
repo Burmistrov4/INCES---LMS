@@ -2663,10 +2663,15 @@ class InscripcionesSupabase implements PuertaInscripciones {
       : null;
     if (id === null) return null;
 
+    // La RPC `promover_siguiente` devuelve el `student_id` de quien quedó
+    // promovido (no el `id` de la inscripción). Buscamos por esa llave junto
+    // con la sección: `(student_id, section_id)` es único, así que `.single()`
+    // es seguro y recuperamos la fila ya promovida para armar la respuesta 200.
     const fila = await this.cliente
       .from(TABLA_INSCRIPCIONES)
       .select(COLUMNAS_INSCRIPCION)
-      .eq('id', id)
+      .eq('student_id', id)
+      .eq('section_id', seccionId)
       .single();
 
     return aInscripcion(desenvolver(fila, 'leer la inscripción promovida') as Fila);
