@@ -58,7 +58,7 @@ verificadas el **2026-09-17** y la de M4 el **2026-09-18**
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **203 / 203** en verde |
+| `flutter test` | **307 / 307** en verde — **última medición válida, 2026-09-15**. No re-ejecutable en este entorno (ver aviso) |
 | `npm test` (backend) | **341 / 341** en verde (16 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
@@ -67,7 +67,7 @@ verificadas el **2026-09-17** y la de M4 el **2026-09-18**
 | **Migraciones en la nube** | **13 / 13** registradas en `schema_migrations` |
 | **Verificación independiente del esquema en la nube** | **89 / 89** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
 | **Libro mayor de migraciones (D10)** | 13 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2 y M3 en la nube** | ✅ **Aplicadas** el 2026-09-17 — 17 tablas + 4 vistas, con RLS activo en las 17 (ver §3) |
+| **Migraciones de M2, M3 y M4 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 el 2026-09-18) — 17 tablas + **5 vistas**, con RLS activo en las 17 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicada** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
 | **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
@@ -79,6 +79,29 @@ verificadas el **2026-09-17** y la de M4 el **2026-09-18**
 | Documento OpenAPI | OpenAPI 3.1.0 · **29 rutas · 62 esquemas** (las 14 de M3 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
+
+> **⚠️ Aviso del 2026-09-18: `flutter test` NO se puede ejecutar en este entorno.**
+> Las 21 pruebas fallan **al cargar**, todas con el mismo error:
+>
+> ```
+> Failed to load "test/…_test.dart":
+>   Unable to connect to flutter_tester process:
+>   WebSocketException: Invalid WebSocket upgrade request
+> ```
+>
+> **No es un fallo de las pruebas ni del código**: `flutter_tester` no consigue
+> abrir su WebSocket de loopback. Se comprobó **también fuera del sandbox**, con
+> el mismo resultado, así que no es una restricción del aislamiento. El
+> `flutter test` **exige** `PROGRAMFILES(X86)` en el entorno (en Git Bash no
+> existe; sin ella el error es otro: `%PROGRAMFILES(X86)% environment variable not
+> found`), y aun inyectándola el WebSocket sigue fallando.
+>
+> **Consecuencia, y es la que importa:** el **307/307** es la última medición
+> **válida**, del 2026-09-15, **no una medición de hoy**. Cualquier cifra de
+> Flutter que se cite sin re-ejecutar arrastra esa fecha. La nota del `HANDOVER.md`
+> que afirmaba que `flutter test` sí funcionaba aquí **es falsa** y quedó corregida.
+> Las demás redes (SQL 212/212, esquema 89/89, libro mayor 13/13) **sí** se
+> re-ejecutaron el 2026-09-18 y están al día.
 
 > **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
 > reales (admin ve, `anon` no ve, un docente no ve, nadie inserta trazas a mano),
@@ -92,18 +115,27 @@ verificadas el **2026-09-17** y la de M4 el **2026-09-18**
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las diez migraciones se
+**La base de datos ya está aplicada y verificada.** Las **trece** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**17 tablas** con RLS activo **en las 17**, **4 vistas** (`cursos` de D12 más las
-tres del Módulo 3), **20 funciones**, **22 triggers** y **38 políticas RLS**, más
-9 módulos sembrados, 8 parámetros, 1 lapso (`SA26-2`) y los 5 cursos — que desde
-la migración de D12 viven dentro de `programs` como `CURSO_LIBRE`.
+**17 tablas** con RLS activo **en las 17**, **5 vistas** (`cursos` de D12, las
+tres del Módulo 3 y `v_ocupacion_secciones` de M4), **30 funciones**, **23
+triggers** y **35 políticas RLS**, más 9 módulos sembrados, **9 parámetros**, 1
+lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
+`programs` como `CURSO_LIBRE`.
 
-> **Estas cifras están medidas, no estimadas.** Salen de
-> `supabase/verificar-esquema.mjs` (81/81) y de consultas directas al catálogo,
-> hechas **después** de aplicar. Es la lección de D11: cuando una migración se
-> aplica, se vuelve a contar en vez de confiar en lo que decía el documento.
+> **Estas cifras están medidas, no estimadas.** Salen de `supabase/verificar-esquema.mjs`
+> (**89/89**) y de consultas directas al catálogo, hechas **después** de aplicar.
+> Es la lección de D11: cuando una migración se aplica, se vuelve a contar en vez
+> de confiar en lo que decía el documento.
+>
+> **Recontadas el 2026-09-18 tras M4**, y la aritmética cierra: **+1 vista**
+> (`v_ocupacion_secciones`), **+10 funciones** (los 2 helpers de cupo, las 6 RPC
+> públicas, `promover_siguiente_de_cola` y el trigger anti-acaparamiento),
+> **+1 trigger** (`enrollments_seccion_unica_por_materia`), **+1 parámetro**
+> (`habilitar_sistema_bids`) y **−3 políticas** (las tres `enrollments_*_own` que
+> R-23 retiró: 38 → 35). Que el salto cuadre pieza por pieza es la comprobación de
+> que no se coló nada sin documentar.
 
 **`classrooms`, `teacher_duties` y `schedule_slots` están vacías, y es lo
 correcto.** No se sembró ni un aula ni una guardia: el inventario de espacios del
@@ -443,6 +475,16 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `schedule_slots_exigir_agenda()` | Trigger en `schedule_slots` | Igual, resolviendo antes el lapso por la sección. **`security definer`** — ver R-20 |
 | `exigir_periodo_registrado()` | Trigger en `system_settings` | Rechaza un `periodo_activo` que no exista en `academic_periods`. Es lo que convierte la divergencia silenciosa de R-06/R-12 en una violación ruidosa |
 | `nombre_para_mostrar(uuid)` | Función (`security definer`, `stable`) | Devuelve el nombre de un docente/admin activo, y `NULL` para todo lo demás. Existe porque `profiles_read_own` impide al estudiante leer la fila del docente, y **relajar esa política expondría `cedula` y `email` de todo el centro** (RLS no es por columna). Ver R-14 |
+| `cupo_efectivo(uuid)` | Función (`security definer`, M4) | `coalesce(max_capacity, cupo_maximo_por_seccion, 0)`. **La jerarquía de cupo que pidió Lorenzo.** Ojo: `max_capacity = 0` **no** es «sin definir» — es una sección sin cupo; el `NULL` sí cae al global |
+| `cupos_ocupados(uuid)` | Función (`security definer`, M4) | Cuenta `ENROLLED` **+ `PENDING_BID`**. Una oferta viva **reserva** el asiento: si sólo contara `ENROLLED`, dos ofertas podrían vender el mismo |
+| `enrollments_seccion_unica_por_materia()` | Trigger en `enrollments` | **Anti-acaparamiento (M4):** un estudiante no puede tener dos secciones vivas de la misma materia en el mismo lapso. Excluye `DROPPED` **y la propia fila** — sin lo segundo, promover `WAITLISTED`→`ENROLLED` se bloquearía a sí mismo |
+| `solicitar_inscripcion(uuid)` | **RPC** (`security definer`, M4) | Punto de entrada del estudiante. Con bids apagado: `ENROLLED` si hay cupo, `WAITLISTED` si no. Con bids encendido, una solicitud **con cupo libre sigue entrando directo a `ENROLLED`** |
+| `aceptar_cupo(uuid)` | **RPC** (`security definer`, M4) | Confirma la oferta (`PENDING_BID` → `ENROLLED`) y limpia el vencimiento. **Sólo el dueño de la oferta**: la de otro da `23514` y **la oferta ajena queda intacta** |
+| `renunciar_cupo(uuid)` | **RPC** (`security definer`, M4) | Deja la fila en `DROPPED`. **No borra**: la decisión de producto es conservarla como historial |
+| `promover_siguiente(uuid)` | **RPC** (`security definer`, M4) | Promueve al siguiente de la cola FIFO. **Solo admin** (a un no-admin le da `42501`) |
+| `expirar_ofertas_cupo()` | **RPC** (`security definer`, M4) | Vence las ofertas caducadas. **Idempotente** (la segunda llamada devuelve 0) y **sin `pg_cron`**: la llama el backend. Concedida a `authenticated` **a propósito** y es inofensiva — un estudiante no puede fabricar una oferta vencida |
+| `reincorporar_inscripcion(uuid, uuid)` | **RPC** (`security definer`, M4) | **Solo admin.** Devuelve un `DROPPED` a `ENROLLED` (la excepción sobre el `unique`), pero **exige cupo libre**: el admin puede hacer la excepción, **no sobrevender** |
+| `promover_siguiente_de_cola(uuid)` | Función interna (`security definer`, M4) | El trabajo sucio de `promover_siguiente`. **Revocada a `public, anon, authenticated`**: no es una puerta, es un pasillo |
 
 ### Políticas RLS
 
@@ -457,7 +499,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `subjects` | **Solo autenticados.** El banco de materias no es público | **Solo admin** |
 | `program_subjects` | **Solo autenticados** | **Solo admin** |
 | `sections` | Activas (`is_active`) para `anon` y autenticados | **Solo admin.** Sin `DELETE` para nadie: archivar es `is_active = false` |
-| `enrollments` | El propio; admin todo | El propio; admin todo |
+| `enrollments` | El propio; admin todo. `anon` **no tiene ni el `GRANT`** | **Nadie escribe directo** — ni el propio estudiante, **ni un admin**: `INSERT`/`UPDATE`/`DELETE` están **revocados** de `anon` y `authenticated`. Único camino: las 6 RPC `security definer` de M4 (ver R-23) |
 | `cursos` *(vista, no tabla)* | Hereda la RLS de `programs` gracias a `security_invoker`: `anon` sólo ve los cursos activos | — es una proyección; se escribe en `programs` |
 | `teacher_invitations` | **Solo admin** | **Solo admin.** El servicio de activación usa `service_role` y no pasa por aquí |
 | `auth_logs` | **Solo admin** | **Nadie.** Único camino: el backend con `service_role` |
@@ -467,6 +509,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `teacher_duties` | El docente ve **solo las suyas**; `anon` no tiene `GRANT`; **el estudiante no tiene política ninguna** | **Solo admin** |
 | `schedule_slots` | El docente ve las suyas; el estudiante ve **las de su sección** (vía `enrollments`); `anon` no tiene `GRANT` | **Solo admin** |
 | `v_cuadrante_clases`, `v_cuadrante_guardias`, `v_periodo_vigente` *(vistas)* | Heredan la RLS de las tablas base gracias a `security_invoker` | — es una proyección |
+| `v_ocupacion_secciones` *(vista, M4)* | Autenticados (lectura). `anon` no tiene `GRANT` | — es una proyección. Cuenta `ENROLLED` + `PENDING_BID` con funciones `definer`: una vista `invoker` que contara `enrollments` directo mostraría a cada alumno **sólo su propia fila** |
 
 > **«Sin política» no es lo mismo que «política que devuelve vacío».** Para un
 > estudiante, `teacher_duties` no tiene ninguna política: es la diferencia entre
@@ -537,8 +580,23 @@ Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2
 | `max_faltas_consecutivas` | number | ❌ | `3` |
 | `bid_ttl_horas` | number | ❌ | `24` |
 | `enrollment_lock_days` | number | ❌ | `2` |
+| `habilitar_sistema_bids` | boolean | ❌ | `false` — **apagado a propósito** (ver nota) |
 | `cupo_maximo_por_seccion` | number | ❌ | `25` |
 | `r2_presign_ttl_minutos` | number | ❌ | `15` |
+
+> **`habilitar_sistema_bids` es el interruptor del «Motor de Bids»** (migración
+> `202609190001`, M4). Apagado: una solicitud con cupo libre entra **directo a
+> `ENROLLED`**, y si no hay cupo va a `WAITLISTED`. Encendido: al liberarse un
+> asiento, el primero de la cola recibe una **oferta** (`PENDING_BID`) con
+> vencimiento de `bid_ttl_horas`. Nace apagado, y **está pendiente que Lorenzo
+> decida si debe nacer encendido**, porque el `ROADMAP.md` llama a M4 «Motor de
+> Bids». No se elige por cuenta propia.
+>
+> **`max_faltas_consecutivas` ya existía** (`202609120002`, categoría `asistencia`)
+> y **no se duplicó**. Lorenzo pidió añadir `max_faltas_consecutivas_permitidas`;
+> crear ese segundo parámetro habría dejado **dos sitios con la misma verdad** —
+> justo el defecto que la iteración de M4 corrige. Pendiente: confirmarlo o
+> renombrar el existente.
 
 ---
 
@@ -917,6 +975,18 @@ URL de Supabase inexistente, no leyendo el código:
    Corregido por dos vías: el README fija `--web-port=8080` como obligatorio en
    desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
    navegador es un origen **distinto** de `localhost`).
+10. **`enrollments` dejaba que cualquier usuario se auto-inscribiera** (R-23,
+   2026-09-18). La tabla nació con `enrollments_insert_own`, que permite a
+   **cualquier** autenticado insertar su propia fila con `status = 'ENROLLED'` y
+   **saltarse el motor de cupos entero** — que en Fase 0 no existía, y por eso la
+   política era un andamio razonable. Al entrar M4 el andamio se vuelve un agujero.
+   Peor: `enrollments_delete_own` permitía borrar la fila que la decisión de
+   producto pide **conservar como historial**, y Supabase concedía `grant all` por
+   defecto a `anon` y `authenticated`, **incluido `TRUNCATE`, que la RLS no
+   gobierna**. Corregido revocando `INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER`
+   de **ambos** roles; sólo queda `SELECT` para `authenticated`, y toda escritura
+   pasa por las RPC. Es el fallo del que sale la lección: **un `SQLSTATE` solo no
+   distingue la causa** (el `42501` lo produce el `GRANT` ausente, no la política).
 
 > El fallo 8 es el motivo por el que existe la prueba de humo. Las pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
@@ -997,14 +1067,18 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las diez migraciones**, y ejecuta 164 aserciones
+aplica el shim de Supabase y **las trece migraciones**, y ejecuta **212** aserciones
 sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
-en las dos direcciones), y el Módulo 3 completo (aulas, lapsos, guardias,
+en las dos direcciones), el Módulo 3 completo (aulas, lapsos, guardias,
 cuadrante, los dos triggers anti-colisión en las dos direcciones —lo que debe
 rechazar y lo que debe permitir—, el cruce guardia/clase, y la escritura **como
-`authenticated` real**, que es lo que cubre el punto ciego de R-20).
+`authenticated` real**, que es lo que cubre el punto ciego de R-20) y **el motor de
+cupos de M4** (cola FIFO, ofertas con vencimiento, idempotencia de
+`expirar_ofertas_cupo`, anti-acaparamiento, y la frontera de escritura con sus tres
+aserciones de rol: `anon` no escribe, `anon` no lee, y **ni un admin escribe
+directo**).
 **Las migraciones se validan aquí aunque el validador corra en PGlite**: el
 validador las levanta en un PostgreSQL real y comprueba que los triggers hacen
 lo que dicen hacer.
@@ -1034,8 +1108,8 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (81/81) |
-| Libro mayor de migraciones | ✅ 10/10 con checksum (D10 resuelta) |
+| Base de datos en la nube | ✅ Migrada y verificada (89/89) |
+| Libro mayor de migraciones | ✅ 13/13 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
 | API contra la base real | ✅ 24/24 comprobaciones |

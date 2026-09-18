@@ -44,9 +44,20 @@ describe, así que cualquier hash escrito aquí nace ya obsoleto — el commit q
 contiene lo mueve. Compruébalo tú:
 
 ```bash
-git rev-list --left-right --count origin/main...HEAD   # debe dar: 0	0
-git log --oneline -8                                   # los últimos commits
+git ls-remote origin refs/heads/main   # el SHA real en GitHub
+git rev-parse HEAD                     # debe coincidir
+git log --oneline -8                   # los últimos commits
 ```
+
+> **Corrección (2026-09-18).** El comando que este documento recomendaba antes,
+> `git rev-list --left-right --count origin/main...HEAD`, **falla en este entorno**
+> con `ambiguous argument 'origin/main'`: **el ref de seguimiento remoto no
+> persiste en disco**. `git fetch origin` reporta `[new branch] main ->
+> origin/main`, pero `git show-ref` sigue mostrando sólo `refs/heads/main` y
+> `.git/refs/remotes/` queda vacío. Es una rareza del entorno, no del repositorio.
+> **La prueba que sí vale es `git ls-remote`**: consulta el SHA directamente al
+> remoto y no depende de ningún ref local. Verificado el 2026-09-18 con
+> `3691b2b`.
 
 Los commits más recientes se consultan con `git log --oneline -8`. A partir del
 2026-09-15 se sumaron, entre otros: el frontend de M3 (rejilla, Mi Horario,
@@ -56,14 +67,17 @@ y la resolución de **R-06** (lapso `SA26-2` + módulos `m2`/`m3` habilitados); 
 cerrada y el cierre de **R-23**). Este documento no repite los SHA a propósito: el
 commit que lo contiene lo movería.
 
-> **Nota de proceso, para que no se repita.** El push estuvo bloqueado varias
+> **Nota de proceso, ya resuelta (2026-09-18).** El push estuvo bloqueado varias
 > sesiones con `fatal: could not read Username for 'https://github.com': terminal
 > prompts disabled`: el *credential helper* no devolvía credencial y no había
 > `GITHUB_TOKEN` ni `~/.git-credentials`. **El diagnóstico era correcto pero la
 > conclusión no:** no era un problema del repositorio ni del remoto, era del
-> entorno de ejecución, y se resolvió fuera de él. Antes de declarar un push
-> «imposible», comprueba si el entorno cambió: `GIT_TERMINAL_PROMPT=0 git push`
-> falla rápido en vez de colgarse cinco minutos esperando una consola que no existe.
+> entorno de ejecución, y se resolvió fuera de él. El 2026-09-18 el push
+> **funcionó sin tocar nada** (`200edf4..3691b2b main -> main`). Antes de declarar
+> un push «imposible», comprueba si el entorno cambió: `GIT_TERMINAL_PROMPT=0 git
+> push` falla rápido en vez de colgarse cinco minutos esperando una consola que no
+> existe. **La lección generalizable: un fallo de credenciales puede ser del
+> entorno y desaparecer solo — vuelve a intentarlo antes de diagnosticar el repo.**
 
 Nota de higiene: `.env`, `.env.json` y la carpeta de contexto están en
 `.gitignore`, así que **ninguna credencial entró al commit**. `backend/.env.example`
@@ -122,7 +136,7 @@ anti-duplicado y la vista con `security_invoker`.
 | Suite | Resultado | Comando |
 |---|---|---|
 | Backend (vitest) | **341 / 341** en verde | `cd backend && npm test` |
-| Flutter | **307 / 307** en verde | `flutter test` |
+| Flutter | **307 / 307** en verde — ⚠️ **última medición válida (2026-09-15)**; hoy **no re-ejecutable** en este entorno (ver la corrección más abajo) | `flutter test` |
 | SQL (pglite, PostgreSQL real) | **212 / 212** en verde · 13 migraciones | `cd supabase/tests && npm test` |
 
 > **Corre `flutter test` ENTERO antes de commitear**, no sólo el archivo que
@@ -136,12 +150,22 @@ anti-duplicado y la vista con `security_invoker`.
 |---|---|
 | `npm run typecheck` (`tsc --noEmit`) | ✅ limpio |
 | `npm run lint` (eslint) | ✅ limpio |
-| `flutter analyze` | ✅ **No issues found!** |
+| `flutter analyze` | ✅ **No issues found!** (re-verificado el 2026-09-18, 68 s) |
 
-> **Nota para el nuevo agente:** `flutter test` **SÍ funciona** en este entorno.
-> Una nota antigua de la memoria decía que no, y era falsa: lo que está bloqueado
-> es `flutter devices` / enumerar Chrome (lo impide `reg.exe`). No pierdas tiempo
-> reintentando eso; simplemente no lances la app en Chrome desde aquí.
+> **⚠️ Corrección (2026-09-18): `flutter test` NO funciona en este entorno.**
+> Este documento afirmaba lo contrario y **era falso**. Las 21 pruebas fallan **al
+> cargar** con `Unable to connect to flutter_tester process: WebSocketException:
+> Invalid WebSocket upgrade request` — `flutter_tester` no abre su WebSocket de
+> loopback. Comprobado **también fuera del sandbox**: mismo resultado, así que no
+> es el aislamiento. Hay además un requisito previo: `flutter test` **exige**
+> `PROGRAMFILES(X86)` en el entorno (Git Bash no la define; sin ella el error es
+> `%PROGRAMFILES(X86)% environment variable not found`). Inyectándola, el WebSocket
+> sigue fallando.
+>
+> **Por eso el 307/307 es la última medición válida (2026-09-15), no una medición
+> de hoy.** No cites una cifra de Flutter como si la hubieras re-ejecutado. Lo que
+> sí sigue bloqueado es `flutter devices` / enumerar Chrome (lo impide `reg.exe`):
+> no lances la app en Chrome desde aquí.
 
 ### Versiones confirmadas
 
@@ -840,7 +864,8 @@ DOCUMENTACIÓN VIVA (léela antes de escribir código)
 ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
 -----------------------------------------------------
 - Backend: 341/341 tests, typecheck y eslint limpios.
-- Flutter: 307/307 tests, `flutter analyze` sin incidencias.
+- Flutter: 307/307 tests (ULTIMA MEDICION VALIDA 2026-09-15: `flutter test` NO
+  corre en este entorno, ver HANDOVER §1), `flutter analyze` sin incidencias.
 - SQL: 212/212 aserciones en pglite, sobre las 13 migraciones.
 - Esquema en la nube: 89/89 comprobaciones (verificar-esquema.mjs).
   Humo de invitacion: 17/17. Humo de curriculo: 14/14.
@@ -888,8 +913,11 @@ TAREA INMEDIATA
 Antes de escribir una línea de código, haz esto y repórtalo:
 1. `git status --short` y `git log --oneline -5` para que confirmemos el punto
    de partida.
-2. `cd backend && npm test`, `flutter test` y `cd supabase/tests && npm test`
-   para confirmar que heredas verde (341 / 307 / 212).
+2. `cd backend && npm test` y `cd supabase/tests && npm test` para confirmar que
+   heredas verde (341 / 212). **`flutter test` no corre en este entorno** (falla al
+   cargar, WebSocket de `flutter_tester`): el 307/307 es la ultima medicion valida
+   del 2026-09-15, no la re-ejecutes esperando verde. Usa `flutter analyze`, que si
+   funciona.
 3. Lee HANDOVER.md §2 y dime qué atacamos primero:
    (a) M4 Fase 2 — el backend de inscripciones (~10-12 rutas, puerto,
        repositorio, Zod, OpenAPI, y encender `m4_inscripciones`): el esquema ya
