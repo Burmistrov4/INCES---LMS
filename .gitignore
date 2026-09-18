@@ -77,3 +77,13 @@ npm-debug.log*
 # `openapi.json` NO se ignora a propósito: es el contrato publicado y su `diff`
 # es justo lo que hace visible un cambio de API en la revisión.
 backend/dist/
+
+# --- Contexto de asistentes de IA (no es código del proyecto) ---------------
+# Directorios/caché generados por distintas herramientas de IA; no aportan al
+# build ni al producto y cambian por sesión.
+.agents/
+.claude/
+.codebuddy/
+.continue/
+.hermes/
+skills-lock.json
