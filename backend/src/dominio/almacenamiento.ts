@@ -37,12 +37,71 @@ export const TIPOS_PERMITIDOS: Readonly<Record<string, string>> = Object.freeze(
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 });
 
-/** 25 MB. Por encima de esto el navegador del INCES sufre más de lo que aporta. */
-export const TAMANO_MAXIMO_BYTES = 25 * 1024 * 1024;
+/**
+ * 10 MB — **valor por defecto**, no una constante intocable.
+ *
+ * El límite efectivo puede venir de `system_settings.m5_max_bytes`, que el
+ * administrador cambia desde el panel sin desplegar código. Por eso este valor
+ * sólo se usa cuando no hay parámetro: la comprobación de tamaño recibe el
+ * límite por argumento (`validarTamano`), nunca lo lee de aquí a escondidas.
+ *
+ * 10 MB es lo que el centro declaró razonable: por encima, la subida pesa más
+ * de lo que aporta y el navegador del INCES sufre.
+ */
+export const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 
 /** Caducidades por defecto, en segundos. */
 export const TTL_SUBIDA_SEGUNDOS = 300; // 5 minutos: subir, no pasear.
 export const TTL_DESCARGA_SEGUNDOS = 900; // 15 minutos: leer una vez.
+
+/** Tamaño en MB con un decimal, para un mensaje que se entienda. */
+function aMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Comprueba que un archivo no excede el tamaño máximo permitido.
+ *
+ * El límite entra por **parámetro** y no se lee aquí dentro, por una razón de
+ * producto cerrada con el dueño del sistema: el administrador puede cambiar el
+ * tamaño máximo desde el panel (`system_settings.m5_max_bytes`) sin desplegar
+ * código. Si esta función leyera la base o usara `TAMANO_MAXIMO_BYTES` a
+ * escondidas, el cambio del administrador no surtiría efecto hasta un
+ * despliegue, y el dominio —que debe ser puro— quedaría acoplado al almacén de
+ * parámetros.
+ *
+ * Se llama **después** de subir el objeto: una URL PUT prefirmada no admite
+ * `content-length-range`, así que el tamaño real sólo se conoce con un
+ * `HeadObject` posterior. `tamanoBytes` es ese dato, ya medido.
+ */
+export function validarTamano(tamanoBytes: number, maximoBytes: number): void {
+  // Un tamaño negativo o no finito (NaN, ±Infinity) es un dato corrupto, no un
+  // archivo grande: se rechaza como petición inválida en vez de compararlo.
+  if (!Number.isFinite(tamanoBytes) || tamanoBytes < 0) {
+    throw ErrorApi.peticionInvalida(
+      'El tamaño del archivo no es un número válido.',
+      { tamanoBytes },
+    );
+  }
+
+  // Un límite NaN haría que `tamanoBytes > maximoBytes` fuera SIEMPRE falso
+  // —toda comparación con NaN lo es— y dejaría pasar cualquier archivo. Es el
+  // agujero que este guard cierra. Un límite negativo tampoco es un valor
+  // configurable válido.
+  if (Number.isNaN(maximoBytes) || maximoBytes < 0) {
+    throw ErrorApi.peticionInvalida(
+      'El límite de tamaño configurado no es válido.',
+      { maximoBytes },
+    );
+  }
+
+  if (tamanoBytes > maximoBytes) {
+    throw ErrorApi.peticionInvalida(
+      `El archivo pesa ${aMegabytes(tamanoBytes)} y el máximo permitido es ${aMegabytes(maximoBytes)}.`,
+      { tamanoBytes, maximoBytes },
+    );
+  }
+}
 
 export interface PeticionUrlSubida {
   /** Carpeta lógica. La compone el servidor; nunca llega del cliente. */

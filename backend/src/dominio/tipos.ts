@@ -545,3 +545,77 @@ export interface InscripcionDetallada extends Inscripcion {
   estudianteNombre?: string | null;
   estudianteEmail?: string | null;
 }
+
+// --- Módulo 5: archivos (Cloudflare R2) -------------------------------------
+
+/**
+ * A qué clase de entidad se adjunta un archivo.
+ *
+ * Se escribe como unión de literales, no como `enum`, por la misma razón que
+ * `Rol` y `TipoPrograma`: la base guarda `text` con un `check`, y la unión es
+ * lo que `z.infer` devuelve tal cual.
+ */
+export type TipoEntidadArchivo = 'TASK_SUBMISSION' | 'TEACHER_GUIDE';
+
+export const TIPOS_ENTIDAD_ARCHIVO: readonly TipoEntidadArchivo[] = [
+  'TASK_SUBMISSION',
+  'TEACHER_GUIDE',
+];
+
+export function esTipoEntidadArchivo(valor: unknown): valor is TipoEntidadArchivo {
+  return (
+    typeof valor === 'string' &&
+    (TIPOS_ENTIDAD_ARCHIVO as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * Ciclo de vida de un archivo.
+ *
+ * `PENDING` (fila reservada, objeto aún sin verificar) → `CONFIRMED` (el
+ * backend comprobó con HeadObject que el objeto llegó) → `DELETED` (borrado
+ * lógico). No hay vuelta atrás: los tres estados de destino son terminales, y
+ * por eso las RPC que los aplican rechazan una transición ya hecha.
+ */
+export type EstadoArchivo = 'PENDING' | 'CONFIRMED' | 'DELETED';
+
+export const ESTADOS_ARCHIVO: readonly EstadoArchivo[] = [
+  'PENDING',
+  'CONFIRMED',
+  'DELETED',
+];
+
+export function esEstadoArchivo(valor: unknown): valor is EstadoArchivo {
+  return (
+    typeof valor === 'string' && (ESTADOS_ARCHIVO as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * Los metadatos de un archivo, tal como viven en `files_metadata`.
+ *
+ * En `camelCase` y con nombres en español, como el resto del dominio: la
+ * traducción desde las columnas de la base ocurre en el repositorio, en un solo
+ * sitio. La clave real de R2 (`r2Key`) se expone porque el backend la necesita
+ * para firmar la descarga; **nunca** viaja al cliente como ruta del bucket.
+ */
+export interface ArchivoMetadata {
+  id: string;
+  propietarioId: string;
+  /** Clave del objeto en R2. La construye siempre el servidor. */
+  r2Key: string;
+  nombreOriginal: string;
+  tipoContenido: string;
+  /**
+   * Tamaño real del objeto. `null` mientras está `PENDING`: una subida a medias
+   * no tiene tamaño, y el valor definitivo lo sella la confirmación.
+   */
+  tamanoBytes: number | null;
+  entityType: TipoEntidadArchivo;
+  /** Id de la tarea o guía concreta. `null` si la entidad aún no existe. */
+  entidadId: string | null;
+  estado: EstadoArchivo;
+  creadoEn: string;
+  confirmadoEn: string | null;
+  borradoEn: string | null;
+}

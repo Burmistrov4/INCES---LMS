@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { cargarEnv, configuracionR2 } from '../src/config/env.js';
 import {
+  TAMANO_MAXIMO_BYTES,
   cabeceraDisposicion,
   construirClave,
   extensionDe,
   normalizarPrefijo,
   prefijoDeArchivo,
   validarClave,
+  validarTamano,
 } from '../src/dominio/almacenamiento.js';
 import { crearAlmacenamiento, crearAlmacenamientoR2 } from '../src/infra/r2_service.js';
 
@@ -104,6 +106,48 @@ describe('claves de almacenamiento', () => {
     // Sin comillas el valor no puede cerrarse antes de tiempo, así que la
     // cabecera sigue siendo una sola.
     expect(cabecera.match(/filename="/g)).toHaveLength(1);
+  });
+});
+
+describe('límite de tamaño (validarTamano)', () => {
+  it('expone 10 MB como valor por defecto', () => {
+    expect(TAMANO_MAXIMO_BYTES).toBe(10 * 1024 * 1024);
+  });
+
+  it('acepta un archivo que cabe y también el límite exacto', () => {
+    expect(() => validarTamano(0, TAMANO_MAXIMO_BYTES)).not.toThrow();
+    expect(() => validarTamano(1, TAMANO_MAXIMO_BYTES)).not.toThrow();
+    // El límite es «hasta», no «menos que»: justo en el borde debe pasar.
+    expect(() => validarTamano(TAMANO_MAXIMO_BYTES, TAMANO_MAXIMO_BYTES)).not.toThrow();
+  });
+
+  it('rechaza un archivo que supera el límite por un solo byte', () => {
+    expect(() => validarTamano(TAMANO_MAXIMO_BYTES + 1, TAMANO_MAXIMO_BYTES)).toThrowError(
+      /máximo permitido/,
+    );
+  });
+
+  it('rechaza un tamaño negativo, NaN o infinito como dato corrupto', () => {
+    expect(() => validarTamano(-1, TAMANO_MAXIMO_BYTES)).toThrowError(/no es un número válido/);
+    expect(() => validarTamano(Number.NaN, TAMANO_MAXIMO_BYTES)).toThrowError(/no es un número válido/);
+    expect(() => validarTamano(Number.POSITIVE_INFINITY, TAMANO_MAXIMO_BYTES)).toThrowError(
+      /no es un número válido/,
+    );
+    expect(() => validarTamano(Number.NEGATIVE_INFINITY, TAMANO_MAXIMO_BYTES)).toThrowError(
+      /no es un número válido/,
+    );
+  });
+
+  it('rechaza un límite de configuración inválido en vez de dejar pasar todo', () => {
+    // Un límite NaN haría que `tamanoBytes > maximoBytes` fuera SIEMPRE falso
+    // —toda comparación con NaN lo es— y cualquier archivo pasaría. Es el
+    // agujero que este guard cierra.
+    expect(() => validarTamano(1, Number.NaN)).toThrowError(/límite de tamaño configurado/);
+    expect(() => validarTamano(1, -5)).toThrowError(/límite de tamaño configurado/);
+  });
+
+  it('el mensaje del exceso es legible (MB con un decimal)', () => {
+    expect(() => validarTamano(11 * 1024 * 1024, TAMANO_MAXIMO_BYTES)).toThrowError(/11\.0 MB/);
   });
 });
 

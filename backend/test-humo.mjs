@@ -182,7 +182,7 @@ console.log('\n  5. Lectura de system_modules en la nube\n');
   const todos = cp.cuerpo?.modulos ?? [];
   comprobar('el panel ve los 9 módulos', todos.length === 9, `${todos.length}`);
   comprobar(
-    'm5_archivos existe y está apagado (R2 sin credenciales)',
+    'm5_archivos existe y está APAGADO (se enciende con la Capa 4/7)',
     todos.some((m) => m.clave === 'm5_archivos' && m.habilitado === false),
   );
 }

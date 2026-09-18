@@ -18,6 +18,8 @@
  *   8. ¿Está el Módulo 4 desplegado — RPC `security definer`, escritura directa
  *      revocada, `max_capacity` nullable, semilla de bids y trigger
  *      anti-duplicado?
+ *   9. ¿Está el Módulo 5 desplegado — tabla `files_metadata` con RLS y escritura
+ *      directa revocada, sus 3 RPC `security definer` y la semilla de límites?
  *
  * Uso: SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
  */
@@ -86,6 +88,7 @@ const esperadas = [
   'classrooms',
   'config_audit_log',
   'enrollments',
+  'files_metadata',
   'profiles',
   'program_subjects',
   'programs',
@@ -206,11 +209,12 @@ comprobar(
   'm0_cpanel arranca habilitado',
   modulos.some((m) => m.clave === 'm0_cpanel' && m.habilitado === true),
 );
-// La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero la
-// migración 202609180003 enciende `m2_curriculo` y `m3_cuadrante` a propósito:
+// La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero las
+// migraciones posteriores encienden `m2_curriculo`, `m3_cuadrante`,
+// `m4_inscripciones` (202609200002) y `m5_archivos` (202609210001) a propósito:
 // están construidos y verificados de extremo a extremo. Exigir «sólo dos»
 // quedaría obsoleto y marcaría como fallo un estado correcto. Se fija el estado
-// real: m0…m3 encendidos y m4…m8 apagados hasta que se construyan (m4 lo
+// real: m0…m5 encendidos y m6…m8 apagados hasta que se construyan (cada uno lo
 // encenderá su propia migración cuando el dueño lo decida).
 const habilitados = modulos
   .filter((m) => m.habilitado)
@@ -652,6 +656,84 @@ comprobar(
   'v_ocupacion_secciones declara oferta_vigente (si no, el panel ofrecería un asiento ya prometido)',
   nombresOcupacion.includes('oferta_vigente'),
   nombresOcupacion.join(', ') || 'AUSENTE',
+);
+
+console.log('\n  9. M5: archivos (R2), frontera de escritura y semilla de límites\n');
+
+// La tabla de metadatos. No basta con que exista (el bloque 1 ya la comprueba y
+// exige RLS): se verifican las columnas que sostienen el ciclo de vida, porque
+// una tabla con el diseño equivocado también «existe».
+const colsFiles = await columnasDe('files_metadata');
+comprobar(
+  'files_metadata tiene propietario_id, r2_key, estado, tamano_bytes y entity_type',
+  ['propietario_id', 'r2_key', 'estado', 'tamano_bytes', 'entity_type'].every((c) =>
+    colsFiles.includes(c),
+  ),
+  colsFiles.join(', '),
+);
+
+// La frontera (decisión 1): `authenticated` lee lo suyo pero NO escribe directo.
+// Es la misma que M4: si el INSERT volviera a estar concedido, cualquiera podría
+// registrarse como propietario de un objeto que no subió.
+const permisosFiles = await consultar(
+  "select has_table_privilege('authenticated','public.files_metadata','SELECT') as s, " +
+    "has_table_privilege('authenticated','public.files_metadata','INSERT') as i, " +
+    "has_table_privilege('authenticated','public.files_metadata','UPDATE') as u, " +
+    "has_table_privilege('authenticated','public.files_metadata','DELETE') as d;",
+);
+comprobar(
+  'authenticated lee files_metadata pero NO tiene INSERT/UPDATE/DELETE directos',
+  permisosFiles.length === 1 &&
+    permisosFiles[0].s === true &&
+    permisosFiles[0].i === false &&
+    permisosFiles[0].u === false &&
+    permisosFiles[0].d === false,
+  permisosFiles.length === 1
+    ? `SELECT=${permisosFiles[0].s}, INSERT=${permisosFiles[0].i}, UPDATE=${permisosFiles[0].u}, DELETE=${permisosFiles[0].d}`
+    : 'AUSENTE',
+);
+
+// Las 3 RPC de escritura: `security definer` (se saltan la RLS y autorizan solas
+// con `auth.uid()`), ejecutables por `authenticated` y NO por `anon`.
+const rpcM5 = await consultar(
+  'select p.proname, p.prosecdef, ' +
+    "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede, " +
+    "has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede " +
+    'from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' and p.proname in " +
+    "('registrar_archivo_pendiente','confirmar_archivo','marcar_archivo_borrado') " +
+    'order by p.proname;',
+);
+comprobar(
+  'existen las 3 RPC de escritura de M5',
+  rpcM5.length === 3,
+  rpcM5.map((f) => f.proname).join(', ') || 'ninguna',
+);
+comprobar(
+  'las 3 RPC de M5 son security DEFINER',
+  rpcM5.length === 3 && rpcM5.every((f) => f.prosecdef === true),
+  rpcM5.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', ') || 'AUSENTES',
+);
+comprobar(
+  'anon NO puede ejecutar las RPC de M5; authenticated sí',
+  rpcM5.length === 3 && rpcM5.every((f) => f.anon_puede === false && f.auth_puede === true),
+  rpcM5.map((f) => `${f.proname}: anon=${f.anon_puede}, auth=${f.auth_puede}`).join(', ') || 'AUSENTES',
+);
+
+// La semilla de límites (decisión 2): valores por defecto que el administrador
+// cambia desde el panel sin desplegar. Privados: son operativos, no del
+// formulario público.
+const limitesM5 = await consultar(
+  "select clave, valor, tipo, es_publico from public.system_settings " +
+    "where clave in ('m5_max_bytes','m5_max_archivos_por_entidad') order by clave;",
+);
+comprobar(
+  'la semilla de límites de M5 está completa (10 MB y 10 archivos, number, privados)',
+  limitesM5.length === 2 &&
+    limitesM5.every((s) => s.tipo === 'number' && s.es_publico === false) &&
+    limitesM5.find((s) => s.clave === 'm5_max_bytes')?.valor === 10485760 &&
+    limitesM5.find((s) => s.clave === 'm5_max_archivos_por_entidad')?.valor === 10,
+  limitesM5.map((s) => `${s.clave}=${JSON.stringify(s.valor)}`).join(', ') || 'AUSENTE',
 );
 
 console.log(

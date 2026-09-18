@@ -125,11 +125,13 @@ async function main() {
     modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
       'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones',
   );
-  // `m5_archivos` sigue apagado aunque R2 ya funcione: el servicio de
-  // almacenamiento está construido pero todavía no tiene rutas que lo expongan.
+  // `m5_archivos` ya trae la tabla de metadatos, las RPC de escritura y la
+  // semilla de límites, pero su BANDERA se deja apagada: se enciende cuando
+  // existan las rutas de firmas (Capa 4) y la UI (Capa 7). Encenderlo antes
+  // dejaría un ítem sin circuito detrás (el patrón de R-22).
   check(
-    'm5 sigue apagado: no hay rutas que lo usen todavía',
-    !modulos.find((m) => m.clave === 'm5_archivos').habilitado,
+    'm5_archivos sigue apagado: su bandera se enciende con la Capa 4/7',
+    modulos.find((m) => m.clave === 'm5_archivos').habilitado === false,
   );
   check(
     'm0_cpanel está restringido al rol admin',
@@ -143,10 +145,11 @@ async function main() {
   // ------------------------------------------------- 3. semilla de settings
   seccion('3. Semilla de system_settings');
   const settings = (await db.query('select clave, valor, tipo, es_publico from public.system_settings')).rows;
-  // 8 de la semilla de 202609120002 + `habilitar_sistema_bids`, que siembra M4
-  // (202609190001). El conteo es fijo a propósito: obliga a actualizarlo —y a
+  // 8 de la semilla de 202609120002 + `habilitar_sistema_bids` (M4,
+  // 202609190001) + `m5_max_bytes` y `m5_max_archivos_por_entidad` (M5,
+  // 202609210001). El conteo es fijo a propósito: obliga a actualizarlo —y a
   // pensarlo— cuando alguien añade un parámetro.
-  check('hay 9 parámetros sembrados', settings.length === 9, `hay ${settings.length}`);
+  check('hay 11 parámetros sembrados', settings.length === 11, `hay ${settings.length}`);
   check(
     'modo_mantenimiento es público (la UI necesita leerlo)',
     settings.find((s) => s.clave === 'modo_mantenimiento')?.es_publico === true,
@@ -313,7 +316,7 @@ async function main() {
   const settingsAdmin = await como('authenticated', ADMIN_ID, () =>
     db.query('select count(*)::int as n from public.system_settings'),
   );
-  check('SÍ puede leer todos los parámetros', settingsAdmin.rows[0].n === 9, `ve ${settingsAdmin.rows[0].n}`);
+  check('SÍ puede leer todos los parámetros', settingsAdmin.rows[0].n === 11, `ve ${settingsAdmin.rows[0].n}`);
 
   const adminPuedeAjustar = await como('authenticated', ADMIN_ID, () =>
     db.query("select public.is_admin() as es"),
@@ -1884,6 +1887,294 @@ async function main() {
     alu10Estado === 'WAITLISTED',
     String(alu10Estado),
   );
+
+  // ------------------------------------------- 18. Módulo 5 — Archivos (R2)
+  seccion('18. Módulo 5 — Archivos (R2): RLS, RPCs y frontera de escritura');
+
+  // ------------------------------------------------- 18.1 esquema y RLS
+  const tablaM5 = (
+    await db.query(
+      "select rowsecurity from pg_tables where schemaname='public' and tablename='files_metadata'",
+    )
+  ).rows[0];
+  check('existe files_metadata con RLS activo', tablaM5?.rowsecurity === true);
+
+  const colsM5 = (
+    await db.query(
+      "select column_name from information_schema.columns where table_schema='public' and table_name='files_metadata'",
+    )
+  ).rows.map((c) => c.column_name);
+  check(
+    'files_metadata tiene las columnas del contrato de M5',
+    [
+      'propietario_id', 'r2_key', 'nombre_original', 'tipo_contenido', 'tamano_bytes',
+      'entity_type', 'entidad_id', 'estado', 'confirmado_en', 'deleted_at',
+    ].every((c) => colsM5.includes(c)),
+    colsM5.join(', '),
+  );
+
+  // La frontera de escritura (decisión 1): lectura sí, escritura directa NO. Se
+  // comprueban las dos mitades porque `revoke all` sin el `grant select` dejaría
+  // al propietario sin ver ni lo suyo, y un `grant` de más reabriría la puerta.
+  const permisosM5 = (
+    await db.query(
+      "select has_table_privilege('authenticated','public.files_metadata','SELECT') as s, " +
+        "has_table_privilege('authenticated','public.files_metadata','INSERT') as i, " +
+        "has_table_privilege('authenticated','public.files_metadata','UPDATE') as u, " +
+        "has_table_privilege('authenticated','public.files_metadata','DELETE') as d",
+    )
+  ).rows[0];
+  check('authenticated SÍ puede SELECT en files_metadata', permisosM5.s === true);
+  check('authenticated NO puede INSERT directo en files_metadata', permisosM5.i === false);
+  check('authenticated NO puede UPDATE directo en files_metadata', permisosM5.u === false);
+  check('authenticated NO puede DELETE directo en files_metadata', permisosM5.d === false);
+
+  const politicasM5 = (
+    await db.query(
+      "select policyname from pg_policies where schemaname='public' and tablename='files_metadata'",
+    )
+  ).rows.map((p) => p.policyname);
+  check('existe la política del propietario', politicasM5.includes('files_metadata_read_own'));
+  check('existe la política del administrador', politicasM5.includes('files_metadata_admin_read'));
+
+  // ------------------------------------------------- 18.2 RPCs: firma y privilegios
+  const rpcM5 = (
+    await db.query(
+      "select p.proname, p.prosecdef, " +
+        "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede, " +
+        "has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede " +
+        "from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname='public' and p.proname in " +
+        "('registrar_archivo_pendiente','confirmar_archivo','marcar_archivo_borrado') order by p.proname",
+    )
+  ).rows;
+  check('existen las 3 RPC de escritura de M5', rpcM5.length === 3, `hay ${rpcM5.length}`);
+  check(
+    'las 3 RPC de M5 son security DEFINER',
+    rpcM5.length === 3 && rpcM5.every((f) => f.prosecdef === true),
+    rpcM5.map((f) => `${f.proname}=${f.prosecdef ? 'DEFINER' : 'invoker'}`).join(', '),
+  );
+  check(
+    'anon NO puede ejecutar ninguna RPC de M5',
+    rpcM5.length === 3 && rpcM5.every((f) => f.anon_puede === false),
+    rpcM5.map((f) => `${f.proname}=${f.anon_puede ? 'PUEDE' : 'no'}`).join(', '),
+  );
+  check(
+    'authenticated SÍ puede ejecutar las RPC de M5',
+    rpcM5.length === 3 && rpcM5.every((f) => f.auth_puede === true),
+  );
+
+  // ------------------------------------------------- 18.3 semilla de límites
+  const maxBytes = (
+    await db.query(
+      "select valor, tipo, es_publico from public.system_settings where clave='m5_max_bytes'",
+    )
+  ).rows[0];
+  check('m5_max_bytes sembrado en 10485760 (10 MB)', maxBytes?.valor === 10485760, JSON.stringify(maxBytes));
+  check('m5_max_bytes es number y privado', maxBytes?.tipo === 'number' && maxBytes?.es_publico === false);
+
+  const maxArchivos = (
+    await db.query(
+      "select valor, tipo, es_publico from public.system_settings where clave='m5_max_archivos_por_entidad'",
+    )
+  ).rows[0];
+  check('m5_max_archivos_por_entidad sembrado en 10', maxArchivos?.valor === 10, JSON.stringify(maxArchivos));
+  check(
+    'm5_max_archivos_por_entidad es number y privado',
+    maxArchivos?.tipo === 'number' && maxArchivos?.es_publico === false,
+  );
+
+  // ------------------------------------------------- 18.4 el ciclo por RPC
+  const PROPIETARIO = ALUMNO_ID;
+  const TERCERO = DOC1;
+  const ADMIN_M5 = ADMIN2_ID;
+
+  const registro = await como('authenticated', PROPIETARIO, () =>
+    db.query(
+      `select id, propietario_id, estado, tamano_bytes from public.registrar_archivo_pendiente(
+         '${PROPIETARIO}', 'm5_archivos/prueba/2026/09/abc.pdf',
+         'informe.pdf', 'application/pdf', 'TASK_SUBMISSION', null)`,
+    ),
+  );
+  const archivo = registro.rows[0];
+  check('registrar_archivo_pendiente devuelve la fila', Boolean(archivo?.id));
+  check('el archivo nace en PENDING', archivo?.estado === 'PENDING', String(archivo?.estado));
+  check(
+    'el archivo nace SIN tamaño (el objeto aún no se verificó)',
+    archivo?.tamano_bytes === null,
+    String(archivo?.tamano_bytes),
+  );
+  check('el propietario es quien lo registró', archivo?.propietario_id === PROPIETARIO);
+  const archivoId = archivo.id;
+
+  // Registrar a nombre de un tercero: prohibido salvo admin (decisión 1). Sin
+  // esta comprobación, un usuario podría colgarle adjuntos a otro.
+  const aTercero = await esperaError('un usuario NO puede registrar a nombre de otro', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.query(
+        `select * from public.registrar_archivo_pendiente(
+           '${TERCERO}', 'm5_archivos/ajeno/x.pdf', 'x.pdf', 'application/pdf', 'TEACHER_GUIDE', null)`,
+      ),
+    ),
+  );
+  check('registrar a nombre de otro sale como 42501', aTercero?.code === '42501', `código ${aTercero?.code}`);
+
+  const adminRegistra = await como('authenticated', ADMIN_M5, () =>
+    db.query(
+      `select propietario_id from public.registrar_archivo_pendiente(
+         '${TERCERO}', 'm5_archivos/en-nombre-de/def.pdf', 'guia.pdf', 'application/pdf', 'TEACHER_GUIDE', null)`,
+    ),
+  );
+  check(
+    'un admin SÍ puede registrar a nombre de otro',
+    adminRegistra.rows[0]?.propietario_id === TERCERO,
+    String(adminRegistra.rows[0]?.propietario_id),
+  );
+
+  // Confirmar: fija tamaño y sello temporal, y pasa a CONFIRMED.
+  const conf = await como('authenticated', PROPIETARIO, () =>
+    db.query(
+      `select estado, tamano_bytes, confirmado_en from public.confirmar_archivo('${archivoId}', 123456)`,
+    ),
+  );
+  const confirmado = conf.rows[0];
+  check('confirmar fija tamano_bytes', confirmado?.tamano_bytes === 123456, String(confirmado?.tamano_bytes));
+  check('confirmar fija confirmado_en', confirmado?.confirmado_en != null, String(confirmado?.confirmado_en));
+  check('confirmar pasa a CONFIRMED', confirmado?.estado === 'CONFIRMED', String(confirmado?.estado));
+
+  const reconfirmar = await esperaError('reconfirmar un CONFIRMED se rechaza (estado terminal)', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.query(`select * from public.confirmar_archivo('${archivoId}', 999)`),
+    ),
+  );
+  check('reconfirmar sale como 23514', reconfirmar?.code === '23514', `código ${reconfirmar?.code}`);
+
+  const confAjeno = await esperaError('no se puede confirmar un archivo ajeno', () =>
+    como('authenticated', TERCERO, () =>
+      db.query(`select * from public.confirmar_archivo('${archivoId}', 1)`),
+    ),
+  );
+  check('confirmar un archivo ajeno sale como 42501', confAjeno?.code === '42501', `código ${confAjeno?.code}`);
+
+  // Borrado lógico y su doble.
+  const borrado = await como('authenticated', PROPIETARIO, () =>
+    db.query(`select estado, deleted_at from public.marcar_archivo_borrado('${archivoId}')`),
+  );
+  check(
+    'marcar_archivo_borrado hace soft delete (DELETED)',
+    borrado.rows[0]?.estado === 'DELETED',
+    String(borrado.rows[0]?.estado),
+  );
+  check('marcar_archivo_borrado fija deleted_at', borrado.rows[0]?.deleted_at != null);
+
+  const dobleBorrado = await esperaError('borrar dos veces se rechaza', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.query(`select * from public.marcar_archivo_borrado('${archivoId}')`),
+    ),
+  );
+  check('el doble borrado sale como 23514', dobleBorrado?.code === '23514', `código ${dobleBorrado?.code}`);
+
+  // `anon` no puede ni llamar a las RPC: no tiene EXECUTE.
+  const anonM5 = await esperaError('anon NO puede ejecutar las RPC de M5', () =>
+    como('anon', null, () =>
+      db.query(
+        `select * from public.registrar_archivo_pendiente(
+           '${PROPIETARIO}', 'm5_archivos/anon/x.pdf', 'x.pdf', 'application/pdf', 'TASK_SUBMISSION', null)`,
+      ),
+    ),
+  );
+  check('la llamada de anon se rechaza por privilegios (42501)', anonM5?.code === '42501', `código ${anonM5?.code}`);
+
+  // ------------------------------------------------- 18.5 RLS de lectura
+  const totalM5 = (await db.query('select count(*)::int as n from public.files_metadata')).rows[0].n;
+  const totalPropias = (
+    await db.query(
+      `select count(*)::int as n from public.files_metadata where propietario_id='${PROPIETARIO}'`,
+    )
+  ).rows[0].n;
+
+  const vePropias = await como('authenticated', PROPIETARIO, () =>
+    db.query('select propietario_id from public.files_metadata'),
+  );
+  check(
+    'el propietario ve SÓLO sus filas',
+    vePropias.rows.length === totalPropias && vePropias.rows.every((r) => r.propietario_id === PROPIETARIO),
+    `vio ${vePropias.rows.length} de ${totalM5}`,
+  );
+
+  const veAjenas = await como('authenticated', TERCERO, () =>
+    db.query(
+      `select count(*)::int as n from public.files_metadata where propietario_id='${PROPIETARIO}'`,
+    ),
+  );
+  check('otro usuario NO ve las filas del propietario', veAjenas.rows[0].n === 0, `vio ${veAjenas.rows[0].n}`);
+
+  const veAdminM5 = await como('authenticated', ADMIN_M5, () =>
+    db.query('select count(*)::int as n from public.files_metadata'),
+  );
+  check('el admin ve TODAS las filas', veAdminM5.rows[0].n === totalM5, `vio ${veAdminM5.rows[0].n} de ${totalM5}`);
+
+  // ------------------------------------------------- 18.6 escritura directa prohibida
+  const insDirecto = await esperaError('un autenticado no puede INSERT directo en files_metadata', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.exec(
+        `insert into public.files_metadata (propietario_id, r2_key, nombre_original, tipo_contenido, entity_type)
+         values ('${PROPIETARIO}', 'm5_archivos/directo/x.pdf', 'x.pdf', 'application/pdf', 'TASK_SUBMISSION')`,
+      ),
+    ),
+  );
+  check(
+    'el INSERT directo se rechaza por privilegios (42501)',
+    insDirecto?.code === '42501',
+    `código ${insDirecto?.code}`,
+  );
+
+  const updDirecto = await esperaError('un autenticado no puede UPDATE directo en files_metadata', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.exec(`update public.files_metadata set estado='CONFIRMED' where propietario_id='${PROPIETARIO}'`),
+    ),
+  );
+  check(
+    'el UPDATE directo se rechaza por privilegios (42501)',
+    updDirecto?.code === '42501',
+    `código ${updDirecto?.code}`,
+  );
+
+  const delDirecto = await esperaError('un autenticado no puede DELETE directo en files_metadata', () =>
+    como('authenticated', PROPIETARIO, () =>
+      db.exec(`delete from public.files_metadata where propietario_id='${PROPIETARIO}'`),
+    ),
+  );
+  check(
+    'el DELETE directo se rechaza por privilegios (42501)',
+    delDirecto?.code === '42501',
+    `código ${delDirecto?.code}`,
+  );
+
+  // ------------------------------------------------- 18.7 idempotencia
+  // Reaplicar la migración entera no debe duplicar la semilla ni el estado del
+  // módulo. La semilla usa `on conflict do nothing`; y la bandera de
+  // `m5_archivos` NO se toca en esta migración (se deja apagada a propósito: se
+  // enciende con la Capa 4/7), así que reaplicar la deja igual: apagada.
+  const settingsAntesM5 = (await db.query('select count(*)::int as n from public.system_settings')).rows[0].n;
+  const archivosAntesM5 = (await db.query('select count(*)::int as n from public.files_metadata')).rows[0].n;
+  await aplicar(path.join(SUPABASE, 'migrations', '202609210001_mod5_archivos.sql'));
+  const settingsDespuesM5 = (await db.query('select count(*)::int as n from public.system_settings')).rows[0].n;
+  const archivosDespuesM5 = (await db.query('select count(*)::int as n from public.files_metadata')).rows[0].n;
+  const m5Sigue = (
+    await db.query("select habilitado from public.system_modules where clave='m5_archivos'")
+  ).rows[0].habilitado;
+  check(
+    'reaplicar la migración de M5 NO duplica parámetros',
+    settingsDespuesM5 === settingsAntesM5,
+    `${settingsAntesM5} → ${settingsDespuesM5}`,
+  );
+  check(
+    'reaplicar la migración de M5 NO duplica filas de archivos',
+    archivosDespuesM5 === archivosAntesM5,
+    `${archivosAntesM5} → ${archivosDespuesM5}`,
+  );
+  check('reaplicar la migración de M5 deja el módulo APAGADO (no lo enciende)', m5Sigue === false);
 
   // ---------------------------------------------------------------- resumen
   console.log(
