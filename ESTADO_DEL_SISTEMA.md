@@ -983,8 +983,36 @@ subir, con un `HeadObject` que devuelve el `ContentLength` real —de ahí que
 `PuertaAlmacenamiento` exponga `estadisticas()` y no un `existe()` booleano—, y el
 exceso se responde con **413**, no con 400: el 400 queda para un tamaño *corrupto*
 (negativo, `NaN`, infinito), que es un dato mal formado y no un archivo grande.
-**Queda abierto D9**: una regla de ciclo de vida en el bucket, que es configuración
-de Cloudflare y no código.
+**Queda abierto D9.** La redacción original —«una regla de ciclo de vida en el
+bucket, que es configuración de Cloudflare y no código»— **era incompleta, y la
+medición del 2026-09-18 lo demostró**. Ver `docs/CONFIGURACION_R2.md`, que es ahora
+la fuente de verdad de esta deuda. Dos correcciones de fondo:
+
+1. **El bucket no puede taparlo solo.** R2 admite condiciones **únicamente por
+   prefijo** y no sabe nada de `files_metadata.estado`. Como los `PENDING` y los
+   `CONFIRMED` comparten `m5_archivos/<propietario>/<AAAA>/<MM>/`, un
+   `--expire-days` sobre ese prefijo borraría también **los archivos confirmados**.
+   La regla que sí es segura hoy (abortar subidas multipart abandonadas) cubre sólo
+   una de las tres fugas.
+2. **La parte que falta es código, y el código ya la promete.** El «barrido de
+   `PENDING` abandonados» está nombrado en `rutas/archivos.ts:282`, en
+   `openapi.ts:2599` y en la migración `202609210001` — y **no existe**. Además,
+   `ON DELETE CASCADE` sobre `propietario_id` borra la fila al borrar la cuenta y
+   **deja el objeto**: esa fuga no la ve ni la base ni un barrido.
+
+**No está latente por la bandera del módulo.** `m5_archivos` está apagado, pero
+`exigirModulo()` está definido y **no se usa en ninguna ruta** (`app.ts` sólo
+registra el hook global de mantenimiento): la API sirve M5 a cualquier usuario
+autenticado. La bandera oculta el módulo en el frontend, no lo cierra. Y no es
+teórico: el 2026-09-18 había **un objeto huérfano real** en el bucket, con **cero
+filas** en `files_metadata` y un dueño inexistente en `auth.users`.
+
+**Y un bloqueante que D9 no mencionaba: el bucket no tiene política de CORS.** El
+preflight `OPTIONS` desde `http://localhost:8080` y `http://127.0.0.1:8080`
+devuelve **403 sin ninguna cabecera `Access-Control-Allow-*`**, así que un
+navegador bloquea la subida aunque el `PUT` desde Node devuelva 200. **Ninguna de
+las 468 pruebas puede detectarlo** (todas hablan con R2 desde Node, y Node no
+aplica CORS). Sonda re-ejecutable: `npx tsx backend/scripts/probe-r2-cors.mts`.
 
 ### El ciclo de dos pasos, y por qué el orden cambia según la operación
 
@@ -1100,13 +1128,14 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente, y **no es código**: una regla de ciclo de vida en el bucket (configuración de Cloudflare). **Latente**: la bandera `m5_archivos` está apagada. Resolver antes de M7 |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente, y **NO es sólo configuración**: es configuración **más código**. La parte de bucket (abortar multipart abandonadas) es segura y está escrita en **`docs/CONFIGURACION_R2.md` §3.4**; el resto —el **barrido de `PENDING` abandonados** que `rutas/archivos.ts:282` ya nombra y que **no existe**— es código. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3. **No está latente por la bandera** (la API no comprueba `m5_archivos`; `exigirModulo()` nunca se llama) y hubo **un huérfano real** el 2026-09-18. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
+| **D16** | El bucket `inces-lms-media` **no tiene política de CORS** → un navegador no puede usar las URLs prefirmadas | ⏳ **Pendiente, y bloquea la Capa 7 en Web**. Medido el 2026-09-18: preflight `OPTIONS` = **403 sin ninguna cabecera `Access-Control-Allow-*`** desde `http://localhost:8080` y `http://127.0.0.1:8080`, mientras el `PUT` desde Node devuelve 200. **Ninguna de las 468 pruebas puede verlo**: todas hablan con R2 desde Node y Node no aplica CORS. Instrucciones en **`docs/CONFIGURACION_R2.md` §2**; sonda re-ejecutable: `npx tsx backend/scripts/probe-r2-cors.mts` (exit 1 mientras falte). Espera autorización |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1357,8 +1386,14 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 9. ~~**Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado~~ —
    **HECHO (2026-09-18)**: las 5 rutas existen, están documentadas en `openapi.json`
    (47 rutas, 84 esquemas) y cubiertas por `test/archivos.test.ts` (34 pruebas). El
-   `413` quedó separado del `400`. **D9 sigue abierta**: cerrarla no es código, es
-   una regla de ciclo de vida en el bucket que se configura en Cloudflare.
+   `413` quedó separado del `400`. **D9 sigue abierta, pero su redacción original
+   era optimista**: cerrarla **no es sólo** una regla de ciclo de vida. El bucket
+   no distingue el estado de un archivo (R2 sólo filtra por prefijo), así que la
+   parte que falta es el **barrido de `PENDING` abandonados**, que el propio código
+   ya nombra en `rutas/archivos.ts:282` y que **no existe**. Todo el análisis, los
+   comandos exactos y la trampa del `--expire-days` están en
+   **`docs/CONFIGURACION_R2.md`**. Añadida **D16**: falta la política de CORS del
+   bucket, que impide que el frontend Web use R2 desde el navegador.
 10. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida

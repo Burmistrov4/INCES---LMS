@@ -1068,7 +1068,16 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   APAGADO en system_modules: lo enciende la Fase 2.
 - Modulos 5-8: solo diseno.
 - Deudas abiertas: D7 (verificacion de tokens en cache), D9 (URL prefirmada de
-  PUT sin limite de tamano; latente, M5 apagado).
+  PUT sin limite de tamano. **Ojo: NO es solo configuracion** — la parte de bucket
+  (abortar multipart abandonadas) esta en `docs/CONFIGURACION_R2.md` §3.4, y el
+  resto es el barrido de `PENDING` abandonados, que el propio codigo ya nombra en
+  `rutas/archivos.ts:282` y que **no existe**; ademas una regla `--expire-days`
+  sobre `m5_archivos/` borraria los archivos CONFIRMED porque R2 solo filtra por
+  prefijo). **Ya no se puede decir "latente, M5 apagado"**: `exigirModulo()` esta
+  definido y no se usa en ninguna ruta, asi que la API sirve M5 igual. D16 (el
+  bucket no tiene politica de CORS: un navegador no puede usar las URLs
+  prefirmadas; **bloquea la Capa 7 en Web**. Ver `docs/CONFIGURACION_R2.md` §2 y
+  la sonda `backend/scripts/probe-r2-cors.mts`).
 - Resueltas: D8, D10, D11, D12, D13.
 - Decisiones que NO son tuyas (R-06 ya resuelta: el lapso vigente es `SA26-2` y m2/m3 habilitados):
   R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).
