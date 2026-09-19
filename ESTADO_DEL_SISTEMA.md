@@ -123,14 +123,20 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **quince** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **dieciséis** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**17 tablas** con RLS activo **en las 17**, **5 vistas** (`cursos` de D12, las
-tres del Módulo 3 y `v_ocupacion_secciones` de M4), **31 funciones**, **23
-triggers** y **35 políticas RLS**, más 9 módulos sembrados, **9 parámetros**, 1
+**18 tablas** con RLS activo **en las 18**, **5 vistas** (`cursos` de D12, las
+tres del Módulo 3 y `v_ocupacion_secciones` de M4), **34 funciones**, **23
+triggers** y **37 políticas RLS**, más 9 módulos sembrados, **11 parámetros**, 1
 lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
 `programs` como `CURSO_LIBRE`.
+
+> **M5 suma a estas cifras:** 1 tabla (`files_metadata`), 2 políticas RLS de
+> lectura (`files_metadata_read_own`, `files_metadata_admin_read`), 3 funciones
+> (`registrar_archivo_pendiente`, `confirmar_archivo`, `marcar_archivo_borrado`)
+> y 2 parámetros (`m5_max_bytes`, `m5_max_archivos_por_entidad`). Sin triggers
+> nuevos.
 
 > **Estas cifras están medidas, no estimadas.** Salen de `supabase/verificar-esquema.mjs`
 > (**92/92**) y de `supabase/contar-catalogo.mjs` (recuento directo al catálogo),
@@ -579,7 +585,7 @@ administrador real: ni el admin puede insertar una traza a mano.
 | `m1_onboarding` | Autenticación y Onboarding | 🟢 activo | todos |
 | `m2_curriculo` | Currículo y Pensum | 🟢 activo | todos |
 | `m3_cuadrante` | Cuadrante y Horarios | 🟢 activo | todos |
-| `m4_inscripciones` | Inscripciones y Cupos | ⚪ inactivo | todos |
+| `m4_inscripciones` | Inscripciones y Cupos | 🟢 activo | todos |
 | `m5_archivos` | Almacenamiento (R2) | ⚪ inactivo | todos |
 | `m6_asistencia` | Asistencia | ⚪ inactivo | todos |
 | `m7_calificaciones` | Calificaciones | ⚪ inactivo | todos |
@@ -587,8 +593,11 @@ administrador real: ni el admin puede insertar una traza a mano.
 
 **`m9` (Certificados/QR) no se siembra:** quedó descartado del alcance.
 
-Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo` y
-`m3_cuadrante`. Los demás (m4…m8) siguen apagados hasta que se construyan.
+Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo`,
+`m3_cuadrante` y `m4_inscripciones`. `m5_archivos` (Almacenamiento R2) ya está **construido**
+pero se deja **apagado a propósito**: su bandera se enciende cuando existan las rutas de
+firmas (Capa 4) y la UI (Capa 7). `m6_asistencia`, `m7_calificaciones` y `m8_pasantias`
+siguen apagados.
 
 ### Semilla de parámetros
 
@@ -603,6 +612,8 @@ Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2
 | `habilitar_sistema_bids` | boolean | ❌ | `false` — **apagado a propósito** (ver nota) |
 | `cupo_maximo_por_seccion` | number | ❌ | `25` |
 | `r2_presign_ttl_minutos` | number | ❌ | `15` |
+| `m5_max_bytes` | number | ❌ | `10485760` — **10 MB por defecto** (límite por archivo; el admin lo ajusta sin desplegar) |
+| `m5_max_archivos_por_entidad` | number | ❌ | `10` — cantidad máxima de adjuntos por tarea/guía |
 
 > **`habilitar_sistema_bids` es el interruptor del «Motor de Bids»** (migración
 > `202609190001`, M4). Apagado: una solicitud con cupo libre entra **directo a
