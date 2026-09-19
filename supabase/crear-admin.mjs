@@ -25,10 +25,10 @@
  * Uso:
  *   SUPABASE_URL=https://xxx.supabase.co \
  *   SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxx \
- *   node supabase/crear-admin.mjs lorenzoroca11@hotmail.com
+ *   node supabase/crear-admin.mjs lorenzo-roca11@hotmail.com
  *
  *   # Simulación, no escribe nada:
- *   ... node supabase/crear-admin.mjs lorenzoroca11@hotmail.com --dry-run
+ *   ... node supabase/crear-admin.mjs lorenzo-roca11@hotmail.com --dry-run
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
