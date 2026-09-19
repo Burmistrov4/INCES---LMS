@@ -25,6 +25,19 @@
 > `system_modules`. **Falta el frontend (Fase 3) y el humo de concurrencia real
 > (Fase 4).**
 >
+> **La Capa 4 del Módulo 5 está construida (2026-09-18).** Las 5 rutas de archivos
+> —firma de subida, confirmación, URL de lectura, borrado del propietario y borrado
+> del administrador— existen, están registradas en Fastify y documentadas: el
+> recuento pasó de **42 a 47 rutas** y de **79 a 84 esquemas**. Dos cambios de
+> contrato los acompañan: `PuertaAlmacenamiento.existe()` se reemplazó por
+> `estadisticas()`, que devuelve el **tamaño** —un booleano no bastaba para aplicar
+> el límite, porque una URL `PUT` prefirmada no admite `content-length-range` y el
+> peso real sólo se conoce con el `HeadObject` posterior—, y `ErrorApi` estrenó el
+> **413**, que deja el 400 exclusivamente para los tamaños *corruptos*. La bandera
+> `m5_archivos` sigue **apagada**: encenderla es un acto aparte y hay tres
+> aserciones que la vigilan. **Faltan el frontend (Capa 7) y el humo de archivos
+> contra la nube.**
+>
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
@@ -60,19 +73,19 @@
 | **Módulo 5 (esquema)** | Archivos en R2: `files_metadata`, 3 RPC `security definer`, 2 parámetros configurables y la frontera de escritura | ✅ **Aplicado y verificado** (2026-09-18) |
 | **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
-| **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ⏳ Pendiente |
+| **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ✅ **Completo** (2026-09-18) |
 | **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ⏳ Pendiente |
 | **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-18**
-(backend 434, Flutter 307, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
+(backend 468, Flutter 307, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
 verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **307 / 307** en verde — **última medición válida, 2026-09-15**. No re-ejecutable en este entorno (ver aviso) |
-| `npm test` (backend) | **434 / 434** en verde (19 archivos) |
+| `npm test` (backend) | **468 / 468** en verde (20 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
@@ -91,7 +104,7 @@ verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está apagado** |
-| Documento OpenAPI | OpenAPI 3.1.0 · **42 rutas · 79 esquemas** (las 14 de M3 y las 14 de M4 incluidas) |
+| Documento OpenAPI | OpenAPI 3.1.0 · **47 rutas · 84 esquemas** (las 14 de M3, las 14 de M4 y las 5 de M5 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -116,7 +129,7 @@ verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 > Flutter que se cite sin re-ejecutar arrastra esa fecha. La nota del `HANDOVER.md`
 > que afirmaba que `flutter test` sí funcionaba aquí **es falsa** y quedó corregida.
 > Las demás redes (SQL 271/271, esquema 99/99, libro mayor 16/16, backend
-> 434/434) **sí** se re-ejecutaron y están al día, todas medidas el **2026-09-18**.
+> 468/468) **sí** se re-ejecutaron y están al día, todas medidas el **2026-09-18**.
 
 > **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
 > reales (admin ve, `anon` no ve, un docente no ve, nadie inserta trazas a mano),
@@ -630,10 +643,11 @@ administrador real: ni el admin puede insertar una traza a mano.
 **`m9` (Certificados/QR) no se siembra:** quedó descartado del alcance.
 
 Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo`,
-`m3_cuadrante` y `m4_inscripciones`. `m5_archivos` (Almacenamiento R2) ya está **construido**
-pero se deja **apagado a propósito**: su bandera se enciende cuando existan las rutas de
-firmas (Capa 4) y la UI (Capa 7). `m6_asistencia`, `m7_calificaciones` y `m8_pasantias`
-siguen apagados.
+`m3_cuadrante` y `m4_inscripciones`. `m5_archivos` (Almacenamiento R2) ya tiene el
+esquema, el puerto, el adaptador **y las rutas de firmas (Capa 4)**, pero se deja
+**apagado a propósito**: su bandera se enciende cuando exista la UI (Capa 7), porque
+un módulo encendido que no tiene pantalla es un botón que no lleva a ninguna parte.
+`m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
 
 ### Semilla de parámetros
 
@@ -750,10 +764,18 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 > `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` revocados para `anon` y `authenticated`
 > (R-23): todo pasa por RPC `security definer`. Ver §11 y `REPORTE_ARIA.md` R-23.
 
-**42 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+**47 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
+
+Las **5 de M5** viven fuera de `/api/v1/admin` salvo el borrado administrativo,
+porque un archivo no es un recurso de administración: el propietario firma,
+confirma, lee y borra el suyo, y el admin sólo añade un portero distinto al mismo
+camino de borrado. El tope de tamaño y el de archivos por entidad se leen **en
+cada petición** de `system_settings` (`m5_max_bytes`,
+`m5_max_archivos_por_entidad`), no al arrancar: el administrador los cambia desde
+el panel y deben surtir efecto sin desplegar.
 
 > **El choque de agenda no se comprueba en la API, se traduce.** Ninguna ruta
 > pregunta «¿está libre?» antes de escribir: sería una carrera y, peor, una
@@ -908,21 +930,26 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `src/http/plugins/modulos.ts` | Guardias de módulo y mantenimiento (lógica pura) |
 | `src/http/plugins/errores.ts` | Cuerpo de error uniforme |
 | `src/http/esquemas.ts` | Validación de entrada + coherencia de tipos |
-| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth`, `curriculo` |
+| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth`, `curriculo`, `cuadrante`, `secciones`, `inscripciones`, `archivos` |
 | `src/app.ts` | Construye la app con todo inyectado |
 | `src/server.ts` | Único punto que lee `process.env` |
 
 ### Almacenamiento pesado — Cloudflare R2 (módulo M5)
 
-Construido y probado, **sin credenciales todavía**. Se activa solo cuando las
-cuatro variables de R2 estén puestas.
+Construido, probado y **verificado contra el bucket real** con la sonda
+`backend/scripts/probe-r2.mts`. Se activa sólo cuando las cuatro variables de R2
+estén puestas: si faltan, `crearAlmacenamiento` devuelve `null`, el resto del
+backend arranca igual y las rutas de archivos responden **503**.
 
 | Archivo | Responsabilidad |
 | --- | --- |
-| `src/dominio/almacenamiento.ts` | Reglas puras: claves, extensiones, tipos MIME, `Content-Disposition` |
-| `src/dominio/puertos.ts` | `PuertaAlmacenamiento` — el puerto, fuera de `Repositorios` |
+| `src/dominio/almacenamiento.ts` | Reglas puras: claves, extensiones, tipos MIME, `Content-Disposition`, `validarTamano` |
+| `src/dominio/puertos.ts` | `PuertaAlmacenamiento` (el puerto, fuera de `Repositorios`) y `PuertaArchivos` (dentro, porque lee y escribe una tabla) |
 | `src/infra/r2_service.ts` | Implementación sobre el SDK de S3 + traducción de errores |
-| `test/r2.test.ts` | 24 pruebas, sin red |
+| `src/infra/repos-supabase.ts` | `ArchivosSupabase`: 3 RPC de escritura y 2 lecturas por PostgREST, bajo RLS |
+| `src/http/rutas/archivos.ts` | Las 5 rutas: firma, confirmación, URL de lectura y los dos borrados |
+| `test/r2.test.ts` | 30 pruebas de las reglas puras y de la firma, sin red |
+| `test/archivos.test.ts` | 34 pruebas del contrato HTTP, con el almacén y los repositorios en memoria |
 
 **Dos ajustes que hacen que R2 funcione**, y ninguno es opcional: `region: 'auto'`
 (R2 no tiene regiones) y `forcePathStyle: true` (R2 no soporta direccionamiento
@@ -944,9 +971,50 @@ El tipo MIME también se deriva de la extensión y **se firma** en la URL. Sin
 firmarlo, el SDK sólo firma `host` y el `Content-Type` del comando se descarta:
 el cliente podría declarar cualquier tipo. Lo detectó una prueba, no una lectura.
 
-**Limitación conocida:** una URL prefirmada de `PUT` no puede imponer un tamaño
-máximo. El límite de 25 MB vive en el código (`TAMANO_MAXIMO_BYTES`) y debe
-aplicarse también en el cliente y con una regla de ciclo de vida en R2.
+**Limitación conocida:** una URL prefirmada de `PUT` **no admite
+`content-length-range`**, así que el servidor no puede imponer el peso al firmar.
+El límite efectivo es de **10 MB** y vive en `system_settings.m5_max_bytes`, que el
+administrador ajusta desde el panel; `TAMANO_MAXIMO_BYTES` es sólo el valor al que
+se cae cuando ese parámetro no está sembrado. La comprobación se hace **después** de
+subir, con un `HeadObject` que devuelve el `ContentLength` real —de ahí que
+`PuertaAlmacenamiento` exponga `estadisticas()` y no un `existe()` booleano—, y el
+exceso se responde con **413**, no con 400: el 400 queda para un tamaño *corrupto*
+(negativo, `NaN`, infinito), que es un dato mal formado y no un archivo grande.
+**Queda abierto D9**: una regla de ciclo de vida en el bucket, que es configuración
+de Cloudflare y no código.
+
+### El ciclo de dos pasos, y por qué el orden cambia según la operación
+
+La fila nace **`PENDING` antes de que el objeto exista**. No hay transacción que
+abarque R2 y PostgreSQL, así que hay que elegir qué queda si algo se rompe a mitad:
+una fila huérfana es visible y barrible, mientras que un objeto sin fila sería un
+archivo fantasma que nadie puede autorizar ni limpiar.
+
+| Operación | Orden | Por qué ese orden |
+| --- | --- | --- |
+| Confirmar | Objeto medido → fila `CONFIRMED` | El tamaño lo sella el `HeadObject`; confirmar antes sería sellar un dato que nadie midió |
+| Rechazar por tamaño | Objeto borrado → fila `DELETED` | Lo que no debe quedar es un objeto que ya se decidió rechazar. Si fallara R2, la fila sigue viva y el archivo sigue siendo reclamable |
+| Borrar | Fila `DELETED` → objeto borrado | Si fallara R2, queda un objeto huérfano con una fila que ya no lo cuenta: recuperable y auditable. Al revés, el usuario vería un archivo roto sin explicación |
+
+Y un detalle que se paga caro si se ignora: **la firma va antes del registro**.
+`urlDeSubida` construye la clave canónica por dentro —prefijo, UUID y extensión—, así
+que construirla aparte con `construirClave` generaría **otro** UUID y la fila
+apuntaría a un objeto que nadie va a subir. Lo detectó una prueba, no una lectura.
+
+### Las 5 rutas de M5
+
+| Método | Ruta | Quién |
+| --- | --- | --- |
+| `POST` | `/api/v1/archivos/firmar-subida` | Cualquier sesión |
+| `POST` | `/api/v1/archivos/{id}/confirmar` | El propietario |
+| `GET` | `/api/v1/archivos/{id}/url-lectura` | El propietario (o el admin, por RLS) |
+| `DELETE` | `/api/v1/archivos/{id}` | El propietario |
+| `DELETE` | `/api/v1/admin/archivos/{id}` | Administrador |
+
+Las cuatro últimas comprueban **de quién es** el archivo en la base, no en la ruta:
+las escrituras van por RPC `security definer` que autorizan solas con `auth.uid()` e
+`is_admin()` (R-20), y las lecturas las filtra la RLS. Repetir esa comprobación en el
+handler sería una segunda copia de la regla, y dos copias se desvían.
 
 ### Protección del último administrador (D8)
 
@@ -1008,7 +1076,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente (regla de ciclo de vida en R2). **Latente**: M5 está apagado sin credenciales. Resolver antes de M7 |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente, y **no es código**: una regla de ciclo de vida en el bucket (configuración de Cloudflare). **Latente**: la bandera `m5_archivos` está apagada. Resolver antes de M7 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
@@ -1104,11 +1172,11 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 434 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
+npm test              # 468 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3, M4 y M5
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 81 comprobaciones
+SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 99 comprobaciones
 SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
 node backend/test-humo.mjs                                          # 24 comprobaciones
@@ -1120,10 +1188,10 @@ node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprob
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (203) | La lógica del cliente | El SQL, la API, la red |
-| `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (434) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `flutter test` (307) | La lógica del cliente | El SQL, la API, la red |
+| `supabase/tests` (271) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `npm test` (468) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `verificar-esquema.mjs` (99) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 | `humo-cuadrante.mjs` (53) | El mensaje REAL del trigger, la colisión que cruza dos tablas y la RLS de las vistas por rol | El frontend de M3 |
@@ -1260,8 +1328,11 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    (`CuadranteGrid`), `MiHorarioPanel`, y las pantallas de aulas, lapsos y guardias.
 8. ~~**Encender `m2_curriculo` y `m3_cuadrante` desde el cPanel**~~ — **HECHO
    (2026-09-15):** la migración `202609180003` los habilita en `system_modules`.
-9. **Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado, y
-   cerrar D9 con una regla de ciclo de vida en R2.
+9. ~~**Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado~~ —
+   **HECHO (2026-09-18)**: las 5 rutas existen, están documentadas en `openapi.json`
+   (47 rutas, 84 esquemas) y cubiertas por `test/archivos.test.ts` (34 pruebas). El
+   `413` quedó separado del `400`. **D9 sigue abierta**: cerrarla no es código, es
+   una regla de ciclo de vida en el bucket que se configura en Cloudflare.
 10. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida

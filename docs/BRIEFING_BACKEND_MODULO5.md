@@ -12,6 +12,14 @@
 > El módulo `m5_archivos` está **apagado a propósito** y debe seguir así: su
 > bandera se enciende cuando existan las rutas y la UI que la sostienen.
 
+> ⚠️ **Ya ejecutado (2026-09-18, misma fecha).** La Capa 4 y su Capa 6 están
+> construidas: `http/rutas/archivos.ts` (5 rutas), `test/archivos.test.ts` (34
+> pruebas), `openapi.json` regenerado (47 rutas, 84 esquemas) y `npm run verify`
+> limpio (468/468). **Este documento se conserva como registro del plan, no como
+> trabajo pendiente.** Si vienes a implementarlo, mira primero el código: lo que
+> sigue describe lo que se hizo y por qué. Lo único que queda abierto de M5 es la
+> **Capa 7 (frontend)** y el **humo de archivos contra la nube**.
+
 ---
 
 ## 0. Lo primero: tres correcciones de rumbo
