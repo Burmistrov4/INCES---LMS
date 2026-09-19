@@ -66,13 +66,16 @@ const ARCHIVO_DEL_ADMIN: ArchivoFalso = {
   entityType: 'TEACHER_GUIDE',
 };
 
-/** Las cinco rutas, con un id válido, para las pruebas de acceso. */
+/** Las seis rutas, con un id válido, para las pruebas de acceso. */
 const RUTAS = [
   { method: 'POST' as const, url: '/api/v1/archivos/firmar-subida' },
   { method: 'POST' as const, url: `/api/v1/archivos/${ID_ARCHIVO_CONFIRMADO}/confirmar` },
   { method: 'GET' as const, url: `/api/v1/archivos/${ID_ARCHIVO_CONFIRMADO}/url-lectura` },
   { method: 'DELETE' as const, url: `/api/v1/archivos/${ID_ARCHIVO_CONFIRMADO}` },
   { method: 'DELETE' as const, url: `/api/v1/admin/archivos/${ID_ARCHIVO_CONFIRMADO}` },
+  // El barrido va sin cuerpo a propósito: es como lo llama un programador de
+  // tareas, y comprueba de paso que el cuerpo opcional de verdad lo es.
+  { method: 'POST' as const, url: '/api/v1/admin/archivos/limpiar' },
 ];
 
 /** Un archivo de tarea, para sembrar el arnés en las pruebas del tope. */
@@ -137,7 +140,7 @@ function borrar(arnes: Arnés, id: string, token: string = TOKEN_ALUMNO) {
 }
 
 describe('control de acceso a los archivos', () => {
-  it('exige sesión en las cinco rutas', async () => {
+  it('exige sesión en las seis rutas', async () => {
     const arnes = crearArnés();
     app = arnes.app;
 
@@ -184,7 +187,7 @@ describe('control de acceso a los archivos', () => {
 });
 
 describe('despliegue sin almacenamiento configurado', () => {
-  it('las cinco rutas responden 503 y no revientan', async () => {
+  it('las seis rutas responden 503 y no revientan', async () => {
     const arnes = crearArnés({ sinAlmacenamiento: true });
     app = arnes.app;
 
@@ -230,7 +233,7 @@ describe('la guardia del módulo (m5_archivos)', () => {
     });
   }
 
-  it('con el módulo apagado, las cinco rutas responden 403 y no llegan a tocar nada', async () => {
+  it('con el módulo apagado, las seis rutas responden 403 y no llegan a tocar nada', async () => {
     // Ésta es la prueba que da sentido a la bandera, y sin ella la guardia sería
     // fe. El módulo arranca **encendido**, así que una guardia cableada a la
     // clave equivocada —`m5_archivo`, sin la ese final— nunca se notaría: todas
@@ -778,5 +781,274 @@ describe('el tamaño sellado y el del bucket', () => {
     const confirmado = (await confirmar(arnes, firmada.archivo.id)).json();
 
     expect(confirmado.archivo.tamanoBytes).toBe(TAMANO_ARCHIVO_CONFIRMADO + 777);
+  });
+});
+
+describe('barrido de subidas abandonadas', () => {
+  /**
+   * Las fechas de siembra se colocan **lejos** del reloj, y no es un detalle.
+   *
+   * La ruta compara `created_at` contra `Date.now()`, así que una semilla cercana
+   * —o el `CREADO_EN_FALSO` del arnés, que es una fecha fija de 2026— haría que
+   * estas pruebas pasaran o fallaran según el día en que se ejecutaran. 2020 es
+   * viejo bajo cualquier reloj razonable y 2999 es nuevo bajo cualquiera, así que
+   * el resultado no depende de cuándo se corra la suite.
+   */
+  const MUY_VIEJA = '2020-01-01T00:00:00.000Z';
+  const MUY_NUEVA = '2999-01-01T00:00:00.000Z';
+
+  const ID_VIEJA = 'a1b2c3d4-0000-4000-8000-0000000000c1';
+  const ID_NUEVA = 'a1b2c3d4-0000-4000-8000-0000000000c2';
+  const ID_SIN_OBJETO = 'a1b2c3d4-0000-4000-8000-0000000000c3';
+  const ID_BORRADA = 'a1b2c3d4-0000-4000-8000-0000000000c4';
+
+  /** Una subida que quedó a medias: fila `PENDING` con su fecha de creación. */
+  function pendiente(
+    id: string,
+    creadoEn: string,
+    propietarioId: string = ID_ALUMNO,
+  ): ArchivoFalso {
+    return {
+      id,
+      propietarioId,
+      r2Key: `m5_archivos/${propietarioId}/2026/09/${id}.pdf`,
+      nombreOriginal: 'a-medias.pdf',
+      estado: 'PENDING',
+      entityType: 'TASK_SUBMISSION',
+      creadoEn,
+    };
+  }
+
+  /**
+   * Dispara el barrido.
+   *
+   * Sin `payload` va el cuerpo vacío, que es como lo llama un programador de
+   * tareas y de paso la única forma de comprobar que el cuerpo opcional de
+   * verdad lo es: un `POST` sin `content-type` no trae cuerpo, y el manejador
+   * tiene que sobrevivir a eso.
+   */
+  function limpiar(
+    arnes: Arnés,
+    payload?: unknown,
+    token: string | null = TOKEN_ADMIN,
+  ) {
+    return arnes.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/archivos/limpiar',
+      headers: conToken(token),
+      ...(payload === undefined
+        ? {}
+        : { payload: payload as Record<string, unknown> }),
+    });
+  }
+
+  it('borra el objeto y marca la fila de una subida abandonada', async () => {
+    const vieja = pendiente(ID_VIEJA, MUY_VIEJA);
+    const arnes = crearArnés({ archivos: [...ARCHIVOS_POR_DEFECTO, vieja] });
+    app = arnes.app;
+
+    // El objeto sí llegó: es el caso «el `PUT` se completó y el navegador se
+    // cerró antes de confirmar». Es el más delicado de barrer, porque el objeto
+    // es válido; lo que lo hace abandonado es que nadie llegó a reclamarlo.
+    //
+    // La fila es del **alumno** y quien barre es el **administrador**: el barrido
+    // es global y no «lo mío». Es la diferencia con el borrado normal y la razón
+    // de que la ruta exija rol admin.
+    subirObjeto(arnes, vieja.r2Key, 4096);
+
+    const respuesta = await limpiar(arnes);
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toMatchObject({
+      revisadas: 1,
+      barridas: 1,
+      fallidas: 0,
+      idsFallidas: [],
+    });
+
+    // Y el efecto, que es lo que de verdad se comprueba. Un resumen que dijera
+    // `barridas: 1` sin haber tocado nada sería peor que un error.
+    expect(arnes.almacenamiento.borrados).toEqual([vieja.r2Key]);
+    expect(arnes.almacenamiento.objetos.has(vieja.r2Key)).toBe(false);
+    expect(arnes.estado.archivos.find((a) => a.id === ID_VIEJA)?.estado).toBe(
+      'DELETED',
+    );
+  });
+
+  it('es idempotente: la segunda pasada no encuentra nada ni vuelve a borrar', async () => {
+    const vieja = pendiente(ID_VIEJA, MUY_VIEJA);
+    const arnes = crearArnés({ archivos: [...ARCHIVOS_POR_DEFECTO, vieja] });
+    app = arnes.app;
+    subirObjeto(arnes, vieja.r2Key, 4096);
+
+    const primera = await limpiar(arnes);
+    const segunda = await limpiar(arnes);
+
+    expect(primera.json().barridas).toBe(1);
+    expect(segunda.statusCode).toBe(200);
+    expect(segunda.json()).toMatchObject({
+      revisadas: 0,
+      barridas: 0,
+      fallidas: 0,
+    });
+    expect(segunda.json().mensaje).toBe('No había subidas abandonadas.');
+
+    // Una sola eliminación en total: la segunda pasada no volvió a pedir el
+    // borrado de un objeto que ya no está. Es la propiedad que permite llamar a
+    // esta ruta desde un programador de tareas sin coordinación ninguna.
+    expect(arnes.almacenamiento.borrados).toEqual([vieja.r2Key]);
+  });
+
+  it('no toca una PENDING reciente, ni una confirmada, ni una ya borrada', async () => {
+    // Los tres estados que un barrido ingenuo se llevaría por delante. La
+    // reciente es la importante: barrerla destruiría una subida en vuelo, que es
+    // exactamente lo que el umbral mínimo existe para impedir.
+    const nueva = pendiente(ID_NUEVA, MUY_NUEVA);
+    const yaBorrada: ArchivoFalso = {
+      ...pendiente(ID_BORRADA, MUY_VIEJA),
+      estado: 'DELETED',
+    };
+    const arnes = crearArnés({
+      archivos: [...ARCHIVOS_POR_DEFECTO, nueva, yaBorrada],
+    });
+    app = arnes.app;
+    subirObjeto(arnes, nueva.r2Key, 4096);
+
+    const respuesta = await limpiar(arnes, { horas: 1 });
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toMatchObject({ revisadas: 0, barridas: 0 });
+    expect(arnes.estado.archivos.find((a) => a.id === ID_NUEVA)?.estado).toBe(
+      'PENDING',
+    );
+    expect(arnes.almacenamiento.objetos.has(nueva.r2Key)).toBe(true);
+    expect(arnes.almacenamiento.borrados).toEqual([]);
+
+    // La confirmada de la semilla sigue como estaba: su objeto existe y nadie lo
+    // pidió. Un barrido que confundiera `CONFIRMED` con `PENDING` habría borrado
+    // el único archivo bueno del arnés.
+    const confirmada = arnes.estado.archivos.find(
+      (a) => a.id === ID_ARCHIVO_CONFIRMADO,
+    );
+    expect(confirmada?.estado).toBe('CONFIRMED');
+    expect(arnes.almacenamiento.objetos.has(CLAVE_ARCHIVO_CONFIRMADO)).toBe(true);
+  });
+
+  it('barre una abandonada cuyo objeto nunca llegó', async () => {
+    // El `PUT` se interrumpió: hay fila y no hay objeto. `DeleteObject` sobre una
+    // clave ausente no falla, así que la fila se marca igual. Sin esta prueba, el
+    // barrido parecería necesitar que el objeto existiera para funcionar, y el
+    // caso más frecuente —el que se cortó a mitad— quedaría sin cubrir.
+    const sinObjeto = pendiente(ID_SIN_OBJETO, MUY_VIEJA);
+    const arnes = crearArnés({
+      archivos: [...ARCHIVOS_POR_DEFECTO, sinObjeto],
+    });
+    app = arnes.app;
+
+    const respuesta = await limpiar(arnes);
+
+    expect(respuesta.json()).toMatchObject({
+      revisadas: 1,
+      barridas: 1,
+      fallidas: 0,
+    });
+    expect(
+      arnes.estado.archivos.find((a) => a.id === ID_SIN_OBJETO)?.estado,
+    ).toBe('DELETED');
+  });
+
+  it('el tope corta por lo más viejo, y la pasada siguiente sigue por donde iba', async () => {
+    // Comprueba la única decisión del puerto que no se ve en la respuesta: el
+    // orden. Si ordenara al revés, el tope cortaría siempre por lo más reciente y
+    // el barrido no llegaría nunca al fondo de la cola, que es donde están las
+    // abandonadas de verdad.
+    const enero = pendiente(
+      'a1b2c3d4-0000-4000-8000-0000000000d1',
+      '2020-01-01T00:00:00.000Z',
+    );
+    const febrero = pendiente(
+      'a1b2c3d4-0000-4000-8000-0000000000d2',
+      '2020-02-01T00:00:00.000Z',
+    );
+    const marzo = pendiente(
+      'a1b2c3d4-0000-4000-8000-0000000000d3',
+      '2020-03-01T00:00:00.000Z',
+    );
+
+    // Sembradas desordenadas a propósito: si el puerto devolviera el orden de
+    // inserción, la prueba fallaría —y por la razón correcta.
+    const arnes = crearArnés({
+      archivos: [...ARCHIVOS_POR_DEFECTO, marzo, enero, febrero],
+    });
+    app = arnes.app;
+
+    const primera = await limpiar(arnes, { limite: 1 });
+    expect(primera.json()).toMatchObject({ revisadas: 1, barridas: 1 });
+    expect(arnes.estado.archivos.find((a) => a.id === enero.id)?.estado).toBe(
+      'DELETED',
+    );
+    expect(arnes.estado.archivos.find((a) => a.id === febrero.id)?.estado).toBe(
+      'PENDING',
+    );
+
+    const segunda = await limpiar(arnes, { limite: 1 });
+    expect(segunda.json()).toMatchObject({ revisadas: 1, barridas: 1 });
+    expect(arnes.estado.archivos.find((a) => a.id === febrero.id)?.estado).toBe(
+      'DELETED',
+    );
+    expect(arnes.estado.archivos.find((a) => a.id === marzo.id)?.estado).toBe(
+      'PENDING',
+    );
+  });
+
+  it('rechaza un umbral por debajo de una hora, y no barre nada', async () => {
+    // La prueba que da sentido al mínimo. Un umbral demasiado corto no daría un
+    // error visible: borraría una subida en vuelo y el resumen diría que todo
+    // fue bien, que es el peor fallo posible de una operación irreversible.
+    const vieja = pendiente(ID_VIEJA, MUY_VIEJA);
+    const arnes = crearArnés({ archivos: [...ARCHIVOS_POR_DEFECTO, vieja] });
+    app = arnes.app;
+    subirObjeto(arnes, vieja.r2Key, 4096);
+
+    const respuesta = await limpiar(arnes, { horas: 0.5 });
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.detalles).toMatchObject({ minimo: 1 });
+
+    // Y el corte es **antes** del efecto: ni una fila marcada ni un objeto menos.
+    expect(arnes.estado.archivos.find((a) => a.id === ID_VIEJA)?.estado).toBe(
+      'PENDING',
+    );
+    expect(arnes.almacenamiento.borrados).toEqual([]);
+  });
+
+  it('un tope que no es un entero positivo se rechaza con 400', async () => {
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    for (const limite of [0, -1, 1.5]) {
+      const respuesta = await limpiar(arnes, { limite });
+      expect(respuesta.statusCode, `limite=${limite}`).toBe(400);
+    }
+  });
+
+  it('un estudiante no puede dispararlo: 403, y las filas quedan intactas', async () => {
+    // `exigirAdmin()` es lo único que hace que el barrido sea global de verdad.
+    // Sin ella, la RLS limitaría la consulta a lo del llamante y la ruta
+    // respondería 200 con `revisadas: 0` — un barrido que no barre y que además
+    // parece haber ido bien.
+    const vieja = pendiente(ID_VIEJA, MUY_VIEJA);
+    const arnes = crearArnés({ archivos: [...ARCHIVOS_POR_DEFECTO, vieja] });
+    app = arnes.app;
+    subirObjeto(arnes, vieja.r2Key, 4096);
+
+    const respuesta = await limpiar(arnes, undefined, TOKEN_ALUMNO);
+
+    expect(respuesta.statusCode).toBe(403);
+    expect(respuesta.json().error.codigo).toBe('SOLO_ADMIN');
+    expect(arnes.estado.archivos.find((a) => a.id === ID_VIEJA)?.estado).toBe(
+      'PENDING',
+    );
+    expect(arnes.almacenamiento.borrados).toEqual([]);
   });
 });

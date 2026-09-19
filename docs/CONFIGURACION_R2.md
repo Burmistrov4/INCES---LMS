@@ -3,8 +3,10 @@
 > **Estado: la política de CORS está APLICADA y verificada (2026-09-19)** — la
 > Capa 7 ya puede hablar con R2 desde el navegador. El ciclo de vida también está
 > aplicado, pero **no hacía falta**: R2 ya traía la regla por defecto (§3.4).
-> Lo que queda pendiente es **código**, no configuración: el barrido de `PENDING`
-> abandonados (§3.6). Ver §6 para el estado punto por punto.
+> El barrido de `PENDING` abandonados ya existe como **código** —script y ruta de
+> administración, §3.6—; lo único que le falta es **quien lo ejecute solo**, y eso
+> no es configuración de R2 ni la puede hacer `pg_cron` (§3.7). Ver §6 para el
+> estado punto por punto.
 >
 > Última medición contra el bucket real: **2026-09-19**.
 > Este documento nace de la deuda **D9** y de un hallazgo que D9 no cubría: el
@@ -394,9 +396,61 @@ El barrido es código, no configuración, y le corresponde esto:
    base. `limpiar-pendientes.mts --huerfanos`. Filtra por `LastModified` con el
    mismo umbral de horas, porque entre el `PUT` y el `INSERT` de la fila el objeto
    existe legítimamente sin fila — una subida en vuelo, no un huérfano.
-4. ⬜ **Pendiente: el planificador.** Los tres modos son manuales. En capas
-   gratuitas: cron de GitHub Actions (el repo **no tiene CI** todavía) o `pg_cron`
-   en Supabase. Hasta que exista, esto sólo corre cuando alguien se acuerda.
+4. ✅ **Hecho (el disparador)** (2026-09-19). `POST /api/v1/admin/archivos/limpiar`
+   — el barrido como ruta de administración, idempotente y sin credenciales de R2
+   para quien la llama. Ver §3.7.
+5. ⬜ **Pendiente: el reloj.** El disparador existe; **nadie lo pulsa solo**. Hasta
+   que haya una tarea programada, esto sigue corriendo sólo cuando alguien se
+   acuerda — y el repo **no tiene CI**, así que no hay ningún planificador de
+   facto que lo esté haciendo por otra vía. Ver §3.7 para las dos formas.
+
+---
+
+### 3.7 El disparador: qué puede y qué no puede ser el planificador
+
+> **Corrección de un plan equivocado.** La primera redacción de esta sección
+> ofrecía «cron de GitHub Actions **o `pg_cron` en Supabase**» como si fueran
+> alternativas. No lo son: **`pg_cron` no puede hacer este trabajo, ni hoy ni
+> configurado de otra forma.** Corre **dentro** de PostgreSQL, y PostgreSQL no
+> habla con el bucket — no tiene las credenciales de R2 ni el SDK. Un `pg_cron`
+> sólo podría marcar filas, y marcar una fila `DELETED` sin borrar su objeto es
+> exactamente el residuo que el modo `--revisar-borrados` va a buscar después.
+> La opción no estaba mal implementada: estaba mal enunciada.
+
+El barrido necesita **dos cosas a la vez**: leer `files_metadata` y borrar objetos
+de R2. Sólo un proceso con credenciales de R2 puede hacer la segunda. Hay dos, y
+ninguno es un planificador:
+
+| Proceso | Credencial que usa | Quién lo invoca |
+|---|---|---|
+| El backend | las suyas (ya las tiene) | cualquiera con **sesión de administrador** |
+| `limpiar-pendientes.mts` | `SUPABASE_SERVICE_ROLE_KEY` + R2, de `backend/.env` | quien tenga la máquina |
+
+**Las dos puertas hacen el mismo barrido**, y el umbral de abandono y su mínimo
+salen de `backend/src/dominio/almacenamiento.ts` en los dos casos, así que no
+pueden desviarse. La diferencia es qué más traen:
+
+- **La ruta** (`POST /api/v1/admin/archivos/limpiar`) es la de la aplicación. No
+  necesita repartir credenciales de R2: quien llama sólo presenta su sesión. Es la
+  que puede usar el cPanel, y la única que existe en un despliegue en la nube
+  donde nadie tiene la máquina. Hace sólo el barrido por defecto.
+- **El script** es la del operador, y es la única con los modos forenses
+  (`--revisar-borrados`, `--huerfanos`), que miran el bucket y no la base.
+
+**Para una tarea programada, el script es el camino corto — y esto no es un
+detalle de gusto.** La ruta exige un JWT de administrador, y un JWT de Supabase
+**caduca** (una hora por defecto). Una tarea programada tendría que guardar la
+contraseña de una persona para pedir uno nuevo en cada ejecución, y esa contraseña
+no se puede rotar sin romper la tarea. El script no pide sesión de nadie: le basta
+el `.env`, que ya está en la máquina y que además contiene la clave de servicio,
+que es **más** poderosa que cualquier JWT de administrador. Guardar una contraseña
+de persona para no usar una clave que ya está en disco sería cambiar seguridad por
+nada.
+
+La receta concreta —siguiendo el patrón de `devops/README.md` §4.1— está en
+`devops/README.md` §4.2. **No está registrada**: una tarea que borra objetos de
+producción sin que nadie la mire se activa a mano y con el dueño del sistema
+delante.
 
 ---
 
@@ -421,6 +475,14 @@ npx tsx backend/scripts/limpiar-pendientes.mts                    # filas PENDIN
 npx tsx backend/scripts/limpiar-pendientes.mts --revisar-borrados # filas DELETED con objeto residual
 npx tsx backend/scripts/limpiar-pendientes.mts --huerfanos        # objetos sin fila
 node supabase/eliminar-cuenta.mjs correo@dominio.com              # inventario de una cuenta
+
+# 6) El barrido por la API (idempotente; repetirlo no borra de más)
+curl -sS -X POST "$API/api/v1/admin/archivos/limpiar" \
+  -H "Authorization: Bearer $TOKEN_ADMIN" \
+  -H 'Content-Type: application/json' -d '{}'
+#    → {"revisadas":N,"barridas":M,"fallidas":0,"idsFallidas":[],"mensaje":"…"}
+#    La segunda llamada devuelve revisadas:0 — es la propiedad que permite
+#    programarla sin coordinación ninguna.
 ```
 
 Y las redes de seguridad del proyecto, que **no** cubren nada de esto:
@@ -470,9 +532,16 @@ archivo del repo.**
 - [x] **§3.6 — el barrido.** ✅ **Hecho** (2026-09-19). Código, no configuración:
       `backend/scripts/limpiar-pendientes.mts` (tres modos) y el borrado de
       objetos en `supabase/eliminar-cuenta.mjs` §2b + §4b. **Era D9 de verdad.**
-- [ ] **§3.6 punto 4 — el planificador.** Los tres modos son manuales y el repo
-      **no tiene CI**. Sin esto, el barrido sólo corre cuando alguien se acuerda:
-      es lo único que queda de D9.
+- [x] **§3.6 punto 4 — el disparador.** ✅ **Hecho** (2026-09-19).
+      `POST /api/v1/admin/archivos/limpiar`, idempotente, con `exigirAdmin()` y la
+      guardia de módulo. Quien la llama **no necesita credenciales de R2**: las
+      tiene el backend. Ver §3.7.
+- [ ] **§3.6 punto 5 — el reloj.** El disparador existe; **nadie lo pulsa solo**.
+      El repo **no tiene CI**, y `pg_cron` **no puede** hacer este trabajo (§3.7):
+      corre dentro de PostgreSQL, que no habla con el bucket. La receta de la tarea
+      programada está escrita y **sin registrar** en `devops/README.md` §4.2 — una
+      tarea que borra objetos de producción se activa con el dueño del sistema
+      delante. Es lo único que queda de D9.
 - [ ] **Origen de producción en la política de CORS.** Cuando el frontend se
       despliegue (Vercel o servidor local), añadirlo a `docs/r2-cors.json`
       **y** a `CORS_ORIGINS` del backend: son listas independientes.

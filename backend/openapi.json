@@ -46,6 +46,10 @@
     {
       "name": "Inscripciones",
       "description": "Módulo 4: cupos, cola FIFO y ofertas con vencimiento. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito."
+    },
+    {
+      "name": "Archivos",
+      "description": "Módulo 5: archivos en Cloudflare R2. El backend no mueve bytes —firma URLs y R2 hace el transporte—, así que el ciclo es de dos pasos: reservar la fila, subir, y confirmar midiendo el objeto. Toda escritura pasa por RPC `security definer`; la lectura va por PostgREST bajo RLS. Las seis rutas del módulo comprueban la bandera `m5_archivos` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador lo apaga; las dos de administración exigen además rol admin."
     }
   ],
   "components": {
@@ -2349,6 +2353,53 @@
           "expiraEnSegundos",
           "nombreOriginal"
         ]
+      },
+      "RespuestaBarrido": {
+        "type": "object",
+        "properties": {
+          "revisadas": {
+            "type": "integer",
+            "description": "Cuántas subidas abandonadas se encontraron. Idempotente: la segunda llamada devuelve 0."
+          },
+          "barridas": {
+            "type": "integer",
+            "description": "Cuántas se borraron: objeto de R2 primero, fila `DELETED` después."
+          },
+          "fallidas": {
+            "type": "integer",
+            "description": "Cuántas no se pudieron barrer. Quedan `PENDING`, así que la próxima pasada las reintenta."
+          },
+          "idsFallidas": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "mensaje": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "revisadas",
+          "barridas",
+          "fallidas",
+          "idsFallidas",
+          "mensaje"
+        ]
+      },
+      "CuerpoBarrido": {
+        "type": "object",
+        "properties": {
+          "horas": {
+            "type": "number"
+          },
+          "limite": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -7193,6 +7244,82 @@
           },
           "409": {
             "description": "El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/archivos/limpiar": {
+      "post": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Barre las subidas abandonadas (administrador)",
+        "description": "Borra los objetos y las filas de las subidas que quedaron `PENDING` y nunca se confirmaron: el caso del usuario que cierra la pestaña a mitad de subida. **Es idempotente**: la segunda llamada devuelve `revisadas: 0`, porque la primera dejó las filas en `DELETED`. Si una pasada se corta, la siguiente retoma donde quedó, porque el objeto se borra antes que la fila y `DeleteObject` sobre una clave ausente no falla. El cuerpo es opcional: sin él barre lo de más de 24 h, hasta 500 filas. `horas` **no admite menos de 1**: la URL de subida vive 300 s, así que por debajo de ese plazo el barrido podría destruir una subida en curso o una que acaba de llegar y todavía no se confirmó —un umbral corto no daría un error, borraría trabajo legítimo en silencio—. Va por ruta y no por `pg_cron` porque el barrido tiene que borrar objetos de R2 y PostgreSQL no habla con el bucket: el proceso con credenciales es este backend, así que quien llama sólo necesita una sesión de administrador. Los objetos que **ninguna** fila referencia no se ven desde aquí —la fila se perdió— y quedan para el modo `--huerfanos` de `backend/scripts/limpiar-pendientes.mts`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoBarrido"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resumen del barrido. Una lista `idsFallidas` vacía es el caso normal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaBarrido"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El umbral de abandono es menor que una hora, o el tope no es un entero positivo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no es de administrador (SOLO_ADMIN), la cuenta está inactiva, o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {

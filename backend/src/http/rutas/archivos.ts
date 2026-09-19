@@ -1,16 +1,23 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
+  HORAS_ABANDONO_POR_DEFECTO,
+  LIMITE_BARRIDO_POR_DEFECTO,
   TAMANO_MAXIMO_BYTES,
   extensionDe,
   prefijoDeArchivo,
+  validarHorasDeAbandono,
   validarTamano,
 } from '../../dominio/almacenamiento.js';
 import { ErrorApi } from '../../dominio/errores.js';
 import type { PuertaAlmacenamiento } from '../../dominio/puertos.js';
 import type { ParametroSistema } from '../../dominio/tipos.js';
 import type { DependenciasRutas } from '../dependencias.js';
-import { esquemaFirmarSubida, esquemaIdArchivo } from '../esquemas.js';
+import {
+  esquemaBarrido,
+  esquemaFirmarSubida,
+  esquemaIdArchivo,
+} from '../esquemas.js';
 import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js';
 import { exigirModulo } from '../plugins/modulos.js';
 
@@ -37,7 +44,7 @@ import { exigirModulo } from '../plugins/modulos.js';
  * **La guardia de módulo es la excepción, y no contradice lo anterior.** Que el
  * módulo esté encendido no lo sabe la base: no hay política RLS ni RPC que
  * consulte `system_modules`. Es una regla que sólo existe aquí, así que
- * comprobarla aquí no duplica nada. Las cinco rutas llevan `exigirModulo()`, y
+ * comprobarla aquí no duplica nada. Las seis rutas llevan `exigirModulo()`, y
  * por eso apagar `m5_archivos` desde el cPanel surte efecto de verdad y no sólo
  * esconde el ítem del menú.
  */
@@ -106,7 +113,7 @@ export function rutasArchivos(
    * `preHandler`. Se construye aquí arriba, y no dentro de cada ruta, para que la
    * clave `m5_archivos` aparezca una sola vez en el archivo: si el módulo se
    * renombrara, hay un único sitio que corregir. El hook devuelto es una función
-   * sin estado, así que compartirlo entre cinco rutas es seguro.
+   * sin estado, así que compartirlo entre seis rutas es seguro.
    *
    * **Va siempre en segundo lugar, después de `exigirSesion()`.** El orden no es
    * cosmético: sin sesión, `request.usuario` es `null` y la guardia no puede
@@ -195,6 +202,108 @@ export function rutasArchivos(
       admin.delete<{ Params: { id: string } }>('/archivos/:id', async (request) =>
         borrar(request),
       );
+
+      /**
+       * Barre las subidas abandonadas: borra el objeto y marca la fila.
+       *
+       * ── Por qué es una ruta y no un `cron` ────────────────────────────────────
+       * El barrido tiene que borrar objetos de R2, y **`pg_cron` no puede**: corre
+       * dentro de PostgreSQL, que no habla con el bucket. El proceso que sí tiene
+       * las credenciales es este backend, así que el disparador vive aquí y quien
+       * llame no necesita ninguna credencial de R2 — sólo una sesión de
+       * administrador—. Es el mismo reparto que en M4, donde el vencimiento de
+       * ofertas se dispara con una ruta en vez de con un planificador, porque el
+       * proyecto tiene arquitectura dual (nube + servidor local) y cortes
+       * eléctricos: no se puede depender de un planificador concreto.
+       *
+       * ── Por qué es idempotente ────────────────────────────────────────────────
+       * Barrer dos veces no hace daño. La primera pasada deja las filas en
+       * `DELETED`, así que la segunda ya no las encuentra y devuelve
+       * `barridas: 0`. Y si una pasada se corta a la mitad, la siguiente retoma
+       * donde quedó: el objeto se borra antes que la fila, así que una fila que
+       * no llegó a marcarse sigue siendo `PENDING` y vuelve a salir en la
+       * consulta. `DeleteObject` sobre una clave ausente tampoco falla.
+       *
+       * ── Por qué el orden es objeto-primero ────────────────────────────────────
+       * Al revés que en el borrado normal, y por la misma razón simétrica que en
+       * el rechazo por tamaño: si fallara R2, la fila sigue `PENDING` y la
+       * próxima pasada la vuelve a encontrar. Marcando primero, la fila diría
+       * `DELETED` y el objeto seguiría ocupando sitio sin que nadie lo supiera
+       * —justo el residuo que el modo `--revisar-borrados` del script va a
+       * buscar.
+       *
+       * ── Qué NO hace ───────────────────────────────────────────────────────────
+       * No toca los objetos que ninguna fila referencia (el script los busca con
+       * `--huerfanos`). Ahí la fila ya no existe —la borró un `CASCADE` o nunca
+       * llegó a insertarse—, así que no hay nada que consultar y el barrido no
+       * puede verlos por definición.
+       */
+      admin.post('/archivos/limpiar', async (request) => {
+        const almacen = almacenamiento();
+        const entrada = esquemaBarrido.parse(request.body ?? {});
+
+        const horas = validarHorasDeAbandono(
+          entrada.horas ?? HORAS_ABANDONO_POR_DEFECTO,
+        );
+        const limite = entrada.limite ?? LIMITE_BARRIDO_POR_DEFECTO;
+
+        // El corte se calcula **aquí** y no se acepta del cliente. Una marca de
+        // tiempo absoluta dejaría al llamante fijar el umbral en el futuro y
+        // barrer subidas en vuelo sin que ningún número cantara.
+        const corte = new Date(
+          Date.now() - horas * 60 * 60 * 1000,
+        ).toISOString();
+
+        const candidatas = await reposDe(request).archivos.pendientesAntiguos(
+          corte,
+          limite,
+        );
+
+        let barridas = 0;
+        const fallidas: string[] = [];
+
+        for (const archivo of candidatas) {
+          try {
+            await almacen.eliminar(archivo.r2Key);
+            await reposDe(request).archivos.marcarBorrado(archivo.id);
+            barridas += 1;
+          } catch (error) {
+            // Una pasada concurrente que ya marcó esta fila no es un fallo: el
+            // estado al que se quería llegar ya está puesto. Contarla como error
+            // ensuciaría el resumen de un barrido que salió bien, y el resumen es
+            // lo único que mira quien programa la tarea.
+            if (error instanceof ErrorApi && error.codigo === 'ESTADO_DE_ARCHIVO') {
+              barridas += 1;
+              continue;
+            }
+
+            // No se aborta el barrido entero por una fila. Se cuenta, se
+            // registra y se sigue: las que fallan quedan `PENDING` y la siguiente
+            // llamada las vuelve a encontrar, así que el fallo es recuperable
+            // —pero no silencioso.
+            fallidas.push(archivo.id);
+            request.log.error(
+              { err: error, archivoId: archivo.id },
+              'no se pudo barrer una subida abandonada',
+            );
+          }
+        }
+
+        return {
+          revisadas: candidatas.length,
+          barridas,
+          fallidas: fallidas.length,
+          idsFallidas: fallidas,
+          mensaje:
+            candidatas.length === 0
+              ? 'No había subidas abandonadas.'
+              : `Se revisaron ${candidatas.length} subida(s) de más de ${horas} h: ` +
+                `${barridas} barrida(s)` +
+                (fallidas.length === 0
+                  ? '.'
+                  : ` y ${fallidas.length} con error, que se reintentarán en la próxima pasada.`),
+        };
+      });
     },
     { prefix: '/api/v1/admin' },
   );

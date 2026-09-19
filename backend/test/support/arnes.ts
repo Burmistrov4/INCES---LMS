@@ -2672,6 +2672,39 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
           (archivo.estado ?? 'PENDING') !== 'DELETED',
       ).length;
     },
+
+    async pendientesAntiguos(
+      antesDe: string,
+      limite: number,
+    ): Promise<ArchivoMetadata[]> {
+      revisar('archivos.pendientesAntiguos');
+
+      // Se mira sobre lo **visible**, como `contarPorEntidad`: el repositorio
+      // real lee por PostgREST bajo RLS, así que para un administrador el barrido
+      // alcanza toda la tabla y para cualquier otro alcanzaría sólo lo suyo. Usar
+      // `estado.archivos` aquí haría que el doble fuese más permisivo que la base
+      // y una prueba daría por bueno un barrido global que en producción no
+      // ocurre.
+      const corte = new Date(antesDe).getTime();
+
+      // La comparación se hace con `Date` y no con `<` entre cadenas, porque la
+      // base compara `timestamptz` y no texto: dos cadenas ISO equivalentes pero
+      // escritas distinto —`Z` contra `+00:00`, con o sin milisegundos— ordenan
+      // distinto como texto y darían un barrido que no coincide con el real.
+      return archivosVisibles()
+        .filter(
+          (archivo) =>
+            (archivo.estado ?? 'PENDING') === 'PENDING' &&
+            new Date(archivo.creadoEn ?? CREADO_EN_FALSO).getTime() < corte,
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.creadoEn ?? CREADO_EN_FALSO).getTime() -
+            new Date(b.creadoEn ?? CREADO_EN_FALSO).getTime(),
+        )
+        .slice(0, limite)
+        .map(aArchivoFalso);
+    },
   };
 
   const repos: Repositorios = {

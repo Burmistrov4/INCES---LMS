@@ -2947,6 +2947,41 @@ class ArchivosSupabase implements PuertaArchivos {
   }
 
   /**
+   * Las subidas `PENDING` abandonadas, de la más vieja a la más nueva.
+   *
+   * Va por PostgREST y **no** por RPC, al revés que las escrituras: aquí la RLS
+   * sí actúa y es la política `files_metadata_admin_read` la que decide que un
+   * administrador ve todas las filas. Eso es exactamente lo que se quiere —el
+   * barrido es una operación de administración—, y por eso la ruta que lo llama
+   * exige `exigirAdmin()`: si el filtro dependiera sólo de la RLS, un usuario
+   * cualquiera que llegara aquí barrería únicamente lo suyo, en silencio y con
+   * un 200.
+   *
+   * `antesDe` llega como cadena ISO y se compara contra `created_at` **en la
+   * base**, no en el backend: filtrar en memoria obligaría a traerse la tabla
+   * entera para descartar casi toda, y el tope se aplicaría después de leer, que
+   * es justo lo contrario de un tope.
+   */
+  async pendientesAntiguos(
+    antesDe: string,
+    limite: number,
+  ): Promise<ArchivoMetadata[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_ARCHIVOS)
+      .select(COLUMNAS_ARCHIVO)
+      .eq('estado', 'PENDING')
+      .lt('created_at', antesDe)
+      .order('created_at', { ascending: true })
+      .limit(limite);
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'listar subidas abandonadas');
+    }
+
+    return (respuesta.data ?? []).map((fila) => aArchivo(fila as Fila));
+  }
+
+  /**
    * La fila que devuelve una RPC de escritura.
    *
    * Que no llegue fila es un **error**, no un `null`: las RPC devuelven el tipo

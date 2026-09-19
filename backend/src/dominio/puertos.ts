@@ -611,6 +611,29 @@ export interface PuertaArchivos {
     entityType: TipoEntidadArchivo,
     entidadId: string | null,
   ): Promise<number>;
+
+  /**
+   * Las subidas `PENDING` más antiguas que un instante, hasta un tope.
+   *
+   * Existe para el barrido de abandonados (deuda D9). La fila nace `PENDING`
+   * **antes** de que el objeto exista, así que un `PENDING` que nunca se confirmó
+   * es la única huella que queda de una subida abandonada — y es una huella que
+   * sólo está en la base, no en el bucket: el ciclo de vida de R2 filtra por
+   * prefijo y no sabe nada de estados.
+   *
+   * **Se ordena de la más vieja a la más nueva.** No es cosmético: con el tope
+   * aplicado, ordenar al revés cortaría siempre por lo más reciente y el barrido
+   * nunca llegaría al fondo de la cola, que es donde están las abandonadas de
+   * verdad.
+   *
+   * El tope no es opcional a propósito. Un barrido sin límite deja de ser una
+   * limpieza y pasa a ser una decisión sobre toda la tabla, y quien la toma sin
+   * querer no se entera.
+   *
+   * Devuelve `ArchivoMetadata` completo y no un resumen porque el llamante
+   * necesita la `r2Key` para borrar el objeto antes de marcar la fila.
+   */
+  pendientesAntiguos(antesDe: string, limite: number): Promise<ArchivoMetadata[]>;
 }
 
 /** Lo que hace falta para reservar un archivo antes de subirlo. */

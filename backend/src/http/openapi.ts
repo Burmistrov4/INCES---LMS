@@ -28,7 +28,7 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
-import { esquemaFirmarSubida, rolSchema } from '../http/esquemas.js';
+import { esquemaBarrido, esquemaFirmarSubida, rolSchema } from '../http/esquemas.js';
 
 /**
  * Añade `.openapi()` a las instancias de Zod.
@@ -1303,6 +1303,44 @@ const RespuestaUrlLectura = z
   .openapi('RespuestaUrlLectura');
 
 const ParametroIdArchivo = parametroIdDeRecurso('archivo');
+
+/**
+ * El cuerpo del barrido, proyectado desde el esquema real.
+ *
+ * Se reutiliza en vez de reescribirlo aquí por la misma razón que
+ * `CuerpoFirmarSubida`: el contrato es el Zod, y una segunda copia se desvía sin
+ * que nadie lo note. De paso, el mínimo del umbral —que no vive en Zod sino en
+ * `validarHorasDeAbandono`— queda documentado abajo, en la descripción de la
+ * ruta, que es donde un lector lo va a buscar.
+ */
+const CuerpoBarrido = esquemaBarrido.openapi('CuerpoBarrido');
+
+/**
+ * El resumen de un barrido.
+ *
+ * `idsFallidas` viaja en la respuesta y no sólo al registro del servidor porque
+ * el fallo tiene que ser **accionable**: quien programa la tarea ve el resumen y
+ * no necesariamente los registros. Una lista vacía es el caso normal y no un
+ * campo ausente: la forma de la respuesta no cambia entre una pasada limpia y
+ * una con errores.
+ */
+const RespuestaBarrido = z
+  .object({
+    revisadas: z.number().int().openapi({
+      description:
+        'Cuántas subidas abandonadas se encontraron. Idempotente: la segunda llamada devuelve 0.',
+    }),
+    barridas: z.number().int().openapi({
+      description: 'Cuántas se borraron: objeto de R2 primero, fila `DELETED` después.',
+    }),
+    fallidas: z.number().int().openapi({
+      description:
+        'Cuántas no se pudieron barrer. Quedan `PENDING`, así que la próxima pasada las reintenta.',
+    }),
+    idsFallidas: z.array(z.string().uuid()),
+    mensaje: z.string(),
+  })
+  .openapi('RespuestaBarrido');
 
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
@@ -2704,6 +2742,37 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  registro.registerPath({
+    ...archivosTag,
+    method: 'post',
+    path: '/api/v1/admin/archivos/limpiar',
+    summary: 'Barre las subidas abandonadas (administrador)',
+    description:
+      'Borra los objetos y las filas de las subidas que quedaron `PENDING` y nunca se confirmaron: el caso del usuario que cierra la pestaña a mitad de subida. **Es idempotente**: la segunda llamada devuelve `revisadas: 0`, porque la primera dejó las filas en `DELETED`. Si una pasada se corta, la siguiente retoma donde quedó, porque el objeto se borra antes que la fila y `DeleteObject` sobre una clave ausente no falla. El cuerpo es opcional: sin él barre lo de más de 24 h, hasta 500 filas. `horas` **no admite menos de 1**: la URL de subida vive 300 s, así que por debajo de ese plazo el barrido podría destruir una subida en curso o una que acaba de llegar y todavía no se confirmó —un umbral corto no daría un error, borraría trabajo legítimo en silencio—. Va por ruta y no por `pg_cron` porque el barrido tiene que borrar objetos de R2 y PostgreSQL no habla con el bucket: el proceso con credenciales es este backend, así que quien llama sólo necesita una sesión de administrador. Los objetos que **ninguna** fila referencia no se ven desde aquí —la fila se perdió— y quedan para el modo `--huerfanos` de `backend/scripts/limpiar-pendientes.mts`.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: false,
+        content: { 'application/json': { schema: CuerpoBarrido } },
+      },
+    },
+    responses: {
+      200: {
+        description:
+          'Resumen del barrido. Una lista `idsFallidas` vacía es el caso normal.',
+        content: { 'application/json': { schema: RespuestaBarrido } },
+      },
+      400: error(
+        'El umbral de abandono es menor que una hora, o el tope no es un entero positivo.',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'La sesión no es de administrador (SOLO_ADMIN), la cuenta está inactiva, o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   return registro;
 }
 
@@ -2759,6 +2828,11 @@ export function construirDocumentoOpenApi() {
         name: 'Inscripciones',
         description:
           'Módulo 4: cupos, cola FIFO y ofertas con vencimiento. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito.',
+      },
+      {
+        name: 'Archivos',
+        description:
+          'Módulo 5: archivos en Cloudflare R2. El backend no mueve bytes —firma URLs y R2 hace el transporte—, así que el ciclo es de dos pasos: reservar la fila, subir, y confirmar midiendo el objeto. Toda escritura pasa por RPC `security definer`; la lectura va por PostgREST bajo RLS. Las seis rutas del módulo comprueban la bandera `m5_archivos` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador lo apaga; las dos de administración exigen además rol admin.',
       },
     ],
   });

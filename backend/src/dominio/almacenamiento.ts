@@ -54,6 +54,71 @@ export const TAMANO_MAXIMO_BYTES = 10 * 1024 * 1024;
 export const TTL_SUBIDA_SEGUNDOS = 300; // 5 minutos: subir, no pasear.
 export const TTL_DESCARGA_SEGUNDOS = 900; // 15 minutos: leer una vez.
 
+// --- barrido de subidas abandonadas -----------------------------------------
+
+/**
+ * Umbral mínimo para dar por abandonada una subida, en horas.
+ *
+ * **No es un número redondo elegido al azar; sale del ciclo de M5.** La fila nace
+ * `PENDING` antes del `PUT`, y la URL que autoriza ese `PUT` vive
+ * `TTL_SUBIDA_SEGUNDOS` (300 s). Pasado ese plazo la firma ya no vale, así que un
+ * `PENDING` más viejo que el TTL no puede llegar a `CONFIRMED` por esa vía.
+ *
+ * Eso prueba que la **subida** murió, pero no que nadie fuera a confirmarla: si
+ * el objeto llegó y el navegador se cerró antes de llamar a `confirmar`, la fila
+ * queda `PENDING` con un objeto perfectamente válido. Por eso el umbral no es el
+ * TTL sino doce veces el TTL —una hora—, que cubre ese hueco con un margen que
+ * ningún usuario real necesita.
+ *
+ * La regla existe porque el barrido **borra objetos de R2**, y eso no se
+ * deshace. Un umbral demasiado corto no daría un error: destruiría trabajo
+ * legítimo en silencio, que es el peor fallo posible de esta función.
+ */
+export const HORAS_ABANDONO_MINIMO = 1;
+
+/**
+ * Antigüedad con la que se barre si nadie dice otra cosa.
+ *
+ * Deliberadamente holgado: barrer de más no se puede deshacer, y una subida
+ * abandonada no molesta a nadie por esperar un día. Es el mismo valor que usa el
+ * script de mantenimiento, y por eso vive aquí y no duplicado en cada llamante.
+ */
+export const HORAS_ABANDONO_POR_DEFECTO = 24;
+
+/**
+ * Cuántas filas barre una pasada como mucho.
+ *
+ * Un barrido sin tope es una decisión, no un accidente. Que la ruta sea
+ * idempotente hace que el tope no sea un problema: la segunda llamada encuentra
+ * las siguientes, porque las de la primera ya quedaron `DELETED`.
+ */
+export const LIMITE_BARRIDO_POR_DEFECTO = 500;
+
+/**
+ * Valida el umbral de abandono y lo devuelve.
+ *
+ * Se comprueba **aquí** y no en el esquema de la petición porque el umbral no es
+ * una preferencia del llamante: es una consecuencia del TTL, y el mismo número
+ * tiene que valer para la ruta y para el script de mantenimiento. Un esquema de
+ * Zod sólo podría decir «mayor que cero», que es exactamente el valor que
+ * destruiría una subida en vuelo.
+ *
+ * `NaN` se rechaza explícitamente: toda comparación con `NaN` es falsa, así que
+ * un umbral `NaN` pasaría el `<` de abajo sin que nadie lo notara.
+ */
+export function validarHorasDeAbandono(horas: number): number {
+  if (!Number.isFinite(horas) || horas < HORAS_ABANDONO_MINIMO) {
+    throw ErrorApi.peticionInvalida(
+      `El umbral de abandono debe ser de al menos ${HORAS_ABANDONO_MINIMO} hora(s). ` +
+        'Por debajo, el barrido podría destruir una subida en curso o una que ' +
+        'acabó de llegar y todavía no se confirmó.',
+      { horas, minimo: HORAS_ABANDONO_MINIMO },
+    );
+  }
+
+  return horas;
+}
+
 /** Tamaño en MB con un decimal, para un mensaje que se entienda. */
 function aMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

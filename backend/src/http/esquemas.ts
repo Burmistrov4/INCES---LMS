@@ -835,6 +835,31 @@ export const esquemaFirmarSubida = z
   })
   .strict();
 
+/**
+ * El cuerpo del barrido de subidas abandonadas.
+ *
+ * **Todo es opcional, y eso es el caso normal**: quien llama a esta ruta es un
+ * programador de tareas, y manda el cuerpo vacío esperando el comportamiento
+ * seguro. Los valores por defecto viven en el dominio, no aquí.
+ *
+ * `horas` **no lleva su mínimo en este esquema**, y es deliberado. El umbral no
+ * es una preferencia del llamante: sale del TTL de la URL de subida, y el mismo
+ * número tiene que valer para la ruta y para el script de mantenimiento. Un
+ * `min(1)` escrito aquí sería una segunda copia de esa regla —una que además no
+ * lleva la explicación— y las dos se desviarían en cuanto una cambiara. Quien lo
+ * comprueba es `validarHorasDeAbandono`, en `dominio/almacenamiento.ts`. Zod sólo
+ * descarta lo que no es un número.
+ *
+ * `limite` sí se acota aquí porque no es una regla de negocio sino un tope de
+ * trabajo por pasada: un valor que no sea un entero positivo no significa nada.
+ */
+export const esquemaBarrido = z
+  .object({
+    horas: z.number().optional(),
+    limite: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
 export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
 export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
@@ -854,6 +879,7 @@ export type ListadoOfertasEntrada = z.infer<typeof esquemaListadoOfertas>;
 export type SolicitarInscripcionEntrada = z.infer<typeof esquemaSolicitarInscripcion>;
 export type ReincorporarEntrada = z.infer<typeof esquemaReincorporar>;
 export type FirmarSubidaEntrada = z.infer<typeof esquemaFirmarSubida>;
+export type BarridoEntrada = z.infer<typeof esquemaBarrido>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.

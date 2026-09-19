@@ -1,5 +1,13 @@
 # HANDOVER — INCES LMS
 
+> **⚠️ El titular que sigue está desactualizado, y se conserva por trazabilidad.**
+> El estado vigente es **M5 cerrado en local** —Capa 7, bandera encendida y
+> guardia `exigirModulo()`— **más el barrido expuesto como ruta de
+> administración** (2026-09-19); M6–M8 son sólo diseño. Las cifras de las suites y
+> el detalle de las deudas abiertas están en las entradas fechadas de más abajo y
+> en `ESTADO_DEL_SISTEMA.md` §1, que es la fuente de verdad. **Ante cualquier
+> discrepancia, gana el código.**
+
 > **Módulo 4 (Inscripciones y Cupos) — Fases 1 y 2 CERRADAS.**
 > **Fase 1 (esquema):** `202609190001_mod4_inscripciones.sql` aplicada, más
 > `202609200001_mod4_reglas_ajuste.sql` que ajusta las reglas institucionales y
@@ -1081,9 +1089,18 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   el barrido de `PENDING` abandonados que `rutas/archivos.ts:282` nombraba y que
   NO existia es `backend/scripts/limpiar-pendientes.mts` (tres modos: barrido,
   `--revisar-borrados` y `--huerfanos`), y `supabase/eliminar-cuenta.mjs` borra
-  los objetos de R2 ANTES de la cuenta, negandose a borrarla si eso falla. Lo
-  unico que falta es QUIEN los ejecute: los modos son manuales y el repo no tiene
-  CI. La parte de bucket resulto estar tapada de fabrica (R2 trae la regla de
+  los objetos de R2 ANTES de la cuenta, negandose a borrarla si eso falla. Y desde
+  el mismo dia el barrido es ademas una **RUTA DE ADMINISTRACION**:
+  `POST /api/v1/admin/archivos/limpiar`, idempotente, con `exigirAdmin()` y la
+  guardia de modulo, y **sin credenciales de R2 para quien la llama** — las tiene
+  el backend. Lo unico que falta es **EL RELOJ**: nadie la pulsa sola, y el repo no
+  tiene CI. **`pg_cron` NO puede sustituirlo** —corre dentro de PostgreSQL, que no
+  habla con el bucket, asi que marcaria la fila y dejaria el objeto donde esta—,
+  asi que la receta de la tarea programada esta escrita y **SIN REGISTRAR** en
+  `devops/README.md` §4.2 (una tarea que borra objetos de produccion se activa con
+  el dueño del sistema delante). El razonamiento completo, en
+  `docs/CONFIGURACION_R2.md` §3.7. La parte de bucket resulto estar tapada de
+  fabrica (R2 trae la regla de
   abortar multipart por defecto en todo prefijo; ver `docs/CONFIGURACION_R2.md`
   §3.4). Ojo: una regla `--expire-days` sobre `m5_archivos/` borraria los archivos
   CONFIRMED porque R2 solo filtra por prefijo. **OJO: la frase "latente, M5
@@ -1107,8 +1124,9 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   deriva). El nombre NO es `202609190001` como decia el plan: esa version ya esta
   tomada por `mod4_inscripciones` y ademas ordenaria ANTES de `202609210001`, es
   decir antes de que exista la tabla que la fila necesita.
-  (3) **La guardia**: las 5 rutas de `rutas/archivos.ts` llevan ya
-  `exigirModulo(deps.caches.modulos, 'm5_archivos')`. Ojo: `exigirModulo` es una
+  (3) **La guardia**: las rutas de `rutas/archivos.ts` llevan ya
+  `exigirModulo(deps.caches.modulos, 'm5_archivos')` — eran 5 y son **6** desde el
+  2026-09-19, con el barrido. Ojo: `exigirModulo` es una
   FABRICA de **dos** argumentos (cache, clave), no un hook; el plan la pasaba con
   uno. Va SIEMPRE despues de `exigirSesion()` / `exigirAdmin()`: al reves, una
   peticion anonima recibiria 404/403 en vez del **401** que exige
@@ -1137,6 +1155,48 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   fila del modulo, exige **404 `MODULO_DESCONOCIDO`**. Sin la primera, una guardia
   cableada a la clave equivocada habria pasado inadvertida, porque el modulo
   arranca encendido y todas las demas pruebas seguirian verdes.
+- **EL BARRIDO YA TIENE DISPARADOR (2026-09-19).** `POST
+  /api/v1/admin/archivos/limpiar` expone el barrido de subidas abandonadas como
+  ruta de administracion. Es **idempotente** —la segunda llamada devuelve
+  `revisadas: 0`, porque la primera dejo las filas en `DELETED`— y **no necesita
+  credenciales de R2** para quien la llama: las tiene el backend, que es el unico
+  proceso con el SDK y las claves. Cuerpo opcional (`horas`, `limite`); sin el,
+  barre lo de mas de 24 h hasta 500 filas. **`horas` no admite menos de 1**, y ese
+  minimo NO vive en el esquema Zod sino en `dominio/almacenamiento.ts`
+  (`validarHorasDeAbandono`), **compartido con el script**: el umbral es una
+  consecuencia del TTL de 300 s de la URL de subida, no una preferencia, y con una
+  copia en cada sitio la que se quedara corta borraria subidas en vuelo sin dar
+  ningun error.
+  **Orden objeto-primero** (al reves que el borrado normal, y por la misma razon
+  simetrica): si falla R2, la fila sigue `PENDING` y la pasada siguiente la
+  reencuentra. Las filas que fallan se cuentan, se registran y se devuelven en
+  `idsFallidas`: el barrido no se aborta por una fila, pero tampoco calla. Un
+  `ESTADO_DE_ARCHIVO` —otra pasada concurrente ya la marco— cuenta como **exito**,
+  no como fallo: el estado al que se queria llegar ya esta puesto.
+- **Pruebas del barrido** (`test/archivos.test.ts`, 36 -> **44**). Ocho, y las
+  importantes no son las que comprueban que barre sino las que comprueban que
+  **no** barre: que no toca una `PENDING` reciente (barrerla destruiria una subida
+  en vuelo), ni una `CONFIRMED`, ni una `DELETED`; que el tope corta **por lo mas
+  viejo** y la pasada siguiente sigue por donde iba; y que un umbral de media hora
+  da **400 sin tocar nada**. Las fechas de siembra son 2020 y 2999 a proposito: la
+  ruta compara contra el reloj real, asi que una semilla cercana haria que la
+  prueba dependiera del dia en que se ejecuta. **Verificado por mutacion**: dar
+  vuelta al orden del puerto y bajar el minimo del umbral hacen fallar exactamente
+  la prueba que les corresponde.
+- **El barrido tambien se comparte con el script.** `limpiar-pendientes.mts` ya no
+  lleva su propio `24`: importa `HORAS_ABANDONO_POR_DEFECTO` y
+  `validarHorasDeAbandono` del dominio. Dos puertas al mismo barrido —ruta para el
+  cPanel y la nube, script para el operador y los modos forenses— y una sola regla
+  de umbral. Ver `docs/CONFIGURACION_R2.md` §3.7.
+- **`scripts/` YA SE COMPRUEBA TIPOS.** Estaba fuera del `include` de
+  `tsconfig.json`: `eslint` lo miraba, `tsc` no. Al meterlo aparecio **un error
+  real** en `generar-openapi.mts` (`documento.paths[ruta]` es
+  `PathItemObject | undefined` con `noUncheckedIndexedAccess`, y el `?? {}` de la
+  linea de arriba no cubria esa lectura). Corregido recorriendo las entradas, con
+  `openapi.json` byte a byte identico. **Si añades un script, ya esta cubierto.**
+- **Deriva corregida en `ESTADO_DEL_SISTEMA.md`**: la tabla decia **47 rutas / 84
+  esquemas** y el contrato comprometido en `db5eef2` ya tenia **55 / 84**. Ahora
+  **56 / 86**. La cifra de rutas llevaba varios ciclos sin actualizarse.
 - CORRECCION M4 (2026-09-19): esta linea decia que `m4_inscripciones` seguia
   APAGADO y que faltaban backend y frontend. Es DERIVA. Verificado contra la base
   y el repo: `m4_inscripciones.habilitado = true`; existe

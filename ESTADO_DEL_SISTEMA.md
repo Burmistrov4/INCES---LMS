@@ -45,6 +45,19 @@
 > fijaban «apagado» quedaron invertidas (más una cuarta que el briefing no
 > listaba) y hay dos pruebas nuevas que apagan el módulo para comprobarlo.
 >
+> **El barrido de M5 ya tiene disparador (2026-09-19).** `POST
+> /api/v1/admin/archivos/limpiar` expone el barrido de subidas abandonadas como
+> ruta de administración —idempotente, con `exigirAdmin()` y la guardia de
+> módulo—, de modo que quien la llama **no necesita credenciales de R2**: las
+> tiene el backend. El recuento pasó de **55 a 56 rutas** y de **84 a 86
+> esquemas**, y las rutas de M5 son ya seis. Sigue **sin reloj** —nadie la pulsa
+> sola— y la opción de `pg_cron` que ofrecía el plan era **imposible**: corre
+> dentro de PostgreSQL, que no habla con el bucket. La receta de la tarea
+> programada está escrita y **sin registrar** (`devops/README.md` §4.2). De paso,
+> `scripts/` entró por fin en el `include` de `tsconfig.json`, y al hacerlo
+> apareció un error de tipos que llevaba ahí sin que nadie lo viera: el
+> `generar-openapi.mts` compilaba a ciegas.
+>
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
 > código iba por 171 / 110 / 15 / 5. Se corrigió todo contra el código y contra la
@@ -84,12 +97,12 @@
 | **Módulo 5 (esquema)** | Archivos en R2: `files_metadata`, 3 RPC `security definer`, 2 parámetros configurables y la frontera de escritura | ✅ **Aplicado y verificado** (2026-09-18) |
 | **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
-| **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ✅ **Completo** (2026-09-18) |
+| **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) + el barrido de abandonadas como ruta de administración (2026-09-19) | ✅ **Completo** |
 | **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ✅ **Construido y probado** (2026-09-19): el `GestorDocumentalPanel` orquesta los tres pasos —firmar, `PUT` directo a R2, confirmar— y está montado en el panel del docente (`teacherGuide`) y en el del aspirante (`taskSubmission`), con **19 pruebas de widget** propias. D16 (CORS) está resuelta, así que el navegador ya puede hablar con R2; **falta recorrer el ciclo una vez en un navegador real**, que es lo único que las pruebas de widget no pueden demostrar |
 | **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-19**
-(backend **470**, Flutter **387**, SQL 271, esquema 99/99); migraciones de M3
+(backend **478**, Flutter **387**, SQL 271, esquema 99/99); migraciones de M3
 aplicadas y verificadas el **2026-09-17**, las dos de M4 y `202609210001` el
 **2026-09-18**. `202609210002` está creada y verificada **en local**, pendiente de
 aplicar a la nube (ver el aviso de arriba)
@@ -98,8 +111,8 @@ aplicar a la nube (ver el aviso de arriba)
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **387 / 387** en verde — **medido el 2026-09-19**, con la Capa 7 incluida. Exige la receta de dos piezas de §"Verificación" (ver aviso) |
-| `npm test` (backend) | **470 / 470** en verde (20 archivos) |
-| `npm run typecheck` (backend) | Sin errores |
+| `npm test` (backend) | **478 / 478** en verde (20 archivos) |
+| `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **271 / 271** aserciones en verde, en 18 secciones: **51** de la base y M1 + **51** de M2 + **64** de M3 + **57** de M4 + **48** de M5 |
@@ -119,7 +132,7 @@ aplicar a la nube (ver el aviso de arriba)
 | **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está encendido** (⚠️ dará **23/24** hasta aplicar `202609210002`) |
-| Documento OpenAPI | OpenAPI 3.1.0 · **47 rutas · 84 esquemas** (las 14 de M3, las 14 de M4 y las 5 de M5 incluidas) |
+| Documento OpenAPI | OpenAPI 3.1.0 · **56 rutas · 86 esquemas** (las 14 de M3, las 14 de M4 y las **6** de M5 incluidas) — la tabla decía 47/84 y estaba desviada: el contrato comprometido en `db5eef2` ya tenía **55/84** |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -698,7 +711,7 @@ está encendido** (`202609210002`); en la nube lo estará cuando esa migración 
 aplique. `m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
 
 **`m5_archivos` es el primer módulo cuyo apagado tiene efecto en la API.** Las
-cinco rutas de `rutas/archivos.ts` llevan `exigirModulo('m5_archivos')`, así que
+seis rutas de `rutas/archivos.ts` llevan `exigirModulo('m5_archivos')`, así que
 apagarlo desde el cPanel devuelve **403 `MODULO_DESHABILITADO`** dentro del TTL de
 la caché. En `m1`–`m4` la bandera sigue siendo decorativa a nivel de API —la
 respeta sólo el frontend—, y esa asimetría es deuda conocida, no un descuido.
@@ -818,16 +831,18 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 > `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` revocados para `anon` y `authenticated`
 > (R-23): todo pasa por RPC `security definer`. Ver §11 y `REPORTE_ARIA.md` R-23.
 
-**47 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+**56 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
 
-Las **5 de M5** viven fuera de `/api/v1/admin` salvo el borrado administrativo,
-porque un archivo no es un recurso de administración: el propietario firma,
-confirma, lee y borra el suyo, y el admin sólo añade un portero distinto al mismo
-camino de borrado. El tope de tamaño y el de archivos por entidad se leen **en
-cada petición** de `system_settings` (`m5_max_bytes`,
+Las **6 de M5** viven fuera de `/api/v1/admin` salvo las dos administrativas —el
+borrado de cualquier archivo y el barrido de abandonadas—, porque un archivo no es
+un recurso de administración: el propietario firma, confirma, lee y borra el suyo,
+y el admin sólo añade un portero distinto al mismo camino de borrado, más una
+operación de mantenimiento que ningún usuario puede hacer sobre lo suyo. El tope
+de tamaño y el de archivos por entidad se leen **en cada petición** de
+`system_settings` (`m5_max_bytes`,
 `m5_max_archivos_por_entidad`), no al arrancar: el administrador los cambia desde
 el panel y deben surtir efecto sin desplegar.
 
@@ -1001,9 +1016,9 @@ backend arranca igual y las rutas de archivos responden **503**.
 | `src/dominio/puertos.ts` | `PuertaAlmacenamiento` (el puerto, fuera de `Repositorios`) y `PuertaArchivos` (dentro, porque lee y escribe una tabla) |
 | `src/infra/r2_service.ts` | Implementación sobre el SDK de S3 + traducción de errores |
 | `src/infra/repos-supabase.ts` | `ArchivosSupabase`: 3 RPC de escritura y 2 lecturas por PostgREST, bajo RLS |
-| `src/http/rutas/archivos.ts` | Las 5 rutas: firma, confirmación, URL de lectura y los dos borrados |
+| `src/http/rutas/archivos.ts` | Las 6 rutas: firma, confirmación, URL de lectura, los dos borrados y el barrido de abandonadas |
 | `test/r2.test.ts` | 30 pruebas de las reglas puras y de la firma, sin red |
-| `test/archivos.test.ts` | 34 pruebas del contrato HTTP, con el almacén y los repositorios en memoria |
+| `test/archivos.test.ts` | 44 pruebas del contrato HTTP, con el almacén y los repositorios en memoria — 8 de ellas del barrido: barre, es idempotente, respeta el tope, no toca lo reciente y rechaza un umbral corto |
 
 **Dos ajustes que hacen que R2 funcione**, y ninguno es opcional: `region: 'auto'`
 (R2 no tiene regiones) y `forcePathStyle: true` (R2 no soporta direccionamiento
@@ -1055,7 +1070,7 @@ la fuente de verdad de esta deuda. Dos correcciones de fondo:
 ciclo `exigirModulo()` estaba definido y **no se usaba en ninguna ruta** (`app.ts`
 sólo registraba el hook global de mantenimiento), así que la API servía M5 a
 cualquier usuario autenticado y la bandera sólo ocultaba el ítem del menú. Eso ya
-no es cierto: las cinco rutas llevan la guardia y apagarla devuelve 403.
+no es cierto: las **seis** rutas llevan la guardia y apagarla devuelve 403.
 
 Aun así, **D9 no queda cerrada, y conviene no confundir las dos cosas.** La fuga
 de D9 es un objeto que existe en el bucket sin fila que lo gobierne —y el
@@ -1063,6 +1078,18 @@ de D9 es un objeto que existe en el bucket sin fila que lo gobierne —y el
 inexistente en `auth.users`—. Apagar el módulo cierra la puerta: no limpia lo que
 ya entró, y no habría impedido la fuga original, que ocurrió con el módulo
 apagado. La bandera no es un barrido.
+
+**El barrido, en cambio, ya existe (2026-09-19).** Las dos mitades que faltaban
+están puestas: el **código** (`backend/scripts/limpiar-pendientes.mts`, con sus
+tres modos) y el **disparador** (`POST /api/v1/admin/archivos/limpiar`,
+idempotente y sin credenciales de R2 para quien la llama). **Lo único que le falta
+a D9 es el reloj**: nadie la pulsa sola. Y la salida que ofrecía el plan —`pg_cron`
+en Supabase— era **imposible**: corre dentro de PostgreSQL, que no habla con el
+bucket, así que sólo podría marcar filas y dejaría el objeto exactamente donde
+está —que es el residuo que el modo `--revisar-borrados` va a buscar después—. La
+receta de la tarea programada está escrita y **sin registrar** en
+`devops/README.md` §4.2; el razonamiento completo, en `docs/CONFIGURACION_R2.md`
+§3.7.
 
 **Y un bloqueante que D9 no mencionaba: el CORS del bucket — resuelto el
 2026-09-19.** Durante un tiempo el preflight `OPTIONS` desde
@@ -1073,7 +1100,7 @@ aplicada, y la sonda lo vuelve a confirmar —preflight **204** con
 `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type` en los
 dos orígenes, y el `PUT` real con `allow-origin`—. Sonda re-ejecutable:
 `npx tsx backend/scripts/probe-r2-cors.mts`, que sale con **exit 0**.
-**Lo que sigue siendo cierto, y es la lección:** ninguna de las 468 pruebas podía
+**Lo que sigue siendo cierto, y es la lección:** ninguna de las 478 pruebas podía
 detectarlo, porque todas hablan con R2 desde Node y **Node no aplica CORS**. Que
 este documento lo diera por abierto después de resuelto es la misma deriva de
 siempre, en la dirección contraria.
@@ -1208,7 +1235,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente **sólo en el planificador**. Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, y `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla. Lo que falta es **quien los ejecute**: los tres modos son manuales y el repo **no tiene CI**. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **No está latente por la bandera** (la API no comprueba `m5_archivos`; `exigirModulo()` nunca se llama) y hubo **un huérfano real** el 2026-09-18 |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente **sólo del reloj**. Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla, y el barrido es además una **ruta de administración** (`POST /api/v1/admin/archivos/limpiar`), idempotente y sin credenciales de R2 para quien la llama. Lo que falta es **el reloj**: nadie lo pulsa solo, y el repo **no tiene CI**. `pg_cron` **no puede** sustituirlo —corre dentro de PostgreSQL, que no habla con el bucket, así que marcaría la fila y dejaría el objeto donde está—; la receta de la tarea programada está escrita y **sin registrar** en `devops/README.md` §4.2, con el razonamiento en §3.7 de `docs/CONFIGURACION_R2.md`. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **Ya no está latente por la bandera**: desde el 2026-09-19 las seis rutas de M5 llevan `exigirModulo('m5_archivos')` y apagarla devuelve 403 — aunque la bandera sigue sin ser un barrido. Hubo **un huérfano real** el 2026-09-18 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
@@ -1311,7 +1338,7 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 468 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3, M4 y M5
+npm test              # 478 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3, M4 y M5
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
@@ -1337,7 +1364,7 @@ node supabase/eliminar-cuenta.mjs correo@dominio.com                # inventario
 | --- | --- | --- |
 | `flutter test` (365) | La lógica del cliente, **incluido el ciclo de tres pasos de M5** (16 pruebas del gateway con `http.Client` doblado + 12 del repositorio) | El SQL, la API, la red, **y el navegador**: que R2 acepte la firma o que el preflight de CORS pase no se prueba aquí |
 | `supabase/tests` (271) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (468) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `npm test` (478) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (99) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
@@ -1496,15 +1523,18 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    (2026-09-15):** la migración `202609180003` los habilita en `system_modules`.
 9. ~~**Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado~~ —
    **HECHO (2026-09-18)**: las 5 rutas existen, están documentadas en `openapi.json`
-   (47 rutas, 84 esquemas) y cubiertas por `test/archivos.test.ts` (34 pruebas). El
-   `413` quedó separado del `400`. **D9 sigue abierta, pero su redacción original
-   era optimista**: cerrarla **no es sólo** una regla de ciclo de vida. El bucket
-   no distingue el estado de un archivo (R2 sólo filtra por prefijo), así que la
-   parte que falta es el **barrido de `PENDING` abandonados**, que el propio código
-   ya nombra en `rutas/archivos.ts:282` y que **no existe**. Todo el análisis, los
-   comandos exactos y la trampa del `--expire-days` están en
-   **`docs/CONFIGURACION_R2.md`**. Añadida **D16**: falta la política de CORS del
-   bucket, que impide que el frontend Web use R2 desde el navegador.
+   (47 rutas y 84 esquemas **entonces**; hoy **56 y 86**) y cubiertas por
+   `test/archivos.test.ts` (34 pruebas entonces, **44** hoy). El `413` quedó
+   separado del `400`. **D9 sigue abierta, pero su redacción original era
+   optimista**: cerrarla **no es sólo** una regla de ciclo de vida. El bucket no
+   distingue el estado de un archivo (R2 sólo filtra por prefijo), así que la parte
+   que falta es el **barrido de `PENDING` abandonados** — que el propio código ya
+   nombraba en `rutas/archivos.ts` y que **entonces no existía**; hoy existe, con
+   sus dos puertas (script y ruta de administración, 2026-09-19), y lo único que le
+   falta es quien lo ejecute solo. Todo el análisis, los comandos exactos y la
+   trampa del `--expire-days` están en **`docs/CONFIGURACION_R2.md`** §3.6 y §3.7.
+   Añadida **D16**: falta la política de CORS del bucket, que impide que el frontend
+   Web use R2 desde el navegador — **resuelta el 2026-09-19**.
 10. **Diseñar M6 (asistencia por QR)** según lo definido: el backend emite un JWT
    temporal de 5 minutos atado al `schedule_slot` de la sección; el docente
    muestra el QR; el alumno lo escanea y envía el token; el backend valida

@@ -165,6 +165,68 @@ Unregister-ScheduledTask -TaskName 'INCES-LMS-Context-Watcher' -Confirm:$false
 
 ---
 
+### 4.2 Barrido de subidas abandonadas de M5 (opcional, y **borra de verdad**)
+
+> **Leelo antes de registrarla.** Esta tarea borra objetos de R2 y eso **no se
+> puede deshacer**. Sin la bandera `--confirmar` el script no escribe nada —modo
+> simulacion, que es su comportamiento por defecto—, asi que una tarea sin esa
+> bandera no barre: solo deja constancia en el registro. La bandera es lo que la
+> convierte en algo que borra.
+
+Por que es codigo y no configuracion: el ciclo de vida de R2 filtra por prefijo y
+no sabe nada del estado de la fila, asi que una regla `--expire-days` sobre
+`m5_archivos/` borraria tambien los archivos **confirmados**. Ver
+`docs/CONFIGURACION_R2.md` §3.6 y §3.7.
+
+**Primero en simulacion, y leer lo que dice:**
+
+```powershell
+cd "C:\Users\Loro\Desktop\Cuarto Semestre\1. Servicio Comunitario\INCES-LMS-PROJECT"
+npx tsx backend/scripts/limpiar-pendientes.mts
+```
+
+Una vez al dia, ya con la bandera:
+
+```powershell
+$raiz    = 'C:\Users\Loro\Desktop\Cuarto Semestre\1. Servicio Comunitario\INCES-LMS-PROJECT'
+$action  = New-ScheduledTaskAction -Execute 'cmd.exe' `
+  -Argument '/c cd /d "C:\Users\Loro\Desktop\Cuarto Semestre\1. Servicio Comunitario\INCES-LMS-PROJECT" && npx tsx backend\scripts\limpiar-pendientes.mts --confirmar' `
+  -WorkingDirectory $raiz
+$trigger = New-ScheduledTaskTrigger -Daily -At 03:00
+Register-ScheduledTask -TaskName 'INCES-LMS-Limpiar-Pendientes' -Action $action -Trigger $trigger -RunLevel Limited -Force
+```
+
+Eliminar la tarea:
+
+```powershell
+Unregister-ScheduledTask -TaskName 'INCES-LMS-Limpiar-Pendientes' -Confirm:$false
+```
+
+**Tres cosas que hay que saber antes de darla por buena:**
+
+- **Si `npx` no aparece**, el Programador de tareas no hereda el `PATH` de la
+  sesion. Sustituye `npx tsx` por la ruta absoluta del ejecutable:
+  `"C:\Users\Loro\Desktop\Cuarto Semestre\1. Servicio Comunitario\INCES-LMS-PROJECT\backend\node_modules\.bin\tsx.cmd"`.
+  Se comprueba ejecutando la tarea a mano (`Start-ScheduledTask`) y mirando el
+  resultado, no esperando a las 03:00.
+- **La maquina no siempre esta encendida.** Una tarea a las 03:00 **no se ejecuta**
+  si el equipo estaba apagado; para eso hay que marcar `-StartWhenAvailable` en el
+  *settings* de la tarea, o elegir `-AtLogOn`. Y el proyecto tiene cortes
+  electricos, asi que una pasada perdida es normal y no un fallo: el barrido es
+  **idempotente** y la siguiente recupera lo que falte. Perder una pasada no deja
+  nada a medias.
+- **La tarea va contra el script, no contra la ruta de la API, y es a proposito.**
+  `POST /api/v1/admin/archivos/limpiar` exige un JWT de administrador, y un JWT de
+  Supabase caduca en una hora: la tarea tendria que guardar la contrasena de una
+  persona para pedir uno nuevo en cada ejecucion, y esa contrasena no se puede
+  rotar sin romper la tarea. El `.env` de la maquina ya tiene la clave de
+  servicio, que es **mas** poderosa que cualquier JWT de administrador; guardar
+  ademas una contrasena de persona seria empeorar la seguridad sin ganar nada. La
+  ruta queda para el cPanel y para el despliegue en la nube, donde nadie tiene la
+  maquina.
+
+---
+
 ## 5. Uso del contexto desde el chat web
 
 1. Abre la carpeta `INCES-LMS-Contexto` en Google Drive.

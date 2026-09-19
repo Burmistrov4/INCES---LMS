@@ -13,8 +13,20 @@
  * `CONFIRMED`. Lo único que distingue una subida abandonada es la **fila**, y por
  * eso el barrido es código y no configuración. Ver `docs/CONFIGURACION_R2.md` §3.6.
  *
- * Este script es el «barrido de abandonados» que `rutas/archivos.ts:282` ya
- * nombraba sin que existiera.
+ * Este script es el «barrido de abandonados» que `rutas/archivos.ts` ya nombraba
+ * sin que existiera. Hoy hay **dos puertas al mismo barrido** y conviene saber
+ * cuál es cuál:
+ *
+ *   · `POST /api/v1/admin/archivos/limpiar` — la de la aplicación. Exige sesión
+ *     de administrador y no necesita credenciales de R2, porque el que las tiene
+ *     es el backend. Es la que se puede disparar desde el cPanel o desde un
+ *     programador de tareas sin repartir claves. Hace sólo el modo por defecto.
+ *   · este script — la del operador. Corre con la clave de servicio y no necesita
+ *     sesión de nadie, y es la única que tiene los modos forenses
+ *     (`--revisar-borrados`, `--huerfanos`), que miran el bucket y no la base.
+ *
+ * El umbral de abandono y su mínimo salen del dominio en los dos casos, así que
+ * no pueden desviarse.
  *
  * ── Qué NO puede hacer ───────────────────────────────────────────────────────
  * - **No arregla el caso del borrado de cuenta a posteriori.** Si se borra una
@@ -57,6 +69,11 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { createClient } from '@supabase/supabase-js';
+import {
+  HORAS_ABANDONO_POR_DEFECTO,
+  LIMITE_BARRIDO_POR_DEFECTO,
+  validarHorasDeAbandono,
+} from '../src/dominio/almacenamiento.js';
 
 // --- cargar backend/.env manualmente (mismo patrón que las sondas de R2) ---
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -105,14 +122,31 @@ function numeroDe(nombre: string, porDefecto: number): number {
 /**
  * Horas de antigüedad para dar una fila por abandonada.
  *
- * La URL de subida vive **300 s** (`R2_PUT_TTL_SEGUNDOS`), así que cualquier
- * `PENDING` de más de una hora está abandonado con certeza. El defecto de 24 h es
- * deliberadamente holgado: barrer de más no se puede deshacer.
+ * El defecto y el mínimo **no se escriben aquí**: vienen de
+ * `dominio/almacenamiento.ts`, que es donde vive la razón de que sean esos. La
+ * URL de subida vive 300 s, así que un `PENDING` de más de una hora está
+ * abandonado con certeza; el defecto de 24 h es deliberadamente holgado porque
+ * barrer de más no se puede deshacer.
+ *
+ * Compartirlo con la ruta `POST /api/v1/admin/archivos/limpiar` no es una
+ * economía de líneas: con una copia en cada sitio, el día que el TTL cambiara
+ * una de las dos se quedaría atrás, y la que se quedara corta borraría subidas
+ * en vuelo sin dar ningún error.
  */
-const horas = numeroDe('horas', 24);
+const horas = (() => {
+  const arg = process.argv.find((a) => a.startsWith('--horas='));
+  if (arg === undefined) return HORAS_ABANDONO_POR_DEFECTO;
+
+  try {
+    return validarHorasDeAbandono(Number(arg.slice('--horas='.length)));
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exit(2);
+  }
+})();
 
 /** Tope de filas por ejecución. Un barrido enorme debe ser una decisión, no un accidente. */
-const limite = numeroDe('limite', 500);
+const limite = numeroDe('limite', LIMITE_BARRIDO_POR_DEFECTO);
 
 const confirmar = process.argv.includes('--confirmar');
 const revisarBorrados = process.argv.includes('--revisar-borrados');

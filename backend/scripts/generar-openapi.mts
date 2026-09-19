@@ -21,11 +21,18 @@ const documento = construirDocumentoOpenApi();
 
 writeFileSync(DESTINO, `${JSON.stringify(documento, null, 2)}\n`, 'utf8');
 
-const rutas = Object.keys(documento.paths ?? {});
+const rutas = Object.entries(documento.paths ?? {});
 console.log(`\n  ✓ openapi.json escrito (OpenAPI ${documento.openapi})`);
 console.log(`    ${rutas.length} rutas:`);
-for (const ruta of rutas.sort()) {
-  const metodos = Object.keys(documento.paths[ruta])
+// Se recorren las **entradas** y no las claves, volviendo a indexar
+// `documento.paths[ruta]`: con `noUncheckedIndexedAccess` esa segunda lectura
+// devuelve `PathItemObject | undefined`, y el guardia `?? {}` de arriba no cubre
+// a la de abajo. Es el fallo que dejó este archivo sin comprobar durante meses,
+// porque `scripts/` no estaba en el `include` de `tsconfig.json`.
+for (const [ruta, operaciones] of rutas.sort(([a], [b]) =>
+  a < b ? -1 : a > b ? 1 : 0,
+)) {
+  const metodos = Object.keys(operaciones)
     .map((m) => m.toUpperCase())
     .join(', ');
   console.log(`      ${metodos.padEnd(6)} ${ruta}`);
