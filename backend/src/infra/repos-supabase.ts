@@ -13,6 +13,7 @@ import type {
   EntradaCrearPeriodo,
   EntradaCrearPrograma,
   EntradaCrearSeccion,
+  EntradaRegistrarArchivo,
   OpcionesListadoAcceso,
   OpcionesListadoAulas,
   OpcionesListadoGuardias,
@@ -30,6 +31,7 @@ import type {
   PaginaProgramas,
   PaginaSecciones,
   PaginaUsuarios,
+  PuertaArchivos,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
@@ -42,6 +44,13 @@ import type {
   PuertaSecciones,
   Repositorios,
 } from '../dominio/puertos.js';
+import {
+  esArchivoAjeno,
+  esArchivoInexistente,
+  esPermisoDenegado,
+  esSinSesion,
+  esTransicionInvalida,
+} from '../dominio/almacenamiento.js';
 import { ErrorApi } from '../dominio/errores.js';
 import {
   agruparPensum,
@@ -60,9 +69,12 @@ import {
   esSolicitudYaExistente,
 } from '../dominio/reglas-inscripciones.js';
 import {
+  esEstadoArchivo,
   esRol,
+  esTipoEntidadArchivo,
   esTipoPrograma,
   esTurno,
+  type ArchivoMetadata,
   type Aula,
   type CambiosModulo,
   type ClaseCuadrante,
@@ -72,6 +84,7 @@ import {
   type EntradaAuditoria,
   type EntradaPensum,
   type EstadoAcceso,
+  type EstadoArchivo,
   type EstadoInscripcion,
   type Guardia,
   type Inscripcion,
@@ -91,6 +104,7 @@ import {
   type Rol,
   type RolDeHorario,
   type Seccion,
+  type TipoEntidadArchivo,
   type TipoParametro,
 } from '../dominio/tipos.js';
 import {
@@ -489,6 +503,70 @@ function aOcupacion(
   };
 }
 
+// --- mapeadores de M5 -------------------------------------------------------
+
+/**
+ * `entity_type` leído de la base.
+ *
+ * **No se degrada**, a diferencia de `estadoSeguro` en M4: la columna tiene un
+ * `check`, así que un valor fuera de la unión significa que hay una migración
+ * aplicada que este backend todavía no conoce. Adivinar aquí escondería
+ * exactamente el desfase que conviene ver.
+ */
+function tipoEntidadSeguro(valor: unknown): TipoEntidadArchivo {
+  if (!esTipoEntidadArchivo(valor)) {
+    throw ErrorApi.interno(
+      `La base devolvió una entidad de archivo desconocida (${String(valor)}). ` +
+        'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+    );
+  }
+
+  return valor;
+}
+
+/**
+ * `estado` leído de la base.
+ *
+ * Un valor desconocido se degrada a `PENDING`, que es el estado que **no concede
+ * nada**: no autoriza a leer el objeto ni lo da por confirmado. Degradar hacia
+ * arriba —a `CONFIRMED`— firmaría la descarga de un objeto que quizá nunca llegó
+ * a subirse. Es la misma lógica que `estadoSeguro` degradando a `WAITLISTED`:
+ * ante la duda, no conceder.
+ */
+function estadoArchivoSeguro(valor: unknown): EstadoArchivo {
+  return esEstadoArchivo(valor) ? valor : 'PENDING';
+}
+
+/**
+ * Una fila de `files_metadata`, tal como la devuelven las RPC.
+ *
+ * Las RPC devuelven el tipo compuesto de la tabla, así que las columnas llegan
+ * en `snake_case`. La clave de R2 y el tipo MIME se copian tal cual: los
+ * construyó el servidor al firmar, y volver a derivarlos aquí sería una segunda
+ * copia de esa decisión.
+ */
+function aArchivo(fila: Fila): ArchivoMetadata {
+  return {
+    id: textoObligatorio(fila.id),
+    propietarioId: textoObligatorio(fila.propietario_id),
+    r2Key: textoObligatorio(fila.r2_key),
+    nombreOriginal: textoObligatorio(fila.nombre_original),
+    tipoContenido: textoObligatorio(fila.tipo_contenido),
+    // `null` mientras está PENDING, y la diferencia se conserva: `0` sería un
+    // archivo vacío de verdad, que es otra cosa que «todavía no se midió».
+    tamanoBytes:
+      fila.tamano_bytes === null || fila.tamano_bytes === undefined
+        ? null
+        : entero(fila.tamano_bytes, 0),
+    entityType: tipoEntidadSeguro(fila.entity_type),
+    entidadId: texto(fila.entidad_id),
+    estado: estadoArchivoSeguro(fila.estado),
+    creadoEn: textoObligatorio(fila.created_at),
+    confirmadoEn: texto(fila.confirmado_en),
+    borradoEn: texto(fila.deleted_at),
+  };
+}
+
 // --- repositorios -----------------------------------------------------------
 
 const TABLA_PERFILES = 'profiles';
@@ -525,6 +603,26 @@ const TABLA_INSCRIPCIONES = 'enrollments';
  * vacía. Es la combinación que da el número correcto sin exponer datos ajenos.
  */
 const VISTA_OCUPACION = 'v_ocupacion_secciones';
+
+// --- M5: archivos -----------------------------------------------------------
+
+const TABLA_ARCHIVOS = 'files_metadata';
+
+/**
+ * Columnas de `files_metadata`.
+ *
+ * Se listan en vez de usar `*` para que una columna añadida por una migración
+ * futura no cambie la forma de lo que devuelve el backend sin que nadie lo
+ * decida. `r2_key` sí viaja: el backend la necesita para firmar, y no sale del
+ * servidor.
+ *
+ * Va en **una sola cadena literal** y no concatenada a propósito: partirla en
+ * dos con `+` ensancha el tipo a `string` y el analizador de tipos de
+ * `supabase-js` deja de reconocer las columnas, con lo que `data` pasa a estar
+ * tipado como error y el `as Fila` deja de compilar.
+ */
+const COLUMNAS_ARCHIVO =
+  'id,propietario_id,r2_key,nombre_original,tipo_contenido,tamano_bytes,entity_type,entidad_id,estado,created_at,confirmado_en,deleted_at';
 
 /** Clave del parámetro que dice cuál es el período académico vigente. */
 const CLAVE_PERIODO_ACTIVO = 'periodo_activo';
@@ -2755,6 +2853,162 @@ class InscripcionesSupabase implements PuertaInscripciones {
   }
 }
 
+/**
+ * Los archivos de M5 sobre Supabase.
+ *
+ * **Toda escritura pasa por RPC.** `files_metadata` tiene `INSERT`, `UPDATE` y
+ * `DELETE` revocados para `anon` y `authenticated` (patrón de M4, R-23): un
+ * `insert` directo da `42501`. Y las RPC son `security definer`, así que
+ * **autorizan solas** con `auth.uid()` e `is_admin()` — la RLS no las cubre
+ * (lección R-20).
+ *
+ * La lectura sí va por PostgREST, porque ahí la RLS **sí** actúa: el propietario
+ * ve lo suyo y el admin lo ve todo, y esa política decide en vez de una
+ * comprobación duplicada aquí.
+ */
+class ArchivosSupabase implements PuertaArchivos {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  async registrarPendiente(
+    entrada: EntradaRegistrarArchivo,
+  ): Promise<ArchivoMetadata> {
+    const respuesta = await this.cliente.rpc('registrar_archivo_pendiente', {
+      p_propietario: entrada.propietarioId,
+      p_r2_key: entrada.r2Key,
+      p_nombre_original: entrada.nombreOriginal,
+      p_tipo_contenido: entrada.tipoContenido,
+      p_entity_type: entrada.entityType,
+      p_entidad_id: entrada.entidadId,
+    });
+
+    return this.filaDevuelta(respuesta, 'registrar un archivo');
+  }
+
+  async confirmar(id: string, tamanoBytes: number): Promise<ArchivoMetadata> {
+    const respuesta = await this.cliente.rpc('confirmar_archivo', {
+      p_archivo_id: id,
+      p_tamano_bytes: tamanoBytes,
+    });
+
+    return this.filaDevuelta(respuesta, 'confirmar un archivo');
+  }
+
+  async marcarBorrado(id: string): Promise<ArchivoMetadata> {
+    const respuesta = await this.cliente.rpc('marcar_archivo_borrado', {
+      p_archivo_id: id,
+    });
+
+    return this.filaDevuelta(respuesta, 'borrar un archivo');
+  }
+
+  async porId(id: string): Promise<ArchivoMetadata | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_ARCHIVOS)
+      .select(COLUMNAS_ARCHIVO)
+      .eq('id', id)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer un archivo');
+
+    const fila = respuesta.data;
+
+    // Un `null` cubre las dos cosas a la vez —no existe, y la RLS no lo deja
+    // ver— y es deliberado: distinguirlas revelaría, por el código de respuesta,
+    // si un archivo ajeno existe. Por eso **no** se usa `desenvolver` aquí: ese
+    // ayudante convierte el `null` en un 404 genérico, y aquí el nulo es una
+    // respuesta legítima que la ruta traduce a lo que corresponda.
+    return fila === null ? null : aArchivo(fila as Fila);
+  }
+
+  async contarPorEntidad(
+    entityType: TipoEntidadArchivo,
+    entidadId: string | null,
+  ): Promise<number> {
+    // Sólo cuentan los vivos: si un borrado siguiera ocupando cupo, borrar y
+    // volver a subir sería imposible.
+    const consulta = this.cliente
+      .from(TABLA_ARCHIVOS)
+      .select('id', { count: 'exact', head: true })
+      .eq('entity_type', entityType)
+      .neq('estado', 'DELETED');
+
+    // `null` es «la entidad todavía no existe», que es un grupo propio y no un
+    // comodín: `is(null)` no equivale a «cualquiera».
+    const conEntidad =
+      entidadId === null
+        ? consulta.is('entidad_id', null)
+        : consulta.eq('entidad_id', entidadId);
+
+    const respuesta = await conEntidad;
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'contar archivos');
+
+    return respuesta.count ?? 0;
+  }
+
+  /**
+   * La fila que devuelve una RPC de escritura.
+   *
+   * Que no llegue fila es un **error**, no un `null`: las RPC devuelven el tipo
+   * compuesto de la tabla, así que un valor vacío significa que algo no encaja.
+   * Devolver `null` aquí convertiría un fallo en «no hay archivo», que es justo
+   * la clase de silencio que el proyecto prohíbe.
+   */
+  private filaDevuelta(
+    respuesta: { data: unknown; error: unknown },
+    contexto: string,
+  ): ArchivoMetadata {
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error, contexto);
+
+    const fila = respuesta.data;
+
+    if (fila === null || typeof fila !== 'object' || !('id' in fila)) {
+      throw ErrorApi.interno(`La base no devolvió el archivo al ${contexto}.`);
+    }
+
+    return aArchivo(fila as Fila);
+  }
+
+  /**
+   * Traduce los fallos de las RPC de M5.
+   *
+   * Se distinguen por el texto del mensaje, como en M4: el `SQLSTATE` solo no
+   * distingue la causa, porque `42501` es tanto «no es tuyo» como «falta un
+   * GRANT». Por eso el permiso denegado se comprueba **primero** —es un error de
+   * despliegue y no debe presentarse como una decisión sobre el usuario— y la
+   * ausencia de sesión va a 401 y no a 403.
+   */
+  private traducirEscritura(error: unknown, contexto: string): ErrorApi {
+    const mensaje = mensajeDe(error);
+
+    if (esPermisoDenegado(mensaje)) {
+      return new ErrorApi(
+        500,
+        'ERROR_INTERNO',
+        'La base rechazó la operación por privilegios: falta un GRANT. ' +
+          'No es un problema de la petición.',
+        { contexto },
+      );
+    }
+
+    if (esSinSesion(mensaje)) return ErrorApi.noAutorizado(mensaje);
+
+    if (esArchivoAjeno(mensaje)) {
+      return ErrorApi.prohibido('ARCHIVO_AJENO', mensaje, { contexto });
+    }
+
+    if (esTransicionInvalida(mensaje)) {
+      return ErrorApi.conflicto('ESTADO_DE_ARCHIVO', mensaje, { contexto });
+    }
+
+    if (esArchivoInexistente(mensaje)) {
+      return ErrorApi.noEncontrado('ARCHIVO_INEXISTENTE', mensaje);
+    }
+
+    return traducirError(error, contexto);
+  }
+}
+
 /** Construye el juego completo de repositorios sobre un cliente dado. */
 export function crearRepositorios(cliente: SupabaseClient): Repositorios {
   return {
@@ -2768,6 +3022,7 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     cuadrante: new CuadranteSupabase(cliente),
     secciones: new SeccionesSupabase(cliente),
     inscripciones: new InscripcionesSupabase(cliente),
+    archivos: new ArchivosSupabase(cliente),
   };
 }
 

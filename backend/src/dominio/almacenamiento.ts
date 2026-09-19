@@ -96,7 +96,10 @@ export function validarTamano(tamanoBytes: number, maximoBytes: number): void {
   }
 
   if (tamanoBytes > maximoBytes) {
-    throw ErrorApi.peticionInvalida(
+    // 413 y no 400: el dato es correcto y el problema es el tamaño. Los dos
+    // rechazos de arriba —tamaño corrupto y límite corrupto— sí son un 400,
+    // porque ahí lo que está mal es el dato, no lo que pesa.
+    throw ErrorApi.demasiadoGrande(
       `El archivo pesa ${aMegabytes(tamanoBytes)} y el máximo permitido es ${aMegabytes(maximoBytes)}.`,
       { tamanoBytes, maximoBytes },
     );
@@ -288,4 +291,53 @@ export function cabeceraDisposicion(nombreDescarga: string): string {
   const codificado = encodeURIComponent(nombre);
 
   return `attachment; filename="${ascii}"; filename*=UTF-8''${codificado}`;
+}
+
+// --- lectura de los mensajes de las RPC de M5 -------------------------------
+
+/**
+ * Reconoce los fallos de las RPC de M5 **por el texto del mensaje**.
+ *
+ * El `SQLSTATE` solo no distingue la causa: las tres RPC de `files_metadata`
+ * lanzan `42501` para la autorización, pero `42501` es **también** lo que
+ * produce la falta de un `GRANT`. Confundirlos tiene consecuencias opuestas —un
+ * 403 que culpa al usuario de un error de despliegue, o un 500 que esconde una
+ * decisión de permisos legítima—, así que la distinción se hace por el texto,
+ * que es lo único que llega. Cambiar el `errcode` habría exigido una migración
+ * nueva sobre RPC ya aplicadas, y una migración aplicada no se edita nunca.
+ *
+ * Los patrones toleran el acento de «sesión» porque el mensaje viaja tal cual
+ * desde PostgreSQL y nadie lo normaliza en el camino.
+ */
+export function esPermisoDenegado(mensaje: string): boolean {
+  // «permission denied for function …» es PostgreSQL hablando de privilegios.
+  // Los mensajes de negocio de las RPC están en español y dicen otra cosa.
+  return /permission denied/i.test(mensaje);
+}
+
+/**
+ * ¿El fallo es «no hay sesión»?
+ *
+ * Va a **401**, no a 403: la distinción importa porque el cliente reacciona
+ * distinto —con 401 vuelve a pedir credenciales, con 403 no—. En la práctica no
+ * debería alcanzarse (`exigirSesion()` corta antes), y por eso mismo conviene
+ * mapearlo bien: si algún día se alcanza, es que hay un camino sin guardia.
+ */
+export function esSinSesion(mensaje: string): boolean {
+  return /se requiere una sesi[oó]n/i.test(mensaje);
+}
+
+/** ¿El fallo es «ese archivo no es tuyo»? */
+export function esArchivoAjeno(mensaje: string): boolean {
+  return /no es tuyo|a nombre de otro/i.test(mensaje);
+}
+
+/** ¿El fallo es una transición de estado que ya se hizo? */
+export function esTransicionInvalida(mensaje: string): boolean {
+  return /ya estaba borrado|no est[aá] pendiente/i.test(mensaje);
+}
+
+/** ¿El fallo es «ese archivo no existe»? */
+export function esArchivoInexistente(mensaje: string): boolean {
+  return /el archivo .* no existe/i.test(mensaje);
 }

@@ -28,7 +28,7 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
-import { rolSchema } from '../http/esquemas.js';
+import { esquemaFirmarSubida, rolSchema } from '../http/esquemas.js';
 
 /**
  * Añade `.openapi()` a las instancias de Zod.
@@ -1226,6 +1226,84 @@ const parametrosListadoOfertas = z.object({
   }),
 });
 
+// --- Módulo 5: archivos (Cloudflare R2) --------------------------------------
+
+/**
+ * Los metadatos de un archivo.
+ *
+ * `r2Key` se documenta porque el contrato describe lo que la API **devuelve**, no
+ * porque el cliente pueda usarla: el backend firma las descargas, así que un
+ * cliente nunca construye una ruta del bucket. Publicarla no abre nada —la
+ * autorización la da la firma— y ocultarla obligaría a mentir sobre la forma de
+ * la respuesta.
+ */
+const Archivo = z
+  .object({
+    id: z.string().uuid(),
+    propietarioId: z.string().uuid(),
+    r2Key: z.string().openapi({
+      description: 'Clave del objeto en R2. La construye el servidor; no es una URL.',
+    }),
+    nombreOriginal: z.string().openapi({
+      description: 'El nombre que eligió el usuario. Se aplica al descargar.',
+    }),
+    tipoContenido: z.string().openapi({
+      description: 'Tipo MIME derivado de la extensión, nunca del que declare el cliente.',
+    }),
+    tamanoBytes: z.number().int().nullable().openapi({
+      description: '`null` mientras está `PENDING`: una subida a medias todavía no se midió.',
+    }),
+    entityType: z.enum(['TASK_SUBMISSION', 'TEACHER_GUIDE']),
+    entidadId: z.string().uuid().nullable().openapi({
+      description: '`null` cuando la tarea o la guía todavía no existe.',
+    }),
+    estado: z.enum(['PENDING', 'CONFIRMED', 'DELETED']),
+    creadoEn: z.string(),
+    confirmadoEn: z.string().nullable(),
+    borradoEn: z.string().nullable(),
+  })
+  .openapi('Archivo');
+
+const RespuestaArchivo = z.object({ archivo: Archivo }).openapi('RespuestaArchivo');
+
+/**
+ * El cuerpo de la firma de subida.
+ *
+ * Se **reutiliza** el esquema real en lugar de reescribirlo aquí. El propio
+ * documento declara que los esquemas Zod son el único contrato y que esto es una
+ * proyección suya; una segunda copia sería justo la que se desvía sin que nadie
+ * lo note, porque la deuda D6 sólo compara rutas, no cuerpos.
+ *
+ * No lleva ni la clave del objeto ni su tamaño, y las dos ausencias son
+ * deliberadas: la clave la elige el servidor —una URL `PUT` firmada es una
+ * autorización de escritura y alcanzaría a cualquier objeto del bucket— y el
+ * tamaño no se puede validar antes de subir.
+ */
+const CuerpoFirmarSubida = esquemaFirmarSubida.openapi('CuerpoFirmarSubida');
+
+const RespuestaFirmaSubida = z
+  .object({
+    archivo: Archivo,
+    urlDeSubida: z.string().openapi({
+      description:
+        'URL `PUT` prefirmada. Caduca: hay que subir antes de que pasen `expiraEnSegundos`.',
+    }),
+    expiraEnSegundos: z.number().int(),
+  })
+  .openapi('RespuestaFirmaSubida');
+
+const RespuestaUrlLectura = z
+  .object({
+    urlDeLectura: z.string().openapi({
+      description: 'URL `GET` prefirmada, de vida corta.',
+    }),
+    expiraEnSegundos: z.number().int(),
+    nombreOriginal: z.string(),
+  })
+  .openapi('RespuestaUrlLectura');
+
+const ParametroIdArchivo = parametroIdDeRecurso('archivo');
+
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
   return {
@@ -1241,6 +1319,7 @@ const RESPUESTAS_ERROR = {
   404: error('El recurso no existe.'),
   409: error('La regla de negocio impide la operación.'),
   410: error('El recurso solicitado ha caducado.'),
+  413: error('El contenido supera el tamaño máximo permitido.'),
   500: error('Fallo interno.'),
   503: error('El servicio o la base de datos no están disponibles.'),
 };
@@ -2478,6 +2557,125 @@ export function construirRegistro(): OpenAPIRegistry {
       },
       401: RESPUESTAS_ERROR[401],
       403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  // ----------------------------------------------------------- archivos -----
+  const archivosTag = { tags: ['Archivos'] };
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'post',
+    path: '/api/v1/archivos/firmar-subida',
+    summary: 'Reserva una subida y devuelve la URL firmada',
+    description:
+      '**El backend no mueve un solo byte**: firma una URL `PUT` y el cliente sube directo a R2. La fila nace `PENDING` **antes** de que el objeto exista, porque no hay transacción que abarque R2 y PostgreSQL: una fila huérfana es visible y barrible, mientras que un objeto sin fila sería un archivo fantasma que nadie puede autorizar ni limpiar. El `id` viaja en la respuesta porque es **lo único** que permite confirmar después. El tope de archivos por entidad sólo se aplica cuando hay entidad: una subida suelta, todavía sin tarea ni guía, no consume el cupo de nadie.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoFirmarSubida } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Reserva creada. Trae su identificador y la URL de subida.',
+        content: { 'application/json': { schema: RespuestaFirmaSubida } },
+      },
+      400: error('El nombre no tiene extensión, o la extensión no está admitida.'),
+      401: RESPUESTAS_ERROR[401],
+      409: error('La entidad ya alcanzó el máximo de archivos (DEMASIADOS_ARCHIVOS).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'post',
+    path: '/api/v1/archivos/{id}/confirmar',
+    summary: 'Confirma que el objeto llegó y que pesa lo permitido',
+    description:
+      'Aquí se aplica el límite de tamaño, y **no antes**: una URL `PUT` prefirmada no admite `content-length-range`, así que el peso real sólo se conoce con este `HeadObject` posterior. Por eso el cuerpo no lleva el tamaño —pedirle al interesado que se mida no es una comprobación—. Si el archivo se pasa, se borra el objeto, se marca la fila y se responde **413**; el 400 queda para un tamaño corrupto. Si el objeto no llegó, la fila **no se toca**: se queda `PENDING` para que el barrido de abandonados la encuentre.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdArchivo },
+    responses: {
+      200: {
+        description: 'El archivo quedó `CONFIRMED`, con su tamaño sellado.',
+        content: { 'application/json': { schema: RespuestaArchivo } },
+      },
+      400: error('El tamaño medido no es un número válido: el dato está corrupto.'),
+      401: RESPUESTAS_ERROR[401],
+      404: error(
+        'El archivo no existe, no es tuyo, o el objeto nunca llegó (OBJETO_NO_SUBIDO).',
+      ),
+      409: error('El archivo no está `PENDING` (ESTADO_DE_ARCHIVO).'),
+      413: RESPUESTAS_ERROR[413],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'get',
+    path: '/api/v1/archivos/{id}/url-lectura',
+    summary: 'URL de descarga temporal',
+    description:
+      'Sólo se firma lo `CONFIRMED`: un `PENDING` no tiene objeto verificado que leer y un `DELETED` ya no debería leerse. **404 y no 403 también cuando el archivo es de otro**, porque la RLS ya lo escondió y desde el backend no hay forma de distinguir «no existe» de «no es tuyo» —y no debe haberla: un 403 confirmaría que el archivo ajeno existe—. El nombre original viaja en la respuesta y se aplica como `Content-Disposition`, para que la descarga se llame «Constancia José.pdf» y no el UUID del objeto.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdArchivo },
+    responses: {
+      200: {
+        description: 'URL firmada, de vida corta.',
+        content: { 'application/json': { schema: RespuestaUrlLectura } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      404: error('El archivo no existe o no tienes acceso a él.'),
+      409: error('El archivo todavía no está disponible para descargar (ARCHIVO_NO_DISPONIBLE).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'delete',
+    path: '/api/v1/archivos/{id}',
+    summary: 'Borra un archivo propio',
+    description:
+      'Primero el metadato y después el objeto, **al revés que en la confirmación** y por la misma razón simétrica: si fallara R2 quedaría un objeto huérfano con una fila que ya no lo cuenta —recuperable, auditable y barrible—, mientras que al revés quedaría una fila `CONFIRMED` apuntando a un objeto inexistente y el usuario vería un archivo roto sin explicación. El borrado es **lógico**: la fila se conserva con `deleted_at`. Quién puede borrar lo decide la RPC (`42501` → 403 si es de otro y quien llama no es admin), no la ruta.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdArchivo },
+    responses: {
+      200: {
+        description: 'El archivo quedó `DELETED`.',
+        content: { 'application/json': { schema: RespuestaArchivo } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: error('El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO).'),
+      404: error('El archivo no existe (ARCHIVO_INEXISTENTE).'),
+      409: error('El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'delete',
+    path: '/api/v1/admin/archivos/{id}',
+    summary: 'Borra cualquier archivo (administrador)',
+    description:
+      'El mismo camino que el borrado del propietario, con otro portero. La RPC autoriza por `is_admin()`, así que el administrador no necesita ser el propietario: la única diferencia con la ruta anterior es la guardia, no la lógica. Mantener un solo camino es lo que garantiza que las dos formas de borrar no se desvíen.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdArchivo },
+    responses: {
+      200: {
+        description: 'El archivo quedó `DELETED`.',
+        content: { 'application/json': { schema: RespuestaArchivo } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('El archivo no existe (ARCHIVO_INEXISTENTE).'),
+      409: error('El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).'),
       503: RESPUESTAS_ERROR[503],
     },
   });

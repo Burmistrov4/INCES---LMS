@@ -8,6 +8,7 @@
  * guardias de módulo, permisos, validación y traducción de errores.
  */
 import type {
+  ArchivoMetadata,
   Aula,
   CambiosModulo,
   ClaseCuadrante,
@@ -35,6 +36,7 @@ import type {
   RolDeHorario,
   Seccion,
   TipoAula,
+  TipoEntidadArchivo,
   TipoPrograma,
 } from './tipos.js';
 import type { PeticionUrlSubida, UrlFirmada } from './almacenamiento.js';
@@ -535,10 +537,93 @@ export interface PuertaAlmacenamiento {
   urlDeSubida(peticion: PeticionUrlSubida): Promise<UrlFirmada>;
   /** Autoriza una lectura. `nombreDescarga` sólo afecta a `Content-Disposition`. */
   urlDeDescarga(clave: string, nombreDescarga?: string): Promise<UrlFirmada>;
-  /** `true` si el objeto existe. Se usa para validar antes de emitir una descarga. */
-  existe(clave: string): Promise<boolean>;
+  /**
+   * Metadatos del objeto en el almacén, o `null` si no existe.
+   *
+   * Devuelve el **tamaño**, y no un simple sí/no, porque la regla de tamaño de
+   * M5 no se puede comprobar antes de subir: una URL PUT prefirmada no admite
+   * `content-length-range`, así que el tamaño real sólo se conoce con el
+   * `HeadObject` posterior. Un `existe()` booleano obligaría a un segundo viaje
+   * al almacén para leer el `ContentLength`, y ese segundo viaje es justo el que
+   * se quiere evitar.
+   *
+   * Que el objeto no exista es una respuesta legítima —una subida interrumpida
+   * deja la fila `PENDING` sin objeto—, no un fallo: por eso `null` y no una
+   * excepción.
+   */
+  estadisticas(clave: string): Promise<{ tamanoBytes: number } | null>;
   /** Borra un objeto. El backend decide *cuándo*; R2 sólo ejecuta. */
   eliminar(clave: string): Promise<void>;
+}
+
+/**
+ * Los metadatos de los archivos de M5.
+ *
+ * **Toda escritura pasa por RPC.** `files_metadata` tiene `INSERT`, `UPDATE` y
+ * `DELETE` revocados para `anon` y `authenticated`: la escritura directa da
+ * `42501`. No es una limitación que haya que rodear, es la decisión de diseño —
+ * si se pudiera insertar a mano, cualquiera se registraría como propietario de
+ * un objeto que no subió, o marcaría como confirmado lo que no existe.
+ *
+ * Las RPC son `security definer` y **hacen su propia autorización** con
+ * `auth.uid()`: al ser `definer`, la RLS ya no las protege (lección R-20). Por
+ * eso este puerto no declara ninguna operación «¿es tuyo?»: preguntar antes de
+ * escribir sería una segunda copia de la regla, y la respuesta buena la da la
+ * propia escritura.
+ */
+export interface PuertaArchivos {
+  /**
+   * Reserva un archivo en estado `PENDING`, antes de que el objeto exista.
+   *
+   * La fila nace primero porque **no hay transacción que abarque R2 y
+   * PostgreSQL**. Un `PENDING` huérfano es visible y barrible; un objeto sin
+   * fila sería un archivo fantasma que nadie puede autorizar ni limpiar.
+   */
+  registrarPendiente(entrada: EntradaRegistrarArchivo): Promise<ArchivoMetadata>;
+
+  /**
+   * Sella el tamaño real y pasa a `CONFIRMED`. Sólo acepta filas `PENDING`:
+   * reconfirmar un `CONFIRMED` o resucitar un `DELETED` es un error, no un
+   * `update` silencioso que reescriba un tamaño ya sellado.
+   */
+  confirmar(id: string, tamanoBytes: number): Promise<ArchivoMetadata>;
+
+  /** Borrado **lógico**: `estado = 'DELETED'` y `deleted_at`. La fila se conserva. */
+  marcarBorrado(id: string): Promise<ArchivoMetadata>;
+
+  /**
+   * Un archivo por su id. `null` si no existe **o si la RLS no deja verlo**.
+   *
+   * Las dos cosas se funden a propósito en el mismo `null`: distinguirlas
+   * permitiría averiguar, por el código de respuesta, si un archivo ajeno
+   * existe. Para quien pregunta, «no existe» y «no es tuyo» son lo mismo.
+   */
+  porId(id: string): Promise<ArchivoMetadata | null>;
+
+  /**
+   * Cuántos archivos vivos (no `DELETED`) cuelgan de una entidad.
+   *
+   * Existe para poder aplicar `m5_max_archivos_por_entidad`, que es un parámetro
+   * configurable y no una constante. Se apoya en el índice
+   * `files_metadata_entidad_idx`, así que no recorre la tabla.
+   */
+  contarPorEntidad(
+    entityType: TipoEntidadArchivo,
+    entidadId: string | null,
+  ): Promise<number>;
+}
+
+/** Lo que hace falta para reservar un archivo antes de subirlo. */
+export interface EntradaRegistrarArchivo {
+  /** Dueño del archivo. El llamante sólo puede poner su propio id, salvo admin. */
+  propietarioId: string;
+  /** Clave del objeto, construida por el servidor con `construirClave`. */
+  r2Key: string;
+  nombreOriginal: string;
+  /** Tipo MIME canónico, derivado de la extensión. Nunca el del cliente. */
+  tipoContenido: string;
+  entityType: TipoEntidadArchivo;
+  entidadId: string | null;
 }
 
 /**
@@ -702,4 +787,5 @@ export interface Repositorios {
   cuadrante: PuertaCuadrante;
   secciones: PuertaSecciones;
   inscripciones: PuertaInscripciones;
+  archivos: PuertaArchivos;
 }

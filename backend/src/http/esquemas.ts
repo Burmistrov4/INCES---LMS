@@ -780,6 +780,61 @@ export const esquemaReincorporar = z
   })
   .strict();
 
+// --- Módulo 5: archivos (Cloudflare R2) -------------------------------------
+
+export const esquemaIdArchivo = idDeRecurso('archivo');
+
+/**
+ * A qué entidad se adjunta el archivo.
+ *
+ * Los dos literales duplican el `check` de `files_metadata.entity_type`, igual
+ * que `tipoAulaSchema` duplica el suyo: Zod da el mensaje antes de abrir una
+ * transacción y nombra el campo, y el `check` sigue siendo la invariante.
+ */
+export const tipoEntidadArchivoSchema = z.enum([
+  'TASK_SUBMISSION',
+  'TEACHER_GUIDE',
+]);
+
+/**
+ * Nombre del archivo que eligió el usuario.
+ *
+ * Se acepta tal cual —acentos, espacios, paréntesis— porque es el nombre real de
+ * un documento del INCES y no un identificador. El servidor lo usa **sólo** para
+ * extraer la extensión y para el `Content-Disposition` de la descarga: la clave
+ * del objeto se construye con un UUID, así que nada de esto llega a la ruta del
+ * bucket. El límite de 255 replica el de un nombre de archivo habitual.
+ */
+const nombreDeArchivo = z
+  .string()
+  .trim()
+  .min(1, 'El nombre del archivo no puede estar vacío.')
+  .max(255, 'El nombre del archivo no puede pasar de 255 caracteres.');
+
+/**
+ * Reserva de una subida.
+ *
+ * **No lleva ni la clave del objeto ni su tamaño**, y las dos ausencias son
+ * deliberadas:
+ *
+ *   · La **clave** la construye el servidor. Una URL PUT prefirmada es una
+ *     autorización de escritura: si el cliente pudiera proponerla, alcanzaría a
+ *     cualquier objeto del bucket.
+ *   · El **tamaño** no se puede validar aquí. Una URL PUT prefirmada no admite
+ *     `content-length-range`, así que el real sólo se conoce con el `HeadObject`
+ *     posterior. Aceptarlo del cliente sería pedirle al sospechoso que se mida.
+ *
+ * `entidadId` es opcional porque la entidad —la tarea o la guía— puede crearse
+ * después de subir el archivo.
+ */
+export const esquemaFirmarSubida = z
+  .object({
+    nombreOriginal: nombreDeArchivo,
+    entityType: tipoEntidadArchivoSchema,
+    entidadId: z.string().uuid().nullable().default(null),
+  })
+  .strict();
+
 export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
 export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
 export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
@@ -798,6 +853,7 @@ export type ActualizarSeccionEntrada = z.infer<typeof esquemaActualizarSeccion>;
 export type ListadoOfertasEntrada = z.infer<typeof esquemaListadoOfertas>;
 export type SolicitarInscripcionEntrada = z.infer<typeof esquemaSolicitarInscripcion>;
 export type ReincorporarEntrada = z.infer<typeof esquemaReincorporar>;
+export type FirmarSubidaEntrada = z.infer<typeof esquemaFirmarSubida>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.

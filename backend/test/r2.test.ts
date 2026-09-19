@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { cargarEnv, configuracionR2 } from '../src/config/env.js';
+import { ErrorApi } from '../src/dominio/errores.js';
 import {
   TAMANO_MAXIMO_BYTES,
   cabeceraDisposicion,
@@ -121,21 +122,36 @@ describe('límite de tamaño (validarTamano)', () => {
     expect(() => validarTamano(TAMANO_MAXIMO_BYTES, TAMANO_MAXIMO_BYTES)).not.toThrow();
   });
 
-  it('rechaza un archivo que supera el límite por un solo byte', () => {
-    expect(() => validarTamano(TAMANO_MAXIMO_BYTES + 1, TAMANO_MAXIMO_BYTES)).toThrowError(
-      /máximo permitido/,
-    );
+  it('rechaza un archivo que supera el límite por un solo byte, con 413', () => {
+    // 413 y no 400, y el código importa: el cliente reacciona distinto ante un
+    // archivo grande —vuelve a subir algo más pequeño— que ante un dato mal
+    // formado. Un 400 para las dos cosas dejaba al cliente adivinando.
+    try {
+      validarTamano(TAMANO_MAXIMO_BYTES + 1, TAMANO_MAXIMO_BYTES);
+      expect.unreachable('validarTamano debía rechazar el archivo');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ErrorApi);
+      expect((error as ErrorApi).estado).toBe(413);
+      expect((error as ErrorApi).codigo).toBe('ARCHIVO_DEMASIADO_GRANDE');
+      expect((error as ErrorApi).message).toMatch(/máximo permitido/);
+    }
   });
 
-  it('rechaza un tamaño negativo, NaN o infinito como dato corrupto', () => {
-    expect(() => validarTamano(-1, TAMANO_MAXIMO_BYTES)).toThrowError(/no es un número válido/);
-    expect(() => validarTamano(Number.NaN, TAMANO_MAXIMO_BYTES)).toThrowError(/no es un número válido/);
-    expect(() => validarTamano(Number.POSITIVE_INFINITY, TAMANO_MAXIMO_BYTES)).toThrowError(
-      /no es un número válido/,
-    );
-    expect(() => validarTamano(Number.NEGATIVE_INFINITY, TAMANO_MAXIMO_BYTES)).toThrowError(
-      /no es un número válido/,
-    );
+  it('rechaza un tamaño negativo, NaN o infinito como dato corrupto, con 400', () => {
+    // Aquí sí es 400: lo que está mal es el dato, no lo que pesa el archivo. Es
+    // la otra mitad de la distinción que introdujo el 413.
+    const corruptos = [-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+    for (const tamano of corruptos) {
+      try {
+        validarTamano(tamano, TAMANO_MAXIMO_BYTES);
+        expect.unreachable(`validarTamano debía rechazar ${String(tamano)}`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ErrorApi);
+        expect((error as ErrorApi).estado, `tamaño ${String(tamano)}`).toBe(400);
+        expect((error as ErrorApi).message).toMatch(/no es un número válido/);
+      }
+    }
   });
 
   it('rechaza un límite de configuración inválido en vez de dejar pasar todo', () => {

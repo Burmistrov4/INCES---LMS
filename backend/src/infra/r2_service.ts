@@ -170,19 +170,36 @@ export function crearAlmacenamientoR2(config: ConfigR2): PuertaAlmacenamiento {
       };
     },
 
-    async existe(clave: string): Promise<boolean> {
+    async estadisticas(clave: string): Promise<{ tamanoBytes: number } | null> {
       const limpia = validarClave(clave);
 
-      try {
-        await cliente.send(
-          new HeadObjectCommand({ Bucket: config.bucket, Key: limpia }),
+      const salida = await cliente
+        .send(new HeadObjectCommand({ Bucket: config.bucket, Key: limpia }))
+        .catch((error: unknown) => {
+          // «No existe» es una respuesta legítima, no un fallo: una subida
+          // interrumpida deja la fila PENDING sin objeto que confirmar.
+          if (esNoEncontrado(error)) return null;
+          traducirFallo(error, 'comprobar existencia');
+        });
+
+      if (salida === null) return null;
+
+      const tamano = salida.ContentLength;
+
+      // `ContentLength` es opcional en el tipo del SDK aunque `HeadObject`
+      // siempre lo devuelva. Si faltara, tomarlo por 0 haría pasar la
+      // comprobación de tamaño a un objeto que nadie midió: es un dato corrupto,
+      // y se falla en alto en vez de dejar entrar un archivo sin medir.
+      if (typeof tamano !== 'number' || !Number.isFinite(tamano) || tamano < 0) {
+        throw new ErrorApi(
+          500,
+          'ERROR_ALMACENAMIENTO',
+          'El almacenamiento no informó del tamaño del objeto.',
+          { operacion: 'comprobar existencia', clave: limpia },
         );
-        return true;
-      } catch (error) {
-        // «No existe» es una respuesta legítima, no un fallo.
-        if (esNoEncontrado(error)) return false;
-        traducirFallo(error, 'comprobar existencia');
       }
+
+      return { tamanoBytes: tamano };
     },
 
     async eliminar(clave: string): Promise<void> {

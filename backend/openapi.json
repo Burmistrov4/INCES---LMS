@@ -2184,6 +2184,171 @@
           "vencidas",
           "mensaje"
         ]
+      },
+      "Archivo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "propietarioId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "r2Key": {
+            "type": "string",
+            "description": "Clave del objeto en R2. La construye el servidor; no es una URL."
+          },
+          "nombreOriginal": {
+            "type": "string",
+            "description": "El nombre que eligió el usuario. Se aplica al descargar."
+          },
+          "tipoContenido": {
+            "type": "string",
+            "description": "Tipo MIME derivado de la extensión, nunca del que declare el cliente."
+          },
+          "tamanoBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`null` mientras está `PENDING`: una subida a medias todavía no se midió."
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "TASK_SUBMISSION",
+              "TEACHER_GUIDE"
+            ]
+          },
+          "entidadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "`null` cuando la tarea o la guía todavía no existe."
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "CONFIRMED",
+              "DELETED"
+            ]
+          },
+          "creadoEn": {
+            "type": "string"
+          },
+          "confirmadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "propietarioId",
+          "r2Key",
+          "nombreOriginal",
+          "tipoContenido",
+          "tamanoBytes",
+          "entityType",
+          "entidadId",
+          "estado",
+          "creadoEn",
+          "confirmadoEn",
+          "borradoEn"
+        ]
+      },
+      "RespuestaFirmaSubida": {
+        "type": "object",
+        "properties": {
+          "archivo": {
+            "$ref": "#/components/schemas/Archivo"
+          },
+          "urlDeSubida": {
+            "type": "string",
+            "description": "URL `PUT` prefirmada. Caduca: hay que subir antes de que pasen `expiraEnSegundos`."
+          },
+          "expiraEnSegundos": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archivo",
+          "urlDeSubida",
+          "expiraEnSegundos"
+        ]
+      },
+      "CuerpoFirmarSubida": {
+        "type": "object",
+        "properties": {
+          "nombreOriginal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "TASK_SUBMISSION",
+              "TEACHER_GUIDE"
+            ]
+          },
+          "entidadId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "default": null
+          }
+        },
+        "required": [
+          "nombreOriginal",
+          "entityType"
+        ],
+        "additionalProperties": false
+      },
+      "RespuestaArchivo": {
+        "type": "object",
+        "properties": {
+          "archivo": {
+            "$ref": "#/components/schemas/Archivo"
+          }
+        },
+        "required": [
+          "archivo"
+        ]
+      },
+      "RespuestaUrlLectura": {
+        "type": "object",
+        "properties": {
+          "urlDeLectura": {
+            "type": "string",
+            "description": "URL `GET` prefirmada, de vida corta."
+          },
+          "expiraEnSegundos": {
+            "type": "integer"
+          },
+          "nombreOriginal": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "urlDeLectura",
+          "expiraEnSegundos",
+          "nombreOriginal"
+        ]
       }
     },
     "parameters": {}
@@ -6566,6 +6731,438 @@
           },
           "403": {
             "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/archivos/firmar-subida": {
+      "post": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Reserva una subida y devuelve la URL firmada",
+        "description": "**El backend no mueve un solo byte**: firma una URL `PUT` y el cliente sube directo a R2. La fila nace `PENDING` **antes** de que el objeto exista, porque no hay transacción que abarque R2 y PostgreSQL: una fila huérfana es visible y barrible, mientras que un objeto sin fila sería un archivo fantasma que nadie puede autorizar ni limpiar. El `id` viaja en la respuesta porque es **lo único** que permite confirmar después. El tope de archivos por entidad sólo se aplica cuando hay entidad: una subida suelta, todavía sin tarea ni guía, no consume el cupo de nadie.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoFirmarSubida"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reserva creada. Trae su identificador y la URL de subida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaFirmaSubida"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El nombre no tiene extensión, o la extensión no está admitida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La entidad ya alcanzó el máximo de archivos (DEMASIADOS_ARCHIVOS).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/archivos/{id}/confirmar": {
+      "post": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Confirma que el objeto llegó y que pesa lo permitido",
+        "description": "Aquí se aplica el límite de tamaño, y **no antes**: una URL `PUT` prefirmada no admite `content-length-range`, así que el peso real sólo se conoce con este `HeadObject` posterior. Por eso el cuerpo no lleva el tamaño —pedirle al interesado que se mida no es una comprobación—. Si el archivo se pasa, se borra el objeto, se marca la fila y se responde **413**; el 400 queda para un tamaño corrupto. Si el objeto no llegó, la fila **no se toca**: se queda `PENDING` para que el barrido de abandonados la encuentre.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del archivo. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo quedó `CONFIRMED`, con su tamaño sellado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaArchivo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El tamaño medido no es un número válido: el dato está corrupto.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El archivo no existe, no es tuyo, o el objeto nunca llegó (OBJETO_NO_SUBIDO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El archivo no está `PENDING` (ESTADO_DE_ARCHIVO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El contenido supera el tamaño máximo permitido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/archivos/{id}/url-lectura": {
+      "get": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "URL de descarga temporal",
+        "description": "Sólo se firma lo `CONFIRMED`: un `PENDING` no tiene objeto verificado que leer y un `DELETED` ya no debería leerse. **404 y no 403 también cuando el archivo es de otro**, porque la RLS ya lo escondió y desde el backend no hay forma de distinguir «no existe» de «no es tuyo» —y no debe haberla: un 403 confirmaría que el archivo ajeno existe—. El nombre original viaja en la respuesta y se aplica como `Content-Disposition`, para que la descarga se llame «Constancia José.pdf» y no el UUID del objeto.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del archivo. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "URL firmada, de vida corta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaUrlLectura"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El archivo no existe o no tienes acceso a él.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El archivo todavía no está disponible para descargar (ARCHIVO_NO_DISPONIBLE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/archivos/{id}": {
+      "delete": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Borra un archivo propio",
+        "description": "Primero el metadato y después el objeto, **al revés que en la confirmación** y por la misma razón simétrica: si fallara R2 quedaría un objeto huérfano con una fila que ya no lo cuenta —recuperable, auditable y barrible—, mientras que al revés quedaría una fila `CONFIRMED` apuntando a un objeto inexistente y el usuario vería un archivo roto sin explicación. El borrado es **lógico**: la fila se conserva con `deleted_at`. Quién puede borrar lo decide la RPC (`42501` → 403 si es de otro y quien llama no es admin), no la ruta.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del archivo. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo quedó `DELETED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaArchivo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El archivo no existe (ARCHIVO_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/archivos/{id}": {
+      "delete": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Borra cualquier archivo (administrador)",
+        "description": "El mismo camino que el borrado del propietario, con otro portero. La RPC autoriza por `is_admin()`, así que el administrador no necesita ser el propietario: la única diferencia con la ruta anterior es la guardia, no la lógica. Mantener un solo camino es lo que garantiza que las dos formas de borrar no se desvíen.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del archivo. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo quedó `DELETED`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaArchivo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El archivo no existe (ARCHIVO_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).",
             "content": {
               "application/json": {
                 "schema": {

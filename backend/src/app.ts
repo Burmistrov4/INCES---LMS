@@ -3,12 +3,13 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { origenesCors, type Env } from './config/env.js';
-import type { Repositorios } from './dominio/puertos.js';
+import type { PuertaAlmacenamiento, Repositorios } from './dominio/puertos.js';
 import type { DependenciasRutas } from './http/dependencias.js';
 import { registrarAutenticacion } from './http/plugins/autenticacion.js';
 import { registrarManejadorDeErrores } from './http/plugins/errores.js';
 import { comprobarMantenimiento } from './http/plugins/modulos.js';
 import { rutasAdmin } from './http/rutas/admin.js';
+import { rutasArchivos } from './http/rutas/archivos.js';
 import { rutasAuth } from './http/rutas/auth.js';
 import { rutasCuadrante } from './http/rutas/cuadrante.js';
 import { rutasCurriculo } from './http/rutas/curriculo.js';
@@ -18,6 +19,7 @@ import { rutasSecciones } from './http/rutas/secciones.js';
 import { rutasYo } from './http/rutas/yo.js';
 import { CacheModulos, CacheParametros } from './infra/cache.js';
 import type { EnvioCorreo } from './infra/correo.js';
+import { crearAlmacenamiento } from './infra/r2_service.js';
 
 export const VERSION_API = '0.1.0';
 
@@ -37,6 +39,20 @@ export interface DependenciasApp {
 
   /** Enviador de correo transaccional (Resend) para invitaciones y avisos. */
   enviarCorreo: EnvioCorreo;
+
+  /**
+   * Almacenamiento pesado (Cloudflare R2).
+   *
+   * **Si se omite, se construye desde `env`** con `crearAlmacenamiento`, que
+   * devuelve `null` cuando las cuatro variables de R2 no están definidas. Es el
+   * camino de producción y el de cualquier despliegue que no use archivos.
+   *
+   * Se admite explícitamente para dos casos que el entorno no puede expresar:
+   * inyectar un doble en los tests —firmar es puro, pero `HeadObject` y
+   * `DeleteObject` saldrían a la red— y forzar `null` en un entorno que sí tiene
+   * credenciales, para probar el 503 sin borrar variables.
+   */
+  almacenamiento?: PuertaAlmacenamiento | null;
 
   version?: string;
 }
@@ -87,6 +103,14 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
     reposAdmin: deps.reposAdmin,
     enviarCorreo: deps.enviarCorreo,
     urlFrente: env.FRONTEND_URL ?? 'http://localhost:3000',
+    // `crearAlmacenamiento` devuelve `null` cuando R2 no está configurado, y
+    // eso es una configuración válida: el módulo de archivos responde 503 y el
+    // resto del backend funciona igual. Quien construye la app puede sustituirlo
+    // —o forzar ese `null`— pasándolo en `deps`.
+    almacenamiento:
+      deps.almacenamiento === undefined
+        ? crearAlmacenamiento(env)
+        : deps.almacenamiento,
   };
 
   registrarManejadorDeErrores(app);
@@ -147,6 +171,9 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   // operar. Son módulos distintos por alcance (M3) y por consumo (M4).
   rutasSecciones(app);
   rutasInscripciones(app);
+  // M5 necesita el almacenamiento inyectado, así que recibe `depsRutas` — a
+  // diferencia de M3 y M4, que no dependen de ningún servicio externo.
+  rutasArchivos(app, depsRutas);
   rutasAuth(app, depsRutas);
 
   return app;

@@ -1,5 +1,5 @@
 import type { EnvioCorreo } from '../infra/correo.js';
-import type { Repositorios } from '../dominio/puertos.js';
+import type { PuertaAlmacenamiento, Repositorios } from '../dominio/puertos.js';
 import type { CacheModulos, CacheParametros } from '../infra/cache.js';
 
 /**
@@ -29,4 +29,14 @@ export interface DependenciasRutas {
    * activación que se envía por correo y se devuelve en la respuesta.
    */
   urlFrente: string;
+  /**
+   * Almacenamiento pesado (Cloudflare R2), o `null` si no está configurado.
+   *
+   * Es `null` y no una excepción porque R2 es una capacidad **opcional**: el
+   * backend tiene que poder arrancar sin ella, y de hecho arranca así en
+   * cualquier entorno donde no se hayan definido las cuatro variables. Quien la
+   * consuma decide qué hacer con ese `null` —la ruta de firmas responde 503— en
+   * vez de que el proceso entero no levante por un módulo que puede no usarse.
+   */
+  almacenamiento: PuertaAlmacenamiento | null;
 }

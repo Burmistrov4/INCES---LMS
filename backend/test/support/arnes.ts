@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { construirApp } from '../../src/app.js';
 import { cargarEnv, type Env } from '../../src/config/env.js';
 import type {
+  EntradaRegistrarArchivo,
+  PuertaAlmacenamiento,
+  PuertaArchivos,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
@@ -15,18 +18,26 @@ import type {
   Repositorios,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
+import {
+  construirClave,
+  extensionDe,
+  tipoContenidoDe,
+  validarClave,
+} from '../../src/dominio/almacenamiento.js';
 import { agruparPensum, pensumEditable } from '../../src/dominio/reglas-curriculo.js';
 import { diaLegible, turnoDeBloque } from '../../src/dominio/reglas-cuadrante.js';
 import { ofertaVencida } from '../../src/dominio/reglas-inscripciones.js';
 import type { EnvioCorreo } from '../../src/infra/correo.js';
 import type {
   Aula,
+  ArchivoMetadata,
   CambiosModulo,
   ClaseCuadrante,
   DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
   EntradaPensum,
+  EstadoArchivo,
   EstadoInscripcion,
   Guardia,
   InscripcionDetallada,
@@ -41,6 +52,7 @@ import type {
   Programa,
   Rol,
   Seccion,
+  TipoEntidadArchivo,
 } from '../../src/dominio/tipos.js';
 
 /**
@@ -604,6 +616,72 @@ export const INSCRIPCIONES_POR_DEFECTO: InscripcionFalsa[] = [
   { estudianteId: ID_ALUMNO, seccionId: ID_SECCION_SA, llegada: 1 },
 ];
 
+// --- datos de ejemplo de M5 -------------------------------------------------
+
+/**
+ * Un archivo de `files_metadata`, en memoria.
+ *
+ * `tamanoBytes` es `null` mientras el archivo está `PENDING`, y la distinción se
+ * conserva igual que en la tabla: `0` sería un archivo vacío de verdad, que es
+ * otra cosa que «todavía no se midió».
+ *
+ * La `r2Key` se declara explícitamente en vez de derivarla de `prefijoDeArchivo`
+ * porque el doble necesita que sea **estable**: es la clave con la que el test
+ * pone —o deja de poner— un objeto en el almacén falso.
+ */
+export interface ArchivoFalso {
+  id?: string;
+  propietarioId: string;
+  r2Key: string;
+  nombreOriginal: string;
+  tipoContenido?: string;
+  tamanoBytes?: number | null;
+  entityType?: TipoEntidadArchivo;
+  entidadId?: string | null;
+  estado?: EstadoArchivo;
+  creadoEn?: string;
+  confirmadoEn?: string | null;
+  borradoEn?: string | null;
+}
+
+/** Id del archivo confirmado por defecto. Es un UUID válido: viaja en la URL. */
+export const ID_ARCHIVO_CONFIRMADO = 'a1b2c3d4-0000-4000-8000-000000000001';
+
+/**
+ * Clave del objeto confirmado por defecto, con la forma canónica que produce
+ * `prefijoDeArchivo`: `m5_archivos/<propietario>/<año>/<mes>/<uuid>.<ext>`.
+ *
+ * Se escribe a mano y no se deriva, porque el prefijo lleva la fecha del reloj y
+ * el id sale de un `randomUUID`: derivarla haría que la clave cambiara entre dos
+ * ejecuciones y ninguna prueba podría referirse a ella.
+ */
+export const CLAVE_ARCHIVO_CONFIRMADO =
+  'm5_archivos/22222222-2222-2222-2222-222222222222/2026/09/a1b2c3d4-0000-4000-8000-000000000001.pdf';
+
+/** Tamaño del archivo confirmado por defecto: 1 KB, muy por debajo del tope. */
+export const TAMANO_ARCHIVO_CONFIRMADO = 1024;
+
+/**
+ * Un archivo ya confirmado, del alumno de ejemplo, cuyo objeto **sí existe** en
+ * el almacén falso.
+ *
+ * Se siembra confirmado a propósito: sin un archivo en ese estado, una prueba de
+ * `url-lectura` sólo podría comprobar el 409 de «todavía no está disponible», y
+ * el camino que sí firma la descarga —que es el que usa el usuario real— no se
+ * ejercitaría nunca.
+ */
+export const ARCHIVOS_POR_DEFECTO: ArchivoFalso[] = [
+  {
+    id: ID_ARCHIVO_CONFIRMADO,
+    propietarioId: ID_ALUMNO,
+    r2Key: CLAVE_ARCHIVO_CONFIRMADO,
+    nombreOriginal: 'constancia.pdf',
+    tamanoBytes: TAMANO_ARCHIVO_CONFIRMADO,
+    estado: 'CONFIRMED',
+    entityType: 'TASK_SUBMISSION',
+  },
+];
+
 // --- repositorios en memoria ------------------------------------------------
 
 export interface EstadoFalso {
@@ -636,6 +714,17 @@ export interface EstadoFalso {
   clases: ClaseFalsa[];
   secciones: SeccionFalsa[];
   inscripciones: InscripcionFalsa[];
+
+  // --- M5 ---
+  /**
+   * Las filas de `files_metadata`.
+   *
+   * El doble **no** reproduce el ciclo de vida por sí solo: la fila avanza de
+   * estado cuando la ruta llama a `confirmar` o `marcarBorrado`, igual que en la
+   * base, donde el avance lo produce la RPC y no una convención del cliente.
+   */
+  archivos: ArchivoFalso[];
+
   /**
    * Id del usuario de la petición en curso, o `null` si va anónima.
    *
@@ -653,6 +742,22 @@ export interface EstadoFalso {
   usuarioActual: string | null;
 }
 
+/**
+ * El almacén falso, con su bucket a la vista.
+ *
+ * A diferencia de los repositorios, este doble **no** se limita a devolver datos:
+ * expone el contenido del bucket para que una prueba pueda simular la subida
+ * —poner el objeto— o comprobar que se borró. Sin esa puerta, el ciclo de dos
+ * pasos de M5 no se podría recorrer entero, porque el objeto que el `HeadObject`
+ * busca lo crea el cliente con un `PUT` que el backend nunca ve.
+ */
+export interface AlmacenamientoFalso extends PuertaAlmacenamiento {
+  /** Objetos que «están» en el bucket: clave → tamaño en bytes. */
+  objetos: Map<string, number>;
+  /** Claves cuya eliminación se pidió, en orden. */
+  borrados: string[];
+}
+
 export interface Arnés {
   app: FastifyInstance;
   estado: EstadoFalso;
@@ -661,6 +766,15 @@ export interface Arnés {
   /** Errores a lanzar en la próxima llamada, por operación. */
   fallos: Partial<Record<string, unknown>>;
   env: Env;
+  /**
+   * El almacén inyectado en la app.
+   *
+   * Cuando el arnés se construye con `sinAlmacenamiento`, `construirApp` recibe
+   * `null` en vez de este objeto y las rutas de M5 responden 503. El doble se
+   * devuelve igualmente para que una prueba pueda inspeccionar sus llamadas sin
+   * tener que comprobar antes si existe.
+   */
+  almacenamiento: AlmacenamientoFalso;
 }
 
 export interface OpcionesArnés {
@@ -684,6 +798,18 @@ export interface OpcionesArnés {
   clases?: ClaseFalsa[];
   secciones?: SeccionFalsa[];
   inscripciones?: InscripcionFalsa[];
+  // --- M5 ---
+  /** Filas de `files_metadata`. El bucket se siembra desde las `CONFIRMED`. */
+  archivos?: ArchivoFalso[];
+  /**
+   * Arranca el arnés **sin** almacenamiento, como un despliegue sin R2.
+   *
+   * Es la única forma de ejercitar el 503: el entorno del arnés no define las
+   * variables de R2, así que en producción ese caso lo produciría
+   * `crearAlmacenamiento`, pero aquí el arnés inyecta el almacén explícitamente y
+   * sin esta opción siempre habría uno.
+   */
+  sinAlmacenamiento?: boolean;
   /**
    * Identidades extra: token → id de perfil.
    *
@@ -715,6 +841,15 @@ const PARAMETROS_POR_DEFECTO: ParametroSistema[] = [
   // produciría con la configuración por defecto.
   parametro({ clave: 'habilitar_sistema_bids', valor: false, tipo: 'boolean' }),
   parametro({ clave: 'bid_ttl_horas', valor: 24, tipo: 'number' }),
+
+  // --- M5 ---
+  // Los dos límites del módulo de archivos. Se siembran porque la migración
+  // `202609210001` los siembra: el arnés tiene que parecerse a la nube, no a un
+  // despliegue incompleto. El camino «falta la semilla» —el único que ejerce los
+  // valores por defecto del código— tiene su propia prueba, que construye el
+  // arnés con `parametros` explícitos.
+  parametro({ clave: 'm5_max_bytes', valor: 10 * 1024 * 1024, tipo: 'number' }),
+  parametro({ clave: 'm5_max_archivos_por_entidad', valor: 10, tipo: 'number' }),
 ];
 
 /**
@@ -816,6 +951,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     clases: (opciones.clases ?? CLASES_POR_DEFECTO).map((clase) => ({ ...clase })),
     secciones: (opciones.secciones ?? SECCIONES_POR_DEFECTO).map((seccion) => ({ ...seccion })),
     inscripciones: (opciones.inscripciones ?? INSCRIPCIONES_POR_DEFECTO).map((i) => ({ ...i })),
+    archivos: (opciones.archivos ?? ARCHIVOS_POR_DEFECTO).map((a) => ({ ...a })),
     usuarioActual: null,
   };
 
@@ -2316,6 +2452,207 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     return estado.usuarioActual ?? ID_ALUMNO;
   }
 
+  /** ¿El llamante es administrador? */
+  function esAdmin(): boolean {
+    const actor = estado.usuarioActual;
+    if (actor === null) return false;
+    return estado.perfiles.find((p) => p.id === actor)?.rol === 'admin';
+  }
+
+  /**
+   * Las filas de `files_metadata` que el llamante **puede ver**.
+   *
+   * Reproduce la política de lectura: el propietario ve lo suyo y el admin lo ve
+   * todo. **Esto no prueba la RLS** —la aplica Postgres y sólo se comprueba
+   * contra la nube (lección R-23)—; lo que prueba es que la ruta traduce bien el
+   * `null` que deja una fila invisible, que es lo que sí vive en este código.
+   */
+  function archivosVisibles(): ArchivoFalso[] {
+    const actor = estado.usuarioActual;
+    if (actor === null) return [];
+    if (esAdmin()) return estado.archivos;
+    return estado.archivos.filter((archivo) => archivo.propietarioId === actor);
+  }
+
+  /**
+   * Fecha fija de creación.
+   *
+   * El doble no lee el reloj: una marca de tiempo real haría que dos ejecuciones
+   * produjeran respuestas distintas y una prueba que comparara el objeto completo
+   * pasaría o fallaría al azar.
+   */
+  const CREADO_EN_FALSO = '2026-09-18T12:00:00.000Z';
+
+  let contadorArchivos = 0;
+
+  /**
+   * Un id de archivo nuevo, determinista.
+   *
+   * Determinista y no aleatorio para que un fallo se pueda reproducir: la ruta
+   * devuelve este id al firmar y la prueba lo reutiliza para confirmar. Con
+   * `randomUUID` el id cambiaría en cada ejecución y el fallo no se podría volver
+   * a provocar igual.
+   *
+   * El bloque `1111-4111-8111` lo separa del id sembrado en `ARCHIVOS_POR_DEFECTO`
+   * (`0000-4000-8000`). Sin esa separación el primer archivo creado chocaría con
+   * el de la semilla y `porId` devolvería el equivocado. Los dos son UUID válidos,
+   * así que atraviesan el esquema de ruta sin problemas.
+   */
+  function idDeArchivoNuevo(): string {
+    contadorArchivos += 1;
+    return `a1b2c3d4-1111-4111-8111-${String(contadorArchivos).padStart(12, '0')}`;
+  }
+
+  function archivoInexistente(id: string): ErrorApi {
+    return ErrorApi.noEncontrado('ARCHIVO_INEXISTENTE', `El archivo ${id} no existe.`);
+  }
+
+  /** Un archivo en memoria, en la forma que devuelve el repositorio. */
+  function aArchivoFalso(fila: ArchivoFalso): ArchivoMetadata {
+    const id = fila.id;
+
+    if (id === undefined) {
+      // Sólo alcanzable con una semilla mal escrita: el doble siempre crea con
+      // id. Fallar aquí evita devolver un `undefined` que reventaría mucho más
+      // lejos, al construir la clave de un objeto.
+      throw ErrorApi.interno('El arnés tiene un archivo sin id.');
+    }
+
+    return {
+      id,
+      propietarioId: fila.propietarioId,
+      r2Key: fila.r2Key,
+      nombreOriginal: fila.nombreOriginal,
+      tipoContenido:
+        fila.tipoContenido ?? tipoContenidoDe(extensionDe(fila.nombreOriginal)),
+      tamanoBytes: fila.tamanoBytes ?? null,
+      entityType: fila.entityType ?? 'TASK_SUBMISSION',
+      entidadId: fila.entidadId ?? null,
+      estado: fila.estado ?? 'PENDING',
+      creadoEn: fila.creadoEn ?? CREADO_EN_FALSO,
+      confirmadoEn: fila.confirmadoEn ?? null,
+      borradoEn: fila.borradoEn ?? null,
+    };
+  }
+
+  /**
+   * Los archivos, en memoria.
+   *
+   * Las escrituras reproducen las tres RPC y, sobre todo, **cómo fallan**: de eso
+   * depende el código de estado que ve el usuario. La RPC de borrado distingue
+   * «no es tuyo» (403) de «no existe» (404), y esa distinción no la puede inventar
+   * la ruta —tiene que venir del puerto—, así que el doble la produce.
+   */
+  const archivos: PuertaArchivos = {
+    async registrarPendiente(
+      entrada: EntradaRegistrarArchivo,
+    ): Promise<ArchivoMetadata> {
+      revisar('archivos.registrarPendiente');
+
+      const fila: ArchivoFalso = {
+        id: idDeArchivoNuevo(),
+        propietarioId: entrada.propietarioId,
+        r2Key: entrada.r2Key,
+        nombreOriginal: entrada.nombreOriginal,
+        tipoContenido: entrada.tipoContenido,
+        tamanoBytes: null,
+        entityType: entrada.entityType,
+        entidadId: entrada.entidadId,
+        estado: 'PENDING',
+        creadoEn: CREADO_EN_FALSO,
+      };
+
+      estado.archivos.push(fila);
+
+      return aArchivoFalso(fila);
+    },
+
+    async confirmar(id: string, tamanoBytes: number): Promise<ArchivoMetadata> {
+      revisar('archivos.confirmar');
+
+      // Se busca entre **todas** las filas y no entre las visibles, porque la RPC
+      // es `security definer`: decide por `auth.uid()` y falla con 403 si el
+      // archivo es de otro. Buscar sólo entre las visibles confundiría «es de
+      // otro» con «no existe».
+      const fila = estado.archivos.find((archivo) => archivo.id === id);
+      if (!fila) throw archivoInexistente(id);
+
+      if (fila.propietarioId !== estado.usuarioActual && !esAdmin()) {
+        throw ErrorApi.prohibido('ARCHIVO_AJENO', 'El archivo no es tuyo.', {
+          contexto: 'confirmar un archivo',
+        });
+      }
+
+      if ((fila.estado ?? 'PENDING') !== 'PENDING') {
+        throw ErrorApi.conflicto(
+          'ESTADO_DE_ARCHIVO',
+          'El archivo no está pendiente: ya se confirmó o ya se borró.',
+          { contexto: 'confirmar un archivo' },
+        );
+      }
+
+      fila.estado = 'CONFIRMED';
+      fila.tamanoBytes = tamanoBytes;
+      fila.confirmadoEn = CREADO_EN_FALSO;
+
+      return aArchivoFalso(fila);
+    },
+
+    async marcarBorrado(id: string): Promise<ArchivoMetadata> {
+      revisar('archivos.marcarBorrado');
+
+      const fila = estado.archivos.find((archivo) => archivo.id === id);
+      if (!fila) throw archivoInexistente(id);
+
+      if (fila.propietarioId !== estado.usuarioActual && !esAdmin()) {
+        throw ErrorApi.prohibido('ARCHIVO_AJENO', 'El archivo no es tuyo.', {
+          contexto: 'borrar un archivo',
+        });
+      }
+
+      if ((fila.estado ?? 'PENDING') === 'DELETED') {
+        throw ErrorApi.conflicto('ESTADO_DE_ARCHIVO', 'El archivo ya estaba borrado.', {
+          contexto: 'borrar un archivo',
+        });
+      }
+
+      fila.estado = 'DELETED';
+      fila.borradoEn = CREADO_EN_FALSO;
+
+      return aArchivoFalso(fila);
+    },
+
+    async porId(id: string): Promise<ArchivoMetadata | null> {
+      revisar('archivos.porId');
+
+      const fila = archivosVisibles().find((archivo) => archivo.id === id);
+
+      // `null` funde «no existe» y «no es tuyo», igual que el repositorio real:
+      // distinguirlos revelaría, por el código de respuesta, si un archivo ajeno
+      // existe.
+      return fila ? aArchivoFalso(fila) : null;
+    },
+
+    async contarPorEntidad(
+      entityType: TipoEntidadArchivo,
+      entidadId: string | null,
+    ): Promise<number> {
+      revisar('archivos.contarPorEntidad');
+
+      // Se cuenta sobre lo **visible**, no sobre el total, porque el repositorio
+      // real cuenta con PostgREST y por tanto bajo RLS: para un estudiante el tope
+      // es por propietario y para un admin es global. Contar el total aquí haría
+      // que el doble fuese más estricto que la base, y una prueba daría por bueno
+      // un 409 que en producción no ocurre.
+      return archivosVisibles().filter(
+        (archivo) =>
+          (archivo.entityType ?? 'TASK_SUBMISSION') === entityType &&
+          (archivo.entidadId ?? null) === entidadId &&
+          (archivo.estado ?? 'PENDING') !== 'DELETED',
+      ).length;
+    },
+  };
+
   const repos: Repositorios = {
     perfiles,
     modulos,
@@ -2327,6 +2664,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     cuadrante,
     secciones,
     inscripciones,
+    archivos,
   };
 
   const enviarCorreo: EnvioCorreo = {
@@ -2344,6 +2682,86 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     MODULE_CACHE_TTL_MS: String(opciones.moduleCacheTtlMs ?? 0),
     SETTINGS_CACHE_TTL_MS: String(opciones.settingsCacheTtlMs ?? 0),
   });
+
+  /**
+   * El bucket falso: clave → tamaño en bytes.
+   *
+   * Se siembra con los archivos **confirmados**, porque un archivo confirmado es,
+   * por definición, uno cuyo objeto llegó y se midió: el `HeadObject` tiene que
+   * encontrarlo o el arnés mentiría sobre su propio estado inicial. Los `PENDING`
+   * no se siembran a propósito —ése es justo el caso de la subida interrumpida—,
+   * y una prueba que quiera simular una subida completa pone el objeto a mano.
+   */
+  const objetos = new Map<string, number>();
+
+  for (const fila of estado.archivos) {
+    const tamano = fila.tamanoBytes;
+    if (fila.estado === 'CONFIRMED' && typeof tamano === 'number') {
+      objetos.set(fila.r2Key, tamano);
+    }
+  }
+
+  /** Claves cuya eliminación se pidió, en orden. */
+  const borrados: string[] = [];
+
+  const almacenamiento: AlmacenamientoFalso = {
+    objetos,
+    borrados,
+
+    async urlDeSubida(peticion) {
+      revisar('almacenamiento.urlDeSubida');
+
+      // La clave la construye el doble con la **misma función pura** que el
+      // adaptador real, no con una copia. Es lo que permite comprobar que la ruta
+      // firma antes de registrar la fila: si el doble inventara la clave, la que
+      // guardara la fila y la que devolviera la firma serían distintas y la
+      // comprobación no probaría nada.
+      const clave = construirClave(peticion.prefijo, peticion.nombreOriginal);
+
+      return {
+        clave,
+        url: `https://r2.falso/${clave}?firma=subida`,
+        expiraEnSegundos: env.R2_PUT_TTL_SEGUNDOS,
+        tipoContenido: tipoContenidoDe(extensionDe(peticion.nombreOriginal)),
+      };
+    },
+
+    async urlDeDescarga(clave, _nombreDescarga) {
+      revisar('almacenamiento.urlDeDescarga');
+
+      const limpia = validarClave(clave);
+
+      return {
+        clave: limpia,
+        url: `https://r2.falso/${limpia}?firma=lectura`,
+        expiraEnSegundos: env.R2_GET_TTL_SEGUNDOS,
+        // El tipo se deriva de la **clave**, no del nombre de descarga, igual que
+        // el adaptador real: el nombre legible es cosmético y no debe poder
+        // cambiar el `Content-Type` con el que se sirve el objeto.
+        tipoContenido: tipoContenidoDe(extensionDe(limpia)),
+      };
+    },
+
+    async estadisticas(clave) {
+      revisar('almacenamiento.estadisticas');
+
+      const limpia = validarClave(clave);
+      const tamano = objetos.get(limpia);
+
+      // Ausente es `null` y no un error: es la subida interrumpida, que la ruta
+      // traduce a un 404 con código propio.
+      return tamano === undefined ? null : { tamanoBytes: tamano };
+    },
+
+    async eliminar(clave) {
+      revisar('almacenamiento.eliminar');
+
+      const limpia = validarClave(clave);
+
+      borrados.push(limpia);
+      objetos.delete(limpia);
+    },
+  };
 
   const identidades: Record<string, string> = {
     [TOKEN_ADMIN]: ID_ADMIN,
@@ -2367,9 +2785,14 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       return repos;
     },
     enviarCorreo,
+    // El arnés inyecta el almacén en vez de dejar que `construirApp` lo derive de
+    // `env`: firmar es puro y funcionaría sin red, pero `HeadObject` y
+    // `DeleteObject` saldrían a internet. `sinAlmacenamiento` reproduce el
+    // despliegue que no tiene R2 configurado.
+    almacenamiento: opciones.sinAlmacenamiento ? null : almacenamiento,
   });
 
-  return { app, estado, llamadas, fallos, env };
+  return { app, estado, llamadas, fallos, env, almacenamiento };
 }
 
 /** Cabeceras con el token indicado. */

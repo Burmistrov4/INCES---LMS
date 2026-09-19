@@ -40,6 +40,20 @@ export class ErrorApi extends Error {
     return new ErrorApi(410, 'RECURSO_CADUCADO', mensaje);
   }
 
+  /**
+   * El archivo pesa más de lo permitido.
+   *
+   * **413 y no 400**, y la distinción es la razón de que esta fábrica exista: la
+   * petición es correcta y el problema es el **tamaño** del contenido. El 400
+   * queda para el tamaño *corrupto* —negativo, `NaN`, infinito—, que es un dato
+   * mal formado y no un archivo grande. Antes de esto, `validarTamano` devolvía
+   * 400 para las dos cosas y el cliente no podía distinguir «vuelve a subir algo
+   * más pequeño» de «el dato que mandaste está roto».
+   */
+  static demasiadoGrande(mensaje: string, detalles?: unknown) {
+    return new ErrorApi(413, 'ARCHIVO_DEMASIADO_GRANDE', mensaje, detalles);
+  }
+
   static conflicto(codigo: string, mensaje: string, detalles?: unknown) {
     return new ErrorApi(409, codigo, mensaje, detalles);
   }
