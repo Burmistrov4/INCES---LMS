@@ -119,6 +119,29 @@ class ApiClient {
     return _procesar(respuesta, ruta);
   }
 
+  /// Borrado (DELETE) de un recurso.
+  ///
+  /// Existe por M5, que es el primer módulo con borrado real: en M2 y M4 archivar
+  /// es un `PATCH` (`activa: false`) y no hay DELETE. El borrado de archivos es
+  /// **lógico** en la base —la fila se conserva como historial—, así que el
+  /// servidor responde con el archivo ya en `DELETED` y aquí no hay que tratar
+  /// un 204 sin cuerpo.
+  Future<Map<String, dynamic>> delete(
+    String ruta, {
+    String? token,
+    Map<String, String>? encabezadosExtra,
+  }) async {
+    final respuesta = await _http.delete(
+      _resolver(ruta),
+      headers: {
+        if (token != null) 'Authorization': 'Bearer $token',
+        ...?encabezadosExtra,
+      },
+    );
+
+    return _procesar(respuesta, ruta);
+  }
+
   /// Construye la URL completa y comprueba que hay base configurada.
   Uri _resolver(String ruta, [Map<String, String>? parametros]) {
     final base = _baseUrl.trim();
@@ -171,11 +194,18 @@ class ApiClient {
   /// 401/403 son de permisos (la UI entonces sugiere iniciar sesión); 410
   /// (caducado) y 409 (ya usada) son del dominio y se muestran con el mensaje
   /// del servidor; el resto es error de servidor.
+  ///
+  /// **413 va con la validación, no con el servidor.** Un archivo que se pasa del
+  /// límite es una condición que el usuario puede corregir —subir otro más
+  /// pequeño—, no un fallo del sistema. Sin este caso caía en `default` y la UI
+  /// habría mostrado «Ocurrió un error en el servidor», que manda a nadie a
+  /// arreglar nada. Lo destapó M5, que es el primer módulo que puede devolverlo.
   AppErrorType _clasificar(int status) {
     switch (status) {
       case 400:
       case 409:
       case 410:
+      case 413:
       case 422:
         return AppErrorType.validacion;
       case 401:

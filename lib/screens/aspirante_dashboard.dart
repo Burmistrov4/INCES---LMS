@@ -562,7 +562,7 @@ class _PanelOfertasState extends State<PanelOfertas> {
 /// permite renunciar), `PENDING_BID` (oferta en el aire, muestra cuenta regresiva
 /// desde `ofertaVenceEn` y permite aceptar o renunciar) y `ENROLLED` (adentro).
 class PanelMisInscripciones extends StatefulWidget {
-  const PanelMisInscripciones({required this.repositorio});
+  const PanelMisInscripciones({super.key, required this.repositorio});
 
   final InscripcionesRepository repositorio;
 
