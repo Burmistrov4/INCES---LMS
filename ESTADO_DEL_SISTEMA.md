@@ -45,7 +45,11 @@
 > 203 Flutter / 164 SQL / 10 migraciones / 81 comprobaciones cuando el código iba
 > por **307 / 222 / 14 / 92**). **Si vuelve a haber discrepancia, gana el
 > código**: verifica antes de citar una cifra de aquí. La lección se ha cumplido
-> ya tres veces: este documento se desincroniza solo.
+> ya tres veces: este documento se desincroniza solo. **Y una cuarta el mismo
+> 2026-09-18**: la nota que daba `flutter test` por imposible era falsa —faltaba
+> desactivar el proxy—, así que la cifra de Flutter pasa de **307** a **365** y
+> deja de ser una medición de tres días antes. Una nota que dice «no se puede»
+> también es una afirmación que hay que verificar.
 
 ---
 
@@ -74,17 +78,17 @@
 | **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
 | **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ✅ **Completo** (2026-09-18) |
-| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ⏳ Pendiente |
+| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | 🔶 **Datos hechos** (2026-09-18): modelo, puerto, `BackendArchivosGateway` y repositorio, con 28 pruebas que **sí se ejecutan**. Falta la UI. **Bloqueada por D16** (sin CORS, el navegador no puede hablar con R2) |
 | **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-18**
-(backend 468, Flutter 307, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
+(backend 468, Flutter 365, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
 verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **307 / 307** en verde — **última medición válida, 2026-09-15**. No re-ejecutable en este entorno (ver aviso) |
+| `flutter test` | **365 / 365** en verde — **medido el 2026-09-18**. Exige la receta de dos piezas de §"Verificación" (ver aviso) |
 | `npm test` (backend) | **468 / 468** en verde (20 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
@@ -109,28 +113,32 @@ verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
-> **⚠️ Aviso del 2026-09-18: `flutter test` NO se puede ejecutar en este entorno.**
-> Las 21 pruebas fallan **al cargar**, todas con el mismo error:
+> **✅ CORRECCIÓN (2026-09-18, medida posterior el mismo día): `flutter test` SÍ se
+> puede ejecutar en este entorno.** El aviso anterior daba por imposible lo que sólo
+> estaba **mal invocado**: faltaba una de las dos piezas, y la receta llevaba días
+> escrita en `temas/infraestructura.md`.
 >
 > ```
-> Failed to load "test/…_test.dart":
->   Unable to connect to flutter_tester process:
->   WebSocketException: Invalid WebSocket upgrade request
+> env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+>   'NO_PROXY=127.0.0.1,localhost' 'no_proxy=127.0.0.1,localhost' \
+>   "PROGRAMFILES(X86)=C:\\Program Files (x86)" flutter test
 > ```
 >
-> **No es un fallo de las pruebas ni del código**: `flutter_tester` no consigue
-> abrir su WebSocket de loopback. Se comprobó **también fuera del sandbox**, con
-> el mismo resultado, así que no es una restricción del aislamiento. El
-> `flutter test` **exige** `PROGRAMFILES(X86)` en el entorno (en Git Bash no
-> existe; sin ella el error es otro: `%PROGRAMFILES(X86)% environment variable not
-> found`), y aun inyectándola el WebSocket sigue fallando.
+> Son **dos** requisitos, no uno:
+> 1. **`PROGRAMFILES(X86)`**, que en Git Bash no existe (sin ella el error es
+>    `%PROGRAMFILES(X86)% environment variable not found`).
+> 2. **El proxy desactivado.** `HTTP_PROXY`/`HTTPS_PROXY` apuntan a
+>    `http://127.0.0.1:61458` e interceptan el WebSocket de loopback de
+>    `flutter_tester` — de ahí el `Invalid WebSocket upgrade request` con el que se
+>    concluyó, con sólo la pieza 1, que era imposible.
 >
-> **Consecuencia, y es la que importa:** el **307/307** es la última medición
-> **válida**, del 2026-09-15, **no una medición de hoy**. Cualquier cifra de
-> Flutter que se cite sin re-ejecutar arrastra esa fecha. La nota del `HANDOVER.md`
-> que afirmaba que `flutter test` sí funcionaba aquí **es falsa** y quedó corregida.
-> Las demás redes (SQL 271/271, esquema 99/99, libro mayor 16/16, backend
-> 468/468) **sí** se re-ejecutaron y están al día, todas medidas el **2026-09-18**.
+> **Medición de hoy: 365 / 365 en verde**, incluidas las **28** pruebas nuevas de la
+> Capa 7 de M5 (`test/archivos_gateway_test.dart` 16 + `test/archivos_repository_test.dart`
+> 12). El **307/307 del 2026-09-15** deja de ser la última medición válida.
+>
+> La lección, que este documento ya había aprendido dos veces: **una nota que dice
+> «no se puede» envejece igual de mal que una cifra.** Antes de declarar algo
+> imposible aquí, comprobar si la receta ya está escrita en `temas/`.
 
 > **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
 > reales (admin ve, `anon` no ve, un docente no ve, nadie inserta trazas a mano),
@@ -1216,7 +1224,13 @@ URL de Supabase inexistente, no leyendo el código:
 ```bash
 # --- Frontend ---
 flutter analyze
-flutter test
+
+# `flutter test` necesita DOS cosas, o falla al cargar (ver el aviso de arriba):
+#  1) PROGRAMFILES(X86), que en Git Bash no existe
+#  2) el proxy desactivado: intercepta el WebSocket de loopback de flutter_tester
+env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  'NO_PROXY=127.0.0.1,localhost' 'no_proxy=127.0.0.1,localhost' \
+  "PROGRAMFILES(X86)=C:\\Program Files (x86)" flutter test
 
 # --- Migraciones SQL (contra PostgreSQL real, sin Docker ni Supabase) ---
 cd supabase/tests && npm install && npm test
@@ -1242,7 +1256,7 @@ node supabase/humo-archivos.mjs --confirmar                         # 52 comprob
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (307) | La lógica del cliente | El SQL, la API, la red |
+| `flutter test` (365) | La lógica del cliente, **incluido el ciclo de tres pasos de M5** (16 pruebas del gateway con `http.Client` doblado + 12 del repositorio) | El SQL, la API, la red, **y el navegador**: que R2 acepte la firma o que el preflight de CORS pase no se prueba aquí |
 | `supabase/tests` (271) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
 | `npm test` (468) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (99) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
