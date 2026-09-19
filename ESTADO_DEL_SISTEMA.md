@@ -102,6 +102,7 @@ verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **15 / 15** (`supabase/humo-curriculo.mjs`), incluida la atomicidad — **medido el 2026-09-18**, lo que zanja la discrepancia 14 vs 15 a favor de **15** |
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
+| **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está apagado** |
 | Documento OpenAPI | OpenAPI 3.1.0 · **47 rutas · 84 esquemas** (las 14 de M3, las 14 de M4 y las 5 de M5 incluidas) |
@@ -1018,6 +1019,27 @@ las escrituras van por RPC `security definer` que autorizan solas con `auth.uid(
 `is_admin()` (R-20), y las lecturas las filtra la RLS. Repetir esa comprobación en el
 handler sería una segunda copia de la regla, y dos copias se desvían.
 
+#### ⚠️ Divergencia abierta: el `DELETE` de un archivo ajeno responde 403 y el `GET` 404
+
+Medido con `supabase/humo-archivos.mjs` el **2026-09-18**, con JWT reales:
+
+| Operación de B sobre el archivo de A | Respuesta | Por qué |
+| --- | --- | --- |
+| `GET /api/v1/archivos/{id}/url-lectura` | **404** | Lee por PostgREST: la RLS esconde la fila, así que «no existe» y «no es tuyo» son indistinguibles desde el handler |
+| `DELETE /api/v1/archivos/{id}` | **403** `ARCHIVO_AJENO` | Escribe por la RPC `security definer`, que **sí** distingue «es de otro» y lo dice con `42501` |
+
+Las dos son coherentes con su propio camino, pero **no entre sí**: el `404` del
+`GET` existe para no confirmar que el archivo existe, y el `403` del `DELETE`
+confirma justo eso. El briefing de la Capa 6 pedía `404` en ambos.
+
+**No se ha tocado, a propósito.** Unificarlo no es un cambio de una línea: exigiría
+una migración nueva —no se edita una aplicada— para que la RPC dejara de distinguir,
+o una comprobación previa en el handler, que sería la segunda copia de la regla que
+este diseño evita. Y cambia un contrato que el cliente Flutter va a consumir. Queda
+**a decisión del dueño del producto**; el humo lo marca como divergencia, no como
+fallo, y la propiedad que de verdad importa —que B no puede borrar el archivo de A y
+que la fila queda intacta— sí se comprueba.
+
 ### Protección del último administrador (D8)
 
 El sistema no puede quedarse sin ningún administrador activo: sería quedarse sin
@@ -1184,9 +1206,10 @@ node supabase/crear-admin.mjs correo@dominio.com                    # primer adm
 node backend/test-humo.mjs                                          # 24 comprobaciones
 node supabase/humo-invitaciones.mjs                                 # 17 comprobaciones (--confirmar escribe)
 node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprobaciones (escribe y purga)
+node supabase/humo-archivos.mjs --confirmar                         # 52 comprobaciones (exige el backend arriba y R2 con credenciales reales)
 ```
 
-### Las tres redes de seguridad, y qué cubre cada una
+### Las redes de seguridad, y qué cubre cada una
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
@@ -1197,6 +1220,7 @@ node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprob
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 | `humo-cuadrante.mjs` (53) | El mensaje REAL del trigger, la colisión que cruza dos tablas y la RLS de las vistas por rol | El frontend de M3 |
+| `humo-archivos.mjs` (52) | Que **R2 acepte la firma**, que el `Content-Type` esté firmado (un `PUT` que miente se rechaza), el aislamiento A/B con RLS real, y que el límite de tamaño se lea en cada petición y la caché caduque | Que el objeto rechazado por tamaño se borrara de R2 (para firmar un `GET` la fila tendría que seguir `CONFIRMED`); eso lo fija el doble de almacén en `npm test` |
 
 > **La red de `supabase/tests` tiene un punto ciego, y M3 lo demostró.** Corre
 > como el **dueño** de las tablas, así que **no ve los problemas de privilegios**:
