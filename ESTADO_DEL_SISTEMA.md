@@ -78,7 +78,7 @@
 | **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
 | **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ✅ **Completo** (2026-09-18) |
-| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | 🔶 **Datos hechos** (2026-09-18): modelo, puerto, `BackendArchivosGateway` y repositorio, con 28 pruebas que **sí se ejecutan**. Falta la UI. **Bloqueada por D16** (sin CORS, el navegador no puede hablar con R2) |
+| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | 🔶 **Datos hechos** (2026-09-18): modelo, puerto, `BackendArchivosGateway` y repositorio, con 28 pruebas que **sí se ejecutan**. Falta la UI. **Desbloqueada**: D16 (CORS) se resolvió el **2026-09-19**, así que el navegador ya puede hablar con R2 |
 | **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-18**
@@ -1055,26 +1055,42 @@ las escrituras van por RPC `security definer` que autorizan solas con `auth.uid(
 `is_admin()` (R-20), y las lecturas las filtra la RLS. Repetir esa comprobación en el
 handler sería una segunda copia de la regla, y dos copias se desvían.
 
-#### ⚠️ Divergencia abierta: el `DELETE` de un archivo ajeno responde 403 y el `GET` 404
+#### ✅ Decisión cerrada: el `DELETE` de un archivo ajeno responde 403 y el `GET` 404
 
-Medido con `supabase/humo-archivos.mjs` el **2026-09-18**, con JWT reales:
+Medido con `supabase/humo-archivos.mjs` el **2026-09-18**, con JWT reales, y
+**resuelto por decisión del dueño del producto el 2026-09-19: se mantiene la
+asimetría**.
 
 | Operación de B sobre el archivo de A | Respuesta | Por qué |
 | --- | --- | --- |
 | `GET /api/v1/archivos/{id}/url-lectura` | **404** | Lee por PostgREST: la RLS esconde la fila, así que «no existe» y «no es tuyo» son indistinguibles desde el handler |
 | `DELETE /api/v1/archivos/{id}` | **403** `ARCHIVO_AJENO` | Escribe por la RPC `security definer`, que **sí** distingue «es de otro» y lo dice con `42501` |
 
-Las dos son coherentes con su propio camino, pero **no entre sí**: el `404` del
-`GET` existe para no confirmar que el archivo existe, y el `403` del `DELETE`
-confirma justo eso. El briefing de la Capa 6 pedía `404` en ambos.
+**El cuadro real es más rico de lo que parecía**, y es el argumento para conservarlo.
+La traducción de `repos-supabase.ts` distingue **cuatro** casos, no dos:
 
-**No se ha tocado, a propósito.** Unificarlo no es un cambio de una línea: exigiría
-una migración nueva —no se edita una aplicada— para que la RPC dejara de distinguir,
-o una comprobación previa en el handler, que sería la segunda copia de la regla que
-este diseño evita. Y cambia un contrato que el cliente Flutter va a consumir. Queda
-**a decisión del dueño del producto**; el humo lo marca como divergencia, no como
-fallo, y la propiedad que de verdad importa —que B no puede borrar el archivo de A y
-que la fila queda intacta— sí se comprueba.
+| Caso en el borrado | Respuesta |
+| --- | --- |
+| Falta un GRANT (error de despliegue, no del usuario) | **500** `ERROR_INTERNO` — se comprueba **primero**, a propósito |
+| El archivo no existe | **404** `ARCHIVO_INEXISTENTE` |
+| Es de otro y quien llama no es admin | **403** `ARCHIVO_AJENO` |
+| Ya estaba borrado | **409** `ESTADO_DE_ARCHIVO` |
+
+Colapsar eso a un `404` uniforme perdería información que el cliente usa para
+decidir qué mensaje mostrar. **El briefing pedía `404` en ambos; se desvía de él a
+propósito y con el visto bueno del dueño.**
+
+La objeción de seguridad —el `403` confirma que el archivo existe, y el `404` del
+`GET` se diseñó justo para no confirmarlo— **es real pero inalcanzable en la
+práctica**: los ids son UUIDv4 y ningún endpoint lista archivos ajenos (los filtra
+la RLS), así que para explotarla habría que tener ya el id. **El motivo por el que
+esto es aceptable es ése, no que la asimetría sea elegante**: si algún día los ids
+se vuelven enumerables, o aparece un endpoint que los filtre mal, hay que revisar
+esta decisión.
+
+El humo sigue marcándolo como divergencia del briefing —no como fallo—, y la
+propiedad que de verdad importa se comprueba aparte: que B **no** puede borrar el
+archivo de A y que la fila queda intacta en `CONFIRMED`.
 
 ### Protección del último administrador (D8)
 
@@ -1136,14 +1152,14 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente, y **NO es sólo configuración**: es configuración **más código**. La parte de bucket (abortar multipart abandonadas) es segura y está escrita en **`docs/CONFIGURACION_R2.md` §3.4**; el resto —el **barrido de `PENDING` abandonados** que `rutas/archivos.ts:282` ya nombra y que **no existe**— es código. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3. **No está latente por la bandera** (la API no comprueba `m5_archivos`; `exigirModulo()` nunca se llama) y hubo **un huérfano real** el 2026-09-18. Resolver antes de M7 |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente **sólo en el planificador**. Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, y `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla. Lo que falta es **quien los ejecute**: los tres modos son manuales y el repo **no tiene CI**. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **No está latente por la bandera** (la API no comprueba `m5_archivos`; `exigirModulo()` nunca se llama) y hubo **un huérfano real** el 2026-09-18 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ⏳ **Abierta** — la corrección es una columna `program_id` con FK, y toca el formulario público (M1). Sin urgencia: `aspirantes` tiene 0 filas |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
-| **D16** | El bucket `inces-lms-media` **no tiene política de CORS** → un navegador no puede usar las URLs prefirmadas | ⏳ **Pendiente, y bloquea la Capa 7 en Web**. Medido el 2026-09-18: preflight `OPTIONS` = **403 sin ninguna cabecera `Access-Control-Allow-*`** desde `http://localhost:8080` y `http://127.0.0.1:8080`, mientras el `PUT` desde Node devuelve 200. **Ninguna de las 468 pruebas puede verlo**: todas hablan con R2 desde Node y Node no aplica CORS. Instrucciones en **`docs/CONFIGURACION_R2.md` §2**; sonda re-ejecutable: `npx tsx backend/scripts/probe-r2-cors.mts` (exit 1 mientras falte). Espera autorización |
+| **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1250,6 +1266,13 @@ node backend/test-humo.mjs                                          # 24 comprob
 node supabase/humo-invitaciones.mjs                                 # 17 comprobaciones (--confirmar escribe)
 node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprobaciones (escribe y purga)
 node supabase/humo-archivos.mjs --confirmar                         # 52 comprobaciones (exige el backend arriba y R2 con credenciales reales)
+
+# --- Mantenimiento de R2 (simulación por defecto; --confirmar para escribir) ---
+npx tsx backend/scripts/probe-r2-cors.mts                           # exit 0 = hay CORS; exit 1 = el navegador lo bloquearía
+npx tsx backend/scripts/limpiar-pendientes.mts                      # filas PENDING abandonadas + su objeto
+npx tsx backend/scripts/limpiar-pendientes.mts --revisar-borrados   # filas DELETED con objeto residual
+npx tsx backend/scripts/limpiar-pendientes.mts --huerfanos          # objetos que ninguna fila referencia
+node supabase/eliminar-cuenta.mjs correo@dominio.com                # inventario; añade --confirmar para borrar
 ```
 
 ### Las redes de seguridad, y qué cubre cada una
@@ -1264,6 +1287,22 @@ node supabase/humo-archivos.mjs --confirmar                         # 52 comprob
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 | `humo-cuadrante.mjs` (53) | El mensaje REAL del trigger, la colisión que cruza dos tablas y la RLS de las vistas por rol | El frontend de M3 |
 | `humo-archivos.mjs` (52) | Que **R2 acepte la firma**, que el `Content-Type` esté firmado (un `PUT` que miente se rechaza), el aislamiento A/B con RLS real, y que el límite de tamaño se lea en cada petición y la caché caduque | Que el objeto rechazado por tamaño se borrara de R2 (para firmar un `GET` la fila tendría que seguir `CONFIRMED`); eso lo fija el doble de almacén en `npm test` |
+| `probe-r2-cors.mts` | Que el **preflight** pase de verdad: un `OPTIONS` con `Origin` y `Access-Control-Request-Headers` reales, y las tres cabeceras de vuelta. Antes de D16 devolvía **403 sin ninguna**; ahora **204 con las tres**, y el script sale con `exit 0` | Que lo haga **un navegador** —la sonda pide el preflight a mano—, pero es lo más cerca que se puede estar sin uno, porque Node **no** aplica CORS |
+| `limpiar-pendientes.mts` | Que el barrido separe una subida abandonada de una **en vuelo** (filtra por `LastModified`), y que borre el objeto **antes** de la fila, para que un fallo deje la fila reencontrable | Nada automático: no tiene pruebas unitarias. Su verificación es la ejecución en simulación, y el camino de escritura se probó una vez con un objeto real y una fila retrocedida 48 h |
+| `eliminar-cuenta.mjs` | Que **se niegue a borrar la cuenta** si el borrado en R2 falla —probado forzando un fallo de firma: `exit 1` y las cuatro comprobaciones (`auth.users`, `profiles`, `files_metadata`, objeto) seguían intactas—, y que el inventario vea las claves ajenas a **`auth.users`**, no sólo las que apuntan a `profiles` | Que el usuario no tenga datos fuera del esquema; y no tiene pruebas, es un script de mantenimiento |
+
+> **`information_schema` miente por omisión, y un cero se lee como «no hay nada».**
+> El inventario de `eliminar-cuenta.mjs` preguntaba por las claves ajenas a
+> `public.profiles` y salía limpio. Pero `information_schema` **sólo muestra los
+> objetos sobre los que el rol actual tiene privilegios**, y el esquema `auth`
+> pertenece a `supabase_auth_admin`: preguntar por las claves que apuntan a
+> `auth.users` devuelve **cero filas**, no un error. Cuatro claves se escapaban
+> por ahí —una de ellas `enrollments.student_id` con `CASCADE`, que habría
+> borrado las matrículas de un estudiante **en silencio**, sin que el guard de
+> referencias se disparara—. La consulta se reescribió contra **`pg_constraint`**,
+> que no filtra por propiedad. **Lección:** ante una consulta de metadatos que
+> devuelve vacío, comprueba *como qué rol* corre y *qué* está filtrando el
+> catálogo; y desconfía más de un cero que de un error.
 
 > **La red de `supabase/tests` tiene un punto ciego, y M3 lo demostró.** Corre
 > como el **dueño** de las tablas, así que **no ve los problemas de privilegios**:

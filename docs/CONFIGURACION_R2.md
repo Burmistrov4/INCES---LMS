@@ -1,11 +1,12 @@
 # Configuración de Cloudflare R2
 
-> **Estado: nada de este documento está aplicado.** Son instrucciones listas para
-> ejecutar. Las dos primeras (§2 y §3.4) son configuración de Cloudflare y
-> requieren tu autorización explícita, porque son acciones hacia fuera sobre un
-> servicio real (§6).
+> **Estado: la política de CORS está APLICADA y verificada (2026-09-19)** — la
+> Capa 7 ya puede hablar con R2 desde el navegador. El ciclo de vida también está
+> aplicado, pero **no hacía falta**: R2 ya traía la regla por defecto (§3.4).
+> Lo que queda pendiente es **código**, no configuración: el barrido de `PENDING`
+> abandonados (§3.6). Ver §6 para el estado punto por punto.
 >
-> Última medición contra el bucket real: **2026-09-18**.
+> Última medición contra el bucket real: **2026-09-19**.
 > Este documento nace de la deuda **D9** y de un hallazgo que D9 no cubría: el
 > bucket no tiene política de CORS, así que **el frontend Web no puede subir ni
 > descargar nada** aunque el backend esté en verde.
@@ -80,6 +81,29 @@ también faltan en ambos casos.
 > desarrollo. El `PUT` que devuelve **200** desde Node no contradice nada: Node no
 > aplica CORS. **La respuesta al preflight es la que decide**, y sólo el navegador
 > la emite.
+
+### ✅ RESUELTO el 2026-09-19
+
+La política de §2.3 está **aplicada y verificada** contra el bucket real. La misma
+sonda, antes y después:
+
+| Origen | Preflight **antes** | Preflight **después** |
+|---|---|---|
+| `http://localhost:8080` | **403**, las tres cabeceras ausentes | **204** · `allow-origin: http://localhost:8080` · `allow-methods: GET, PUT` · `allow-headers: content-type` |
+| `http://127.0.0.1:8080` | **403**, las tres cabeceras ausentes | **204** · las tres cabeceras presentes |
+
+`npx tsx backend/scripts/probe-r2-cors.mts` → **exit 0**. Y el `PUT` real, que
+antes respondía 200 *sin* `Access-Control-Allow-Origin`, ahora sí la trae.
+
+Confirmación independiente por la API de Cloudflare: antes de aplicar,
+`wrangler r2 bucket cors list` devolvía
+`The CORS configuration does not exist. [code: 10059]`.
+
+**El JSON aplicado está versionado en `docs/r2-cors.json`** (ya no hay que
+copiarlo del documento). Los nombres canónicos que devuelve `cors list` son
+`allowed_origins`, `allowed_methods`, `allowed_headers`, `exposed_headers` y
+`max_age_seconds`; en el archivo de entrada de wrangler se escriben
+`origins`/`methods`/`headers` dentro de `allowed`, más `maxAgeSeconds`.
 
 La documentación de Cloudflare lo dice con estas palabras: *«Without a CORS
 policy, browser-based uploads and downloads using presigned URLs will fail, even
@@ -184,15 +208,18 @@ sólo se comprueba al confirmar, con un `HeadObject` posterior. Eso deja tres fu
 | # | Fuga | ¿Se ve desde la base? | ¿La tapa el bucket? | ¿La tapa un barrido? |
 |---|---|---|---|---|
 | 1 | Se sube y **nunca se confirma** → objeto + fila `PENDING` | **Sí** (fila `PENDING`) | No | **Sí** |
-| 2 | Subida multipart **abandonada** → partes sin objeto | **No** | **Sí** | No |
-| 3 | **Cuenta borrada** → la fila cae por `ON DELETE CASCADE` y el objeto queda | **No** | **Sí** | **No** |
+| 2 | Subida multipart **abandonada** → partes sin objeto | **No** | **Sí** — y **ya estaba tapada sin saberlo**: R2 trae la regla por defecto en todo bucket (§3.4) | No |
+| 3 | **Cuenta borrada** → la fila cae por `ON DELETE CASCADE` y el objeto queda | **No** | **Sí** | Sólo **a posteriori** y **sin dueño**: `--huerfanos` lo encuentra listando el bucket, pero ya no sabe de quién era |
 
 Ninguna herramienta sustituye a la otra. Y ojo con el caso 3: **existe hoy**.
 `files_metadata.propietario_id` tiene `on delete cascade`, así que borrar la
 cuenta borra la fila y deja el objeto en R2 **sin nada que lo referencie**. El
 comentario de la propia migración dice *«el barrido del objeto en R2 lo hace el
-backend»* — y el backend no lo hace. Tampoco `supabase/eliminar-cuenta.mjs`, que
-no menciona R2 en ninguna línea.
+backend»* — y el backend no lo hace. **Resuelto el 2026-09-19**:
+`supabase/eliminar-cuenta.mjs` inventaría los objetos de la cuenta (§2b) y los
+borra **antes** de borrarla (§4b), y `backend/scripts/limpiar-pendientes.mts
+--huerfanos` encuentra a posteriori los que ya se quedaron sin fila. La base
+sigue sin poder verlos; lo que se añadió es la herramienta que mira el bucket.
 
 > **Verificado el 2026-09-18:** `files_metadata` = **0 filas**; bucket con **1
 > objeto** bajo `m5_archivos/`; su dueño **no existe** en `auth.users`. Es decir:
@@ -227,20 +254,35 @@ No es un matiz: es la diferencia entre limpiar basura y perder el trabajo de un
 semestre. **Cualquier `--expire-days` sobre `m5_archivos/` es incorrecto mientras
 el prefijo no distinga el estado.**
 
-### 3.4 Regla A — abortar subidas multipart abandonadas *(segura hoy)*
+### 3.4 Regla A — abortar subidas multipart abandonadas *(`-- ya existía --`)*
 
-Es la única regla que se puede aplicar **ya y sin riesgo**. Una subida multipart
-que nunca se completó **no es contenido**: no hay objeto, sólo partes sueltas que
-consumen cuota. No puede borrar un archivo confirmado porque no hay ninguno
-incompleto.
+> **⚠️ CORRECCIÓN del 2026-09-19: esta regla NO había que añadirla. R2 la crea por
+> defecto en cada bucket.** Antes de tocar nada, `lifecycle list` devolvía:
+>
+> ```
+> name:     Default Multipart Abort Rule
+> enabled:  Yes
+> prefix:   (all prefixes)
+> action:   Abort incomplete multipart uploads after 7 days
+> ```
+>
+> Es decir: **la fuga 2 de D9 ya estaba tapada** desde que se creó el bucket, y el
+> apartado que sigue se escribió sin comprobarlo. Se conserva porque explica el
+> *porqué* y porque **el peligro real es el contrario**: destruirla sin querer.
+> Ver §3.4.1.
 
-**Wrangler** (posición de los argumentos: `<bucket> [nombre] [prefijo]`):
+Una subida multipart que nunca se completó **no es contenido**: no hay objeto,
+sólo partes sueltas que consumen cuota. No puede borrar un archivo confirmado
+porque no hay ninguno incompleto. Por eso la regla es segura con cualquier
+prefijo, y por eso el valor por defecto de R2 es razonable.
+
+El estado final aplicado el 2026-09-19 (idéntico en efecto al de por defecto, con
+un nombre que dice para qué está), versionado en **`docs/r2-lifecycle.json`**:
 
 ```bash
-npx wrangler r2 bucket lifecycle add inces-lms-media abortar-multipart-abandonadas m5_archivos/ --abort-multipart-days 7 --force
+npx wrangler r2 bucket lifecycle set inces-lms-media --file docs/r2-lifecycle.json
+npx wrangler r2 bucket lifecycle list inces-lms-media
 ```
-
-**JSON** (para `lifecycle set --file`, o como referencia de lo que queda escrito):
 
 ```json
 {
@@ -248,7 +290,7 @@ npx wrangler r2 bucket lifecycle add inces-lms-media abortar-multipart-abandonad
     {
       "id": "abortar-multipart-abandonadas",
       "enabled": true,
-      "conditions": { "prefix": "m5_archivos/" },
+      "conditions": { "prefix": "" },
       "abortMultipartUploadsTransition": {
         "condition": { "type": "Age", "maxAge": 604800 }
       }
@@ -257,17 +299,32 @@ npx wrangler r2 bucket lifecycle add inces-lms-media abortar-multipart-abandonad
 }
 ```
 
-```bash
-npx wrangler r2 bucket lifecycle set inces-lms-media --file lifecycle.json
-npx wrangler r2 bucket lifecycle list inces-lms-media
-```
+`maxAge` va en **segundos** (`604800` = 7 días), el campo es `enabled` (no
+`status`), y **`prefix: ""` significa «todos los prefijos»**. La regla no tiene
+`deleteObjectsTransition`: sólo aborta. Es deliberado.
 
-`maxAge` va en **segundos** (`604800` = 7 días) y el campo es `enabled`, no
-`status`. La regla no tiene `deleteObjectsTransition`: sólo aborta. Es deliberado.
+#### 3.4.1 ⚠️ La trampa que sí existe: `lifecycle set` reemplaza TODAS las reglas
 
-**Panel**: R2 → `inces-lms-media` → **Settings** → *Object lifecycle rules* →
-añadir regla con prefijo `m5_archivos/` y *Abort incomplete multipart uploads*
-después de 7 días.
+`set` no añade: **sustituye la configuración entera**. En esta misma sesión, al
+aplicar la regla acotada a `m5_archivos/` se borró la de por defecto (que cubría
+todos los prefijos) y el bucket quedó **peor** que como estaba — sin protección
+para `sondas/` ni para cualquier prefijo futuro.
+
+Reglas prácticas:
+
+1. **Antes de cualquier `set`, `lifecycle list`.** Si hay reglas que no
+   recuerdas, van a desaparecer.
+2. **El archivo de `set` debe contener la configuración COMPLETA**, no sólo la
+   regla nueva. Por eso `docs/r2-lifecycle.json` incluye la regla de multipart:
+   es el estado deseado del bucket, no un parche.
+3. Para añadir una regla sin tocar las demás existe `lifecycle add`, que es
+   aditivo. `set` es para declarar el estado completo.
+4. Y lo de siempre: **abortar multipart no borra objetos completos**, así que
+   esta regla puede permitirse el lujo de cubrir todo el bucket. Una regla de
+   `deleteObjectsTransition` **no** — ahí el prefijo es la única barrera que
+   tienes (§3.3).
+
+**Panel**: R2 → `inces-lms-media` → **Settings** → *Object lifecycle rules*.
 
 ### 3.5 Regla B — expirar el tránsito de subidas sin confirmar *(necesita código)*
 
@@ -323,13 +380,23 @@ existe**:
 
 El barrido es código, no configuración, y le corresponde esto:
 
-1. Filas `estado = 'PENDING'` con `created_at` anterior a un umbral → borrar el
-   objeto de R2 y marcar la fila `DELETED`.
-2. Al borrar una cuenta, **borrar antes sus objetos** (`eliminar-cuenta.mjs` hoy
-   no los mira). El `ON DELETE CASCADE` borra la fila y deja el objeto: es el caso
-   3, y es el único que ni el barrido ni la base pueden detectar después.
-3. Necesita un planificador. En capas gratuitas: cron de GitHub Actions, o
-   `pg_cron` en Supabase.
+1. ✅ **Hecho** (2026-09-19). Filas `estado = 'PENDING'` con `created_at` anterior
+   a un umbral → borrar el objeto de R2 y marcar la fila `DELETED`.
+   `backend/scripts/limpiar-pendientes.mts`, con `--revisar-borrados` para las
+   filas `DELETED` cuyo objeto quedó residual.
+2. ✅ **Hecho** (2026-09-19). Al borrar una cuenta, **borrar antes sus objetos**.
+   El `ON DELETE CASCADE` borra la fila y deja el objeto: es el caso 3, el único
+   que la base no puede detectar después. `supabase/eliminar-cuenta.mjs` lo hace
+   en §2b (inventario) y §4b (borrado), y **se niega a borrar la cuenta si el
+   borrado en R2 falla**.
+3. ✅ **Hecho (el detector)** (2026-09-19). Objetos del bucket sin ninguna fila que
+   los referencie: el único sentido que obliga a mirar el bucket en vez de la
+   base. `limpiar-pendientes.mts --huerfanos`. Filtra por `LastModified` con el
+   mismo umbral de horas, porque entre el `PUT` y el `INSERT` de la fila el objeto
+   existe legítimamente sin fila — una subida en vuelo, no un huérfano.
+4. ⬜ **Pendiente: el planificador.** Los tres modos son manuales. En capas
+   gratuitas: cron de GitHub Actions (el repo **no tiene CI** todavía) o `pg_cron`
+   en Supabase. Hasta que exista, esto sólo corre cuando alguien se acuerda.
 
 ---
 
@@ -348,6 +415,12 @@ npx wrangler r2 bucket cors list inces-lms-media
 
 # 4) ¿Sigue funcionando el ciclo completo contra R2?
 npx tsx backend/scripts/probe-r2.mts
+
+# 5) Las tres herramientas de limpieza (todas en simulación por defecto)
+npx tsx backend/scripts/limpiar-pendientes.mts                    # filas PENDING abandonadas
+npx tsx backend/scripts/limpiar-pendientes.mts --revisar-borrados # filas DELETED con objeto residual
+npx tsx backend/scripts/limpiar-pendientes.mts --huerfanos        # objetos sin fila
+node supabase/eliminar-cuenta.mjs correo@dominio.com              # inventario de una cuenta
 ```
 
 Y las redes de seguridad del proyecto, que **no** cubren nada de esto:
@@ -356,6 +429,13 @@ Y las redes de seguridad del proyecto, que **no** cubren nada de esto:
 cd backend && npm run verify          # 468 pruebas; todas hablan con R2 desde Node
 node supabase/humo-archivos.mjs --confirmar   # 52 aserciones; ídem
 ```
+
+> **Por qué ninguna prueba del proyecto puede cubrir esto.** Node no aplica
+> CORS: un `PUT` prefirmado da 200 con o sin política, así que el fallo del
+> navegador es invisible desde el backend. Y los scripts de limpieza escriben con
+> la clave de servicio, que salta la RLS: son mantenimiento, no rutas de usuario,
+> y por eso no tienen pruebas automáticas — su verificación es la ejecución en
+> simulación que se acaba de listar.
 
 ---
 
@@ -371,17 +451,35 @@ node supabase/humo-archivos.mjs --confirmar   # 52 aserciones; ídem
 
 ---
 
-## 6. Autorización
+## 6. Estado de aplicación
 
-Nada de §2 y §3.4 está aplicado. Son acciones hacia fuera sobre un servicio real
-del proyecto, así que **esperan tu visto bueno**:
+Aplicado el **2026-09-19** con un token de API de Cloudflare (autorizado por
+Lorenzo). **El token se usó sólo como variable de entorno: no está en ningún
+archivo del repo.**
 
-- [ ] **§2.4 — política de CORS.** Bloquea la Capa 7 en el navegador. Es la que
-      más urge y la de menor riesgo: sólo *permite*, no borra nada.
-- [ ] **§3.4 — regla de abortar multipart.** Segura, sólo reclama espacio de
-      subidas rotas. Necesita un token de API de Cloudflare o `wrangler login`.
+- [x] **§2.4 — política de CORS.** ✅ **APLICADA Y VERIFICADA.** Versionada en
+      `docs/r2-cors.json`. La sonda sale con **exit 0** y el preflight pasa de 403
+      a 204 con las tres cabeceras (§2.1). Esto **desbloquea la Capa 7 en Web**.
+      Falta añadir el origen de producción cuando se despliegue.
+- [x] **§3.4 — regla de abortar multipart.** ✅ Aplicada, pero **no era
+      necesaria**: R2 ya la trae por defecto y cubre todos los prefijos. Ver la
+      corrección y la trampa de `set` en §3.4 y §3.4.1. Versionada en
+      `docs/r2-lifecycle.json`.
 - [ ] **§3.5 — Regla B.** Bloqueada por el cambio de `prefijoDeArchivo` (§3.5).
-- [ ] **§3.6 — el barrido.** Código, no configuración. Es D9 de verdad.
+      No ejecutar todavía.
+- [x] **§3.6 — el barrido.** ✅ **Hecho** (2026-09-19). Código, no configuración:
+      `backend/scripts/limpiar-pendientes.mts` (tres modos) y el borrado de
+      objetos en `supabase/eliminar-cuenta.mjs` §2b + §4b. **Era D9 de verdad.**
+- [ ] **§3.6 punto 4 — el planificador.** Los tres modos son manuales y el repo
+      **no tiene CI**. Sin esto, el barrido sólo corre cuando alguien se acuerda:
+      es lo único que queda de D9.
+- [ ] **Origen de producción en la política de CORS.** Cuando el frontend se
+      despliegue (Vercel o servidor local), añadirlo a `docs/r2-cors.json`
+      **y** a `CORS_ORIGINS` del backend: son listas independientes.
+
+> **Higiene de credenciales:** el token de API se transmitió en texto plano. Hay
+> que **borrarlo o rotarlo** en el panel de Cloudflare (My Profile → API Tokens)
+> en cuanto no haga falta. Generar otro cuesta treinta segundos.
 
 ---
 

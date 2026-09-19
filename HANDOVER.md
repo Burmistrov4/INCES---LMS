@@ -365,6 +365,15 @@ CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ese proceso, o cambiar `PORT` y ajustar `API_BASE_URL` en `.env.json`. Los tres
 valores (`PORT`, `API_BASE_URL`, `CORS_ORIGINS`) deben contar la misma historia.
 
+> **Hay DOS listas de CORS, y no se hablan.** `CORS_ORIGINS` (backend/.env) decide
+> si el navegador puede llamar a **la API**. La política del bucket de R2 decide si
+> puede hacer `PUT`/`GET` contra **el bucket**. Son independientes: añadir un
+> origen a una no lo añade a la otra, y el síntoma es idéntico en ambas —«bloqueado
+> por CORS»—, así que se confunden con facilidad. Al desplegar, actualiza **las
+> dos**. La del bucket está versionada en `docs/r2-cors.json` (D16, resuelta el
+> 2026-09-19). Y recuerda que **ninguna prueba del backend puede detectar la del
+> bucket**: Node no aplica CORS.
+
 ### 2.4 Humo del canal de invitación — MITAD-API ✅ / MITAD-UI ⚠️ arreglada, sin navegador
 
 **Mitad-API: VERIFICADA** contra la base real con `node supabase/humo-invitaciones.mjs
@@ -1067,17 +1076,30 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   REPORTE_ARIA.md R-23). FALTAN backend y frontend. `m4_inscripciones` sigue
   APAGADO en system_modules: lo enciende la Fase 2.
 - Modulos 5-8: solo diseno.
-- Deudas abiertas: D7 (verificacion de tokens en cache), D9 (URL prefirmada de
-  PUT sin limite de tamano. **Ojo: NO es solo configuracion** — la parte de bucket
-  (abortar multipart abandonadas) esta en `docs/CONFIGURACION_R2.md` §3.4, y el
-  resto es el barrido de `PENDING` abandonados, que el propio codigo ya nombra en
-  `rutas/archivos.ts:282` y que **no existe**; ademas una regla `--expire-days`
-  sobre `m5_archivos/` borraria los archivos CONFIRMED porque R2 solo filtra por
-  prefijo). **Ya no se puede decir "latente, M5 apagado"**: `exigirModulo()` esta
-  definido y no se usa en ninguna ruta, asi que la API sirve M5 igual. D16 (el
-  bucket no tiene politica de CORS: un navegador no puede usar las URLs
-  prefirmadas; **bloquea la Capa 7 en Web**. Ver `docs/CONFIGURACION_R2.md` §2 y
-  la sonda `backend/scripts/probe-r2-cors.mts`).
+- Deudas abiertas: D7 (verificacion de tokens en cache). D9 (URL prefirmada de
+  PUT sin limite de tamano) — **la mitad de codigo ya esta hecha** (2026-09-19):
+  el barrido de `PENDING` abandonados que `rutas/archivos.ts:282` nombraba y que
+  NO existia es `backend/scripts/limpiar-pendientes.mts` (tres modos: barrido,
+  `--revisar-borrados` y `--huerfanos`), y `supabase/eliminar-cuenta.mjs` borra
+  los objetos de R2 ANTES de la cuenta, negandose a borrarla si eso falla. Lo
+  unico que falta es QUIEN los ejecute: los modos son manuales y el repo no tiene
+  CI. La parte de bucket resulto estar tapada de fabrica (R2 trae la regla de
+  abortar multipart por defecto en todo prefijo; ver `docs/CONFIGURACION_R2.md`
+  §3.4). Ojo: una regla `--expire-days` sobre `m5_archivos/` borraria los archivos
+  CONFIRMED porque R2 solo filtra por prefijo. **Ya no se puede decir "latente,
+  M5 apagado"**: `exigirModulo()` esta definido y no se usa en ninguna ruta, asi
+  que la API sirve M5 igual.
+- **D16 RESUELTA (2026-09-19)**: el bucket ya tiene politica de CORS, aplicada y
+  verificada (el preflight pasa de 403 sin cabeceras a 204 con las tres; la sonda
+  `backend/scripts/probe-r2-cors.mts` sale con exit 0). **Desbloquea la Capa 7 en
+  Web.** Falta anadir el origen de produccion a la politica Y a `CORS_ORIGINS`
+  (son listas independientes). Versionada en `docs/r2-cors.json`.
+- CORRECCION M4 (2026-09-19): esta linea decia que `m4_inscripciones` seguia
+  APAGADO y que faltaban backend y frontend. Es DERIVA. Verificado contra la base
+  y el repo: `m4_inscripciones.habilitado = true`; existe
+  `backend/src/http/rutas/inscripciones.ts`; y existen
+  `lib/screens/admin/cpanel_inscripciones_panel.dart`, su gateway, servicio,
+  repositorio y modelo. Comprueba el alcance real antes de reabrirlo.
 - Resueltas: D8, D10, D11, D12, D13.
 - Decisiones que NO son tuyas (R-06 ya resuelta: el lapso vigente es `SA26-2` y m2/m3 habilitados):
   R-16 (frontera de turnos), R-17 (fechas del lapso), R-18 (inventario de aulas).

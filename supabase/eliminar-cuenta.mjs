@@ -23,6 +23,7 @@
  *   node supabase/eliminar-cuenta.mjs correo@dominio.com --confirmar  # borra
  *   node supabase/eliminar-cuenta.mjs correo@dominio.com --desactivar --confirmar
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -151,34 +152,122 @@ if (!perfil) {
 }
 
 // ── 2. Qué la referencia ─────────────────────────────────────────────────────
+// Se le pregunta a `pg_constraint`, **no** a `information_schema`. El motivo
+// importa: `information_schema` sólo muestra los objetos sobre los que el rol
+// actual tiene privilegios, y el esquema `auth` pertenece a
+// `supabase_auth_admin`. Una consulta a `information_schema` por las claves
+// ajenas que apuntan a `auth.users` devuelve **cero filas**, y un cero se lee
+// igual que "no hay nada". Medido el 2026-09-19: así se escapaban cuatro
+// claves, una de ellas `enrollments.student_id` con CASCADE — es decir, borrar
+// una cuenta de estudiante habría destruido sus matrículas en silencio, sin que
+// el guard de §4 se disparara.
 console.log('\n  Lo que referencia a esta cuenta:');
 
 const fks = await sql(
-  `select tc.table_name, kcu.column_name
-   from information_schema.table_constraints tc
-   join information_schema.key_column_usage kcu
-     on tc.constraint_name = kcu.constraint_name
-   join information_schema.constraint_column_usage ccu
-     on tc.constraint_name = ccu.constraint_name
-   where tc.constraint_type = 'FOREIGN KEY'
-     and ccu.table_name = 'profiles'
-     and tc.table_schema = 'public'`,
+  `select cl.relname as tabla,
+          att.attname as columna,
+          fnsp.nspname || '.' || fcl.relname as destino,
+          case con.confdeltype
+            when 'c' then 'CASCADE' when 'n' then 'SET NULL'
+            when 'r' then 'RESTRICT' when 'd' then 'SET DEFAULT'
+            else 'NO ACTION' end as al_borrar
+   from pg_constraint con
+   join pg_class cl       on cl.oid = con.conrelid
+   join pg_namespace nsp  on nsp.oid = cl.relnamespace
+   join pg_class fcl      on fcl.oid = con.confrelid
+   join pg_namespace fnsp on fnsp.oid = fcl.relnamespace
+   join pg_attribute att  on att.attrelid = con.conrelid and att.attnum = con.conkey[1]
+   where con.contype = 'f'
+     and nsp.nspname = 'public'
+     and (   (fnsp.nspname = 'public' and fcl.relname = 'profiles')
+          or (fnsp.nspname = 'auth'   and fcl.relname = 'users'))
+     and not (cl.relname = 'profiles' and att.attname = 'id')
+   order by destino, tabla, columna`,
 );
 
-let referencias = 0;
+// `files_metadata` no bloquea: sus filas se borran a propósito (§4b), pero los
+// objetos de R2 se borran antes.
+const GESTIONADA = 'files_metadata';
+
+let bloquean = 0;
+let pierdenEnlace = 0;
+let gestionadas = 0;
+const bloqueantes = [];
+
 for (const fk of fks) {
   const filas = await sql(
-    `select count(*)::int as n from public.${fk.table_name}
-     where ${fk.column_name} = '${cuenta.id}'`,
+    `select count(*)::int as n from public.${fk.tabla}
+     where ${fk.columna} = '${cuenta.id}'`,
   );
   const n = filas[0]?.n ?? 0;
-  if (n > 0) {
-    referencias += n;
-    console.log(`    ${fk.table_name}.${fk.column_name}: ${n} fila(s)  ← BLOQUEA el borrado`);
+  if (n === 0) continue;
+
+  const etiqueta = `${fk.tabla}.${fk.columna}`.padEnd(34);
+  const via = (fk.destino === 'auth.users' ? 'auth.users' : 'profiles').padEnd(11);
+
+  if (fk.tabla === GESTIONADA) {
+    gestionadas += n;
+    console.log(`    ${etiqueta} ${via} ${fk.al_borrar.padEnd(9)} ${n} fila(s)  (se borran a propósito, §4b)`);
+  } else if (fk.al_borrar === 'CASCADE') {
+    bloquean += n;
+    bloqueantes.push(fk);
+    console.log(`    ${etiqueta} ${via} ${fk.al_borrar.padEnd(9)} ${n} fila(s)  ← BLOQUEA: las destruiría`);
+  } else if (fk.al_borrar === 'RESTRICT' || fk.al_borrar === 'NO ACTION') {
+    bloquean += n;
+    bloqueantes.push(fk);
+    console.log(`    ${etiqueta} ${via} ${fk.al_borrar.padEnd(9)} ${n} fila(s)  ← BLOQUEA: el borrado fallaría`);
+  } else {
+    pierdenEnlace += n;
+    console.log(`    ${etiqueta} ${via} ${fk.al_borrar.padEnd(9)} ${n} fila(s)  (sobrevive, pierde el dueño)`);
   }
 }
-if (referencias === 0) {
+
+const referencias = bloquean;
+
+if (bloquean === 0 && pierdenEnlace === 0 && gestionadas === 0) {
   console.log('    (nada la referencia: el borrado es limpio)');
+} else if (bloquean === 0) {
+  console.log('    (nada bloquea el borrado)');
+}
+
+// `auth_logs.user_id` apunta al usuario **sin clave ajena** (por convención), así
+// que ninguna consulta de constraints lo va a encontrar. Se dice explícitamente
+// para que su ausencia en la lista de arriba no se confunda con "no existe".
+const logs = await sql(
+  `select count(*)::int as n from public.auth_logs where user_id = '${cuenta.id}'`,
+);
+if ((logs[0]?.n ?? 0) > 0) {
+  console.log(
+    `    auth_logs.user_id                  (sin clave ajena)  ${logs[0].n} fila(s)  ` +
+      '(sobrevive: es un registro de auditoría)',
+  );
+}
+
+// ── 2b. Los objetos de R2 (M5) ───────────────────────────────────────────────
+// Esto **no lo ve la consulta de claves ajenas de arriba**: `files_metadata`
+// referencia `auth.users`, no `profiles`, y además tiene `ON DELETE CASCADE`. Es
+// decir: no bloquea el borrado, y ése es justo el problema. Al caer la fila, el
+// objeto de R2 se queda sin nada que lo referencie y ya no hay forma de
+// encontrarlo. Hay que borrarlo **antes**.
+const archivos = await sql(
+  `select id, r2_key, estado, tamano_bytes
+   from public.files_metadata
+   where propietario_id = '${cuenta.id}'
+   order by created_at`,
+);
+
+console.log('\n  Objetos en R2 (M5):');
+if (archivos.length === 0) {
+  console.log('    (ninguno)');
+} else {
+  for (const a of archivos) {
+    const tamano = a.tamano_bytes === null ? 'sin sellar' : `${a.tamano_bytes} B`;
+    console.log(`    [${a.estado}] ${tamano}  ${a.r2_key}`);
+  }
+  console.log(
+    `\n    ${archivos.length} objeto(s). **El CASCADE borrará estas filas y dejará los\n` +
+      '    objetos en el bucket, invisibles para siempre.** Se borran antes (§4).',
+  );
 }
 
 // ── 3. La barrera D8 ─────────────────────────────────────────────────────────
@@ -210,13 +299,23 @@ if (!confirmar) {
     `\n  SIMULACIÓN. Para ${desactivarEnLugar ? 'desactivar' : 'borrar'} de verdad:\n` +
       `    node supabase/eliminar-cuenta.mjs ${email}${desactivarEnLugar ? ' --desactivar' : ''} --confirmar\n`,
   );
+  if (archivos.length > 0 && !desactivarEnLugar) {
+    console.log(
+      `  Además se borrarán los ${archivos.length} objeto(s) de R2 listados arriba\n` +
+        '  —los objetos primero, la cuenta después—.\n',
+    );
+  }
   process.exit(0);
 }
 
 if (referencias > 0 && !desactivarEnLugar) {
   console.error(
-    '\n  Hay referencias a esta cuenta. Borrarla exigiría borrarlas antes, y eso\n' +
-      '  puede destruir historial real (actas, asistencias, entregas).\n' +
+    '\n  Hay referencias que el borrado destruiría o que lo harían fallar:\n' +
+      bloqueantes
+        .map((f) => `    · ${f.tabla}.${f.columna}  (${f.al_borrar} vía ${f.destino})`)
+        .join('\n') +
+      '\n\n  Borrarla exigiría borrarlas antes, y eso puede destruir historial real\n' +
+      '  (matrículas, actas, asistencias, entregas).\n' +
       '  Usa --desactivar: la cuenta deja de poder entrar y conserva el historial.\n',
   );
   process.exit(1);
@@ -228,6 +327,36 @@ if (desactivarEnLugar) {
   );
   console.log('\n  Cuenta desactivada. No puede entrar, el historial queda intacto.\n');
   process.exit(0);
+}
+
+// ── 4b. Los objetos de R2, ANTES que la cuenta ───────────────────────────────
+// El orden no es negociable. Si se borrara la cuenta primero, el CASCADE haría
+// desaparecer las filas de `files_metadata` y con ellas la única pista de qué
+// claves hay en el bucket: los objetos quedarían ahí para siempre, sin dueño y
+// sin forma de encontrarlos. Borrando primero, un fallo se ve a tiempo y la
+// operación se puede repetir.
+if (archivos.length > 0) {
+  console.log('\n  Borrando los objetos de R2 (objetos primero, cuenta después)…');
+  const resultado = spawnSync(
+    process.execPath,
+    [
+      join(RAIZ, 'backend', 'scripts', 'borrar-objetos-de-usuario.mjs'),
+      `--propietario=${cuenta.id}`,
+      '--confirmar',
+    ],
+    { stdio: 'inherit' },
+  );
+
+  if (resultado.status !== 0) {
+    console.error(
+      '\n  ALTO: no se pudieron borrar los objetos de R2. NO se borra la cuenta.\n' +
+        '  En cuanto el CASCADE elimine las filas, esos objetos quedarán sin dueño\n' +
+        '  y sin forma de encontrarlos. Arréglalo y vuelve a intentarlo.\n',
+    );
+    process.exit(1);
+  }
+} else {
+  console.log('\n  Sin objetos de R2 que borrar.');
 }
 
 // El perfil primero: si se borrara el usuario y fallara el perfil, quedaría un

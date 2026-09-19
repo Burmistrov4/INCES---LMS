@@ -1,0 +1,17 @@
+{
+  "rules": [
+    {
+      "id": "abortar-multipart-abandonadas",
+      "enabled": true,
+      "conditions": {
+        "prefix": ""
+      },
+      "abortMultipartUploadsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 604800
+        }
+      }
+    }
+  ]
+}
