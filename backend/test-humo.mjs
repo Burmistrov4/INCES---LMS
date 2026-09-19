@@ -29,12 +29,12 @@ const API = process.env.API_BASE_URL ?? 'http://127.0.0.1:3000';
  * Cuenta de administrador con la que el humo se autentica.
  *
  * **El guion NO es un error de dedo.** La cuenta real de Lorenzo es
- * `lorenzo-roca11@hotmail.com` (con guion) y tiene rol `admin`. Existe además
- * una cuenta *sin* guion, `lorenzoroca11@hotmail.com`, que es un `estudiante`:
- * si el humo entra con ella, la API responde 403 en todo lo administrativo y
- * las ocho comprobaciones de permisos fallan como si el sistema estuviera roto.
- * Verificado contra la nube el 2026-09-18 — y por eso este valor ya no se deja
- * a un `??` silencioso sin explicación.
+ * `lorenzo-roca11@hotmail.com` (con guion) y tiene rol `admin`. Existía además
+ * una cuenta *sin* guion, `lorenzoroca11@hotmail.com`, que era un `estudiante`
+ * (eliminada de la base el 2026-09-18): cuando el humo entraba con ella, la API
+ * respondía 403 en todo lo administrativo y las ocho comprobaciones de permisos
+ * fallaban como si el sistema estuviera roto. El valor se fija aquí explícito y
+ * documentado —ya no con un `??` silencioso— para que ese fallo no se repita.
  */
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'lorenzo-roca11@hotmail.com';
 

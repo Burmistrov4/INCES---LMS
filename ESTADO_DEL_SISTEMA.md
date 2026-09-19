@@ -226,32 +226,34 @@ cuando **era la dirección correcta**. La cuenta original se había creado sin
 guion, y por eso Supabase no encontraba al usuario real al solicitar la
 recuperación.
 
-La cuenta sin guion (`lorenzoroca11@hotmail.com`) **se intentó** eliminar el
-2026-09-13 con `supabase/eliminar-cuenta.mjs`, tras comprobar que ninguna tabla
-la referenciaba. El script hace ese inventario antes de borrar y **se niega a
-proceder** si encuentra referencias: `profiles.id` es el `auth.uid()` de todas
-las políticas RLS, y borrarlo con filas apuntando a él dejaría registros colgando
-de un usuario inexistente. También verifica D8 antes de intentarlo, para no
-chocar con `proteger_ultimo_admin` y recibir un error de Postgres que no explica
+La cuenta sin guion (`lorenzoroca11@hotmail.com`) **ya no existe**: se eliminó el
+2026-09-18 con `supabase/eliminar-cuenta.mjs --confirmar`, tras comprobar que
+ninguna tabla la referenciaba. El script hace ese inventario antes de borrar y
+**se niega a proceder** si encuentra referencias: `profiles.id` es el `auth.uid()`
+de todas las políticas RLS, y borrarlo con filas apuntando a él dejaría registros
+colgando de un usuario inexistente. También verifica D8 antes de intentarlo, para
+no chocar con `proteger_ultimo_admin` y recibir un error de Postgres que no explica
 nada.
 
-> ⚠️ **Corrección del 2026-09-18: esa cuenta sigue existiendo.** Aquí decía «fue
-> eliminada», y la base real dice otra cosa. `lorenzoroca11@hotmail.com` está
-> registrada —`id c05df98e-d35b-45f9-9ffc-9722883f33ed`, rol `estudiante`,
-> `active = true`, correo confirmado— con `created_at` del **2026-09-13T17:09:38Z**,
-> unas **tres horas y media después** de que naciera la cuenta buena (13:43:04Z).
-> Es decir: o la eliminación no dejó el sistema sin esa cuenta, o se volvió a crear
-> justo después. Lo que no cabe es dar por hecho que ya no está.
+> **Resuelto el 2026-09-18.** Un intento anterior (2026-09-13) se dio por bueno sin
+> serlo: la cuenta seguía registrada —`id c05df98e-d35b-45f9-9ffc-9722883f33ed`,
+> rol `estudiante`, `active = true`, correo confirmado— con `created_at` del
+> **2026-09-13T17:09:38Z**, unas **tres horas y media después** de que naciera la
+> cuenta buena (13:43:04Z). Aquí decía «fue eliminada» y la base real decía otra
+> cosa; de ahí la regla de no dar por hecho un borrado sin volver a consultarlo.
 >
 > **Y tuvo un costo real, ya pagado.** Era la dirección que `backend/test-humo.mjs`
 > usaba **por defecto**, así que el humo se autenticaba como *estudiante*: la API
 > respondía 403 en todo lo administrativo y **ocho de las veinticuatro
 > comprobaciones fallaban** —incluidas las del invariante D8 y la de la bandera de
-> M5— presentándose como un fallo del sistema cuando era un fallo del test. Corregido
-> el valor por defecto a la cuenta con guion; el humo pasa **24/24**.
+> M5— presentándose como un fallo del sistema cuando era un fallo del test. El valor
+> por defecto se corrigió a la cuenta con guion (`16dca2a`) y el humo pasó a 24/24.
 >
-> Queda **a decisión de Lorenzo** si esa cuenta se elimina. No se tocó: borrar una
-> cuenta no tiene papelera y no era el objetivo de esta sesión.
+> Borrado efectivo y **verificado contra la nube**: 0 filas en `auth.users`,
+> `auth.identities` y `public.profiles`; 0 referencias huérfanas en las tablas de
+> `public`; la cuenta real `lorenzo-roca11@hotmail.com` (`58ae64d2-…`) sigue con rol
+> `admin`, `active = true`, correo confirmado, y sigue siendo el **único** admin
+> activo. La tabla de arriba ya refleja el estado real: una sola cuenta.
 
 > **Regla para el futuro:** un script que borra datos de producción se escribe
 > primero en modo simulación, y no escribe hasta que se le pasa `--confirmar`.
