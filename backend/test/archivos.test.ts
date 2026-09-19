@@ -9,6 +9,7 @@ import {
   ID_ADMIN,
   ID_ALUMNO,
   ID_ARCHIVO_CONFIRMADO,
+  MODULOS_POR_DEFECTO,
   parametro,
   TAMANO_ARCHIVO_CONFIRMADO,
   TOKEN_ADMIN,
@@ -216,6 +217,68 @@ describe('despliegue sin almacenamiento configurado', () => {
     });
 
     expect(respuesta.statusCode).toBe(200);
+  });
+});
+
+describe('la guardia del módulo (m5_archivos)', () => {
+  /** El arnés con `m5_archivos` apagado, como si el administrador lo apagara. */
+  function conModuloApagado(): Arnés {
+    return crearArnés({
+      modulos: MODULOS_POR_DEFECTO.map((m) =>
+        m.clave === 'm5_archivos' ? { ...m, habilitado: false } : m,
+      ),
+    });
+  }
+
+  it('con el módulo apagado, las cinco rutas responden 403 y no llegan a tocar nada', async () => {
+    // Ésta es la prueba que da sentido a la bandera, y sin ella la guardia sería
+    // fe. El módulo arranca **encendido**, así que una guardia cableada a la
+    // clave equivocada —`m5_archivo`, sin la ese final— nunca se notaría: todas
+    // las demás pruebas seguirían verdes. Apagarlo es la única forma de
+    // distinguir «la guardia funciona» de «la guardia no se ejecuta».
+    const arnes = conModuloApagado();
+    app = arnes.app;
+
+    const archivosAntes = arnes.estado.archivos.length;
+    const objetosAntes = arnes.almacenamiento.objetos.size;
+
+    for (const ruta of RUTAS) {
+      // El borrado administrativo va con el token de admin: con el del alumno
+      // saltaría antes el 403 SOLO_ADMIN de `exigirAdmin()` y la prueba estaría
+      // comprobando la guardia de rol, no la del módulo.
+      const esAdmin = ruta.url.startsWith('/api/v1/admin');
+      const respuesta = await app.inject({
+        method: ruta.method,
+        url: ruta.url,
+        headers: conToken(esAdmin ? TOKEN_ADMIN : TOKEN_ALUMNO),
+      });
+
+      expect(respuesta.statusCode, `${ruta.method} ${ruta.url}`).toBe(403);
+      expect(respuesta.json().error.codigo).toBe('MODULO_DESHABILITADO');
+    }
+
+    // Y el corte ocurre **antes** del efecto: ni una fila reservada de más, ni un
+    // objeto borrado, ni un objeto nuevo. Una guardia que dejara pasar la
+    // escritura y fallara al responder no sería una guardia, sería un 403 que
+    // esconde un daño ya hecho.
+    expect(arnes.estado.archivos).toHaveLength(archivosAntes);
+    expect(arnes.almacenamiento.objetos.size).toBe(objetosAntes);
+    expect(arnes.almacenamiento.borrados).toEqual([]);
+  });
+
+  it('sin la fila del módulo el error es 404 MODULO_DESCONOCIDO, y no 403', async () => {
+    // La distinción no es cosmética. `comprobarModulo` separa «no está
+    // registrado» de «está apagado» a propósito: confundirlos manda a buscar el
+    // problema al sitio equivocado —a la bandera, cuando lo que falta es la
+    // semilla—. Es exactamente el error que habría dado el arnés si esta fila se
+    // hubiera añadido con un `habilitado: true` sobre una clave mal escrita.
+    const arnes = crearArnés({ modulos: [] });
+    app = arnes.app;
+
+    const respuesta = await firmar(arnes);
+
+    expect(respuesta.statusCode).toBe(404);
+    expect(respuesta.json().error.codigo).toBe('MODULO_DESCONOCIDO');
   });
 });
 

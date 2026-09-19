@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/result.dart';
+import '../models/archivo.dart';
 import '../models/aspirante_model.dart';
 import '../models/inscripcion.dart';
 import '../repositories/aspirante_repository.dart';
@@ -12,6 +13,7 @@ import '../services/auth_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'gestor_documental_panel.dart';
 
 /// Panel del aspirante y del estudiante.
 ///
@@ -71,6 +73,16 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       disponible: false,
     ),
     ItemNavegacion(
+      icono: Icons.assignment_turned_in_outlined,
+      titulo: 'Mis entregas',
+      categoria: 'Académico',
+      disponible: true,
+    ),
+    // Sigue apagada, y NO por falta de interfaz: descargar el material que sube
+    // el docente exige LISTAR los archivos de una entidad, y esa ruta no existe
+    // —las cinco de M5 firman, confirman, leen y borran, pero no listan—. El
+    // panel de subida no la sustituye: un estudiante no sube guías.
+    ItemNavegacion(
       icono: Icons.folder_open_outlined,
       titulo: 'Material de apoyo',
       categoria: 'Académico',
@@ -128,15 +140,38 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
     );
   }
 
+  /// Contenido de la sección seleccionada.
+  ///
+  /// **`switch` por TÍTULO y no por índice**, igual que el cPanel. Estaba por
+  /// índice, y eso ata la rama a la POSICIÓN del ítem: al insertar «Mis
+  /// entregas» antes de «Material de apoyo», `case 4` habría pasado a abrir una
+  /// sección distinta sin que nada avisara. Con el título, insertar o mover un
+  /// ítem no cambia a dónde lleva.
+  ///
+  /// Es además lo que permite que `test/menu_alcanzable_test.dart` compruebe el
+  /// contrato leyendo este archivo. Es la red que faltaba cuando R-22.
   Widget _contenido() {
     final item = _items[_seleccionada];
-    switch (_seleccionada) {
-      case 0:
+
+    switch (item.titulo) {
+      case 'Mi inscripción':
         return _panelMiInscripcion();
-      case 1:
+
+      case 'Ofertas de cupos':
         return PanelOfertas(repositorio: _inscripciones);
-      case 2:
+
+      case 'Mis inscripciones':
         return PanelMisInscripciones(repositorio: _inscripciones);
+
+      case 'Mis entregas':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const GestorDocumentalPanel(
+            entityType: TipoEntidadArchivo.taskSubmission,
+            subtitulo: 'Sube aquí los trabajos que te pida el docente.',
+          ),
+        );
+
       default:
         // Secciones aún no construidas: se muestran atenuadas en el menú y, si
         // alguien llega aquí, un panel vacío que explica por qué.

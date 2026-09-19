@@ -1086,14 +1086,57 @@ ESTADO ACTUAL (verificado el 2026-09-18, no estimado)
   CI. La parte de bucket resulto estar tapada de fabrica (R2 trae la regla de
   abortar multipart por defecto en todo prefijo; ver `docs/CONFIGURACION_R2.md`
   §3.4). Ojo: una regla `--expire-days` sobre `m5_archivos/` borraria los archivos
-  CONFIRMED porque R2 solo filtra por prefijo. **Ya no se puede decir "latente,
-  M5 apagado"**: `exigirModulo()` esta definido y no se usa en ninguna ruta, asi
-  que la API sirve M5 igual.
+  CONFIRMED porque R2 solo filtra por prefijo. **OJO: la frase "latente, M5
+  apagado" que habia aqui YA NO VALE** (2026-09-19): decia que `exigirModulo()`
+  estaba definido y sin usar, y que por tanto la API servia M5 igual. Es cierto
+  que era asi, y por eso estaba escrito; lo que cambio es que ya no lo es. Ver la
+  entrada de M5 mas abajo.
 - **D16 RESUELTA (2026-09-19)**: el bucket ya tiene politica de CORS, aplicada y
   verificada (el preflight pasa de 403 sin cabeceras a 204 con las tres; la sonda
   `backend/scripts/probe-r2-cors.mts` sale con exit 0). **Desbloquea la Capa 7 en
   Web.** Falta anadir el origen de produccion a la politica Y a `CORS_ORIGINS`
   (son listas independientes). Versionada en `docs/r2-cors.json`.
+- **M5 CERRADO EN LOCAL (2026-09-19): la Capa 7, la bandera y la guardia.** Las
+  tres cosas en el mismo ciclo:
+  (1) **Capa 7 (UI)**: `lib/screens/gestor_documental_panel.dart` orquesta los
+  tres pasos a mano —firmar en el backend, `PUT` directo a R2, confirmar— y esta
+  montado en el panel del docente (`teacherGuide`) y en el del aspirante
+  (`taskSubmission`), con 19 pruebas de widget. `flutter test` **387/387**.
+  (2) **La bandera**: `202609210002_mod5_habilitar_modulo.sql` pone
+  `habilitado = true`. NO se edito `202609210001` (el validador SHA-256 detecta
+  deriva). El nombre NO es `202609190001` como decia el plan: esa version ya esta
+  tomada por `mod4_inscripciones` y ademas ordenaria ANTES de `202609210001`, es
+  decir antes de que exista la tabla que la fila necesita.
+  (3) **La guardia**: las 5 rutas de `rutas/archivos.ts` llevan ya
+  `exigirModulo(deps.caches.modulos, 'm5_archivos')`. Ojo: `exigirModulo` es una
+  FABRICA de **dos** argumentos (cache, clave), no un hook; el plan la pasaba con
+  uno. Va SIEMPRE despues de `exigirSesion()` / `exigirAdmin()`: al reves, una
+  peticion anonima recibiria 404/403 en vez del **401** que exige
+  `openapi.test.ts`, que inyecta cada ruta documentada sin token.
+  **M5 es ahora el unico modulo cuyo apagado tiene efecto en la API**; en M1-M4 la
+  bandera sigue siendo decorativa a nivel de API. Es deuda conocida, no descuido.
+- **PENDIENTE DE UNA PERSONA: aplicar `202609210002` a la nube.** Hasta entonces
+  la nube tiene `m5_archivos` apagado y **dos verificadores daran 1 fallo cada
+  uno** —`backend/test-humo.mjs` **23/24** y `supabase/verificar-esquema.mjs**
+  **98/99**— porque su asercion ya exige el modulo encendido. **No es una
+  regresion y no hay que bajar la asercion**: es la comprobacion funcionando.
+  Aplicada la migracion, los dos vuelven a verde sin tocar nada.
+- **Correcciones al plan de este ciclo, por si se relee.** Eran **cuatro**
+  aserciones desactualizadas a proposito, no tres: faltaba `backend/test-humo.mjs`.
+  Y `supabase/tests/validate.mjs` tenia **dos** que cambiar, no una — la del estado
+  inicial y la de **idempotencia**, que reaplica `202609210001` y ahora espera
+  ENCENDIDO. El valor nuevo es el que ensena algo: reaplicar una migracion vieja
+  **no puede deshacer** una posterior. Ademas `MODULOS_POR_DEFECTO` del arnes **no
+  tenia** la fila `m5_archivos`: habia que AÑADIRLA, no ponerla en `true`, o la
+  guardia habria devuelto 404 `MODULO_DESCONOCIDO` en vez de dejar pasar. Y el
+  contrato OpenAPI necesitaba el `403` en **3 de las 5** rutas: era alcanzable y
+  no estaba declarado.
+- **Pruebas nuevas que dan sentido a la bandera** (`test/archivos.test.ts`, 34 ->
+  36): una apaga el modulo y exige 403 `MODULO_DESHABILITADO` en las cinco rutas
+  **sin efecto colateral** (ni fila reservada, ni objeto borrado); la otra, sin la
+  fila del modulo, exige **404 `MODULO_DESCONOCIDO`**. Sin la primera, una guardia
+  cableada a la clave equivocada habria pasado inadvertida, porque el modulo
+  arranca encendido y todas las demas pruebas seguirian verdes.
 - CORRECCION M4 (2026-09-19): esta linea decia que `m4_inscripciones` seguia
   APAGADO y que faltaban backend y frontend. Es DERIVA. Verificado contra la base
   y el repo: `m4_inscripciones.habilitado = true`; existe

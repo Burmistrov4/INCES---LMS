@@ -823,10 +823,31 @@ export interface OpcionesArnés {
   settingsCacheTtlMs?: number;
 }
 
-const MODULOS_POR_DEFECTO: ModuloSistema[] = [
+/**
+ * La semilla de `system_modules` del arnés.
+ *
+ * Se exporta para que una prueba pueda **variar una sola fila** —apagar un
+ * módulo, como haría el administrador desde el cPanel— sin reescribir la lista
+ * entera. Copiar la semilla en la prueba para cambiar un booleano es la forma
+ * segura de que las dos copias se desvíen.
+ */
+export const MODULOS_POR_DEFECTO: ModuloSistema[] = [
   modulo({ clave: 'm0_cpanel', nombre: 'Administrador Maestro', orden: 0, rolesPermitidos: ['admin'] }),
   modulo({ clave: 'm1_onboarding', nombre: 'Autenticación', orden: 10 }),
   modulo({ clave: 'm4_inscripciones', nombre: 'Inscripciones', orden: 40, habilitado: false }),
+  // M5 se siembra **encendido**, como queda en la nube tras `202609210002`.
+  //
+  // Y no basta con «ponerlo en true»: la fila **no existía** en esta semilla. Eso
+  // importa porque las cinco rutas de archivos llevan la guardia
+  // `exigirModulo('m5_archivos')` y `comprobarModulo` distingue tres fallos, no
+  // uno: sin la fila el error sería **404 `MODULO_DESCONOCIDO`** («no está
+  // registrado»), no 403 `MODULO_DESHABILITADO` («está apagado»). Las 34 pruebas
+  // de `archivos.test.ts` habrían fallado por un motivo que no es el suyo y el
+  // diagnóstico habría apuntado al sitio equivocado.
+  //
+  // El `habilitado: true` se escribe explícito aunque `modulo()` ya lo ponga por
+  // defecto: es la mitad del asunto de esta fila y conviene que se lea.
+  modulo({ clave: 'm5_archivos', nombre: 'Almacenamiento de Archivos', orden: 50, habilitado: true }),
 ];
 
 const PARAMETROS_POR_DEFECTO: ParametroSistema[] = [

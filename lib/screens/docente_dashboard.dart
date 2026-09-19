@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../models/archivo.dart';
 import '../services/auth_service.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'gestor_documental_panel.dart';
 import 'mi_horario_panel.dart';
 
 /// Panel del docente.
@@ -53,7 +55,7 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       icono: Icons.folder_open_outlined,
       titulo: 'Material de apoyo',
       categoria: 'Recursos',
-      disponible: false,
+      disponible: true,
     ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
@@ -85,39 +87,61 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
     );
   }
 
+  /// Contenido de la sección seleccionada.
+  ///
+  /// **`switch` por TÍTULO y no por índice**, igual que el cPanel. El índice ata
+  /// la rama a la POSICIÓN del ítem: insertar una sección en medio desplaza
+  /// todas las siguientes y el `case 3` pasa a abrir otro panel sin que nada
+  /// avise. Con el título, mover un ítem no cambia a dónde lleva.
+  ///
+  /// Es además lo que permite que `test/menu_alcanzable_test.dart` compruebe el
+  /// contrato leyendo este archivo: compara las ramas `case 'X'` con las
+  /// secciones que tienen `disponible: true`, y esa comparación sólo se puede
+  /// hacer si las ramas nombran los títulos. Es la red que faltaba cuando R-22.
   Widget _contenido() {
-    if (_seleccionada == 0) {
-      return ContenidoSeccion(
-        migas: const ['Inicio', 'Control de aulas', 'Mis aulas'],
-        child: PanelVacio(
-          titulo: 'Todavía no tienes aulas asignadas',
-          mensaje:
-              'Cuando la coordinación del centro te asigne secciones, '
-              'aparecerán aquí con su horario y su lista de estudiantes.',
-          icono: Icons.class_outlined,
-          nota:
-              'Depende del módulo Currículo y Cuadrante, que está apagado. '
-              'El Administrador Maestro lo activa desde su panel.',
-        ),
-      );
-    }
-
     final item = _items[_seleccionada];
 
-    if (item.titulo == 'Mi horario') {
-      return ContenidoSeccion(
-        migas: ['Inicio', item.categoria, item.titulo],
-        child: MiHorarioPanel(),
-      );
-    }
+    switch (item.titulo) {
+      case 'Mis aulas':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const PanelVacio(
+            titulo: 'Todavía no tienes aulas asignadas',
+            mensaje:
+                'Cuando la coordinación del centro te asigne secciones, '
+                'aparecerán aquí con su horario y su lista de estudiantes.',
+            icono: Icons.class_outlined,
+            nota:
+                'Depende del módulo Currículo y Cuadrante, que está apagado. '
+                'El Administrador Maestro lo activa desde su panel.',
+          ),
+        );
 
-    return ContenidoSeccion(
-      migas: ['Inicio', item.categoria, item.titulo],
-      child: PanelVacio(
-        titulo: item.titulo,
-        mensaje: 'Esta sección está pendiente de construir.',
-        icono: item.icono,
-      ),
-    );
+      case 'Mi horario':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: MiHorarioPanel(),
+        );
+
+      case 'Material de apoyo':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const GestorDocumentalPanel(
+            entityType: TipoEntidadArchivo.teacherGuide,
+            subtitulo: 'Sube guías y material para tus estudiantes. Quedarán '
+                'guardados en el almacenamiento del centro.',
+          ),
+        );
+
+      default:
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: PanelVacio(
+            titulo: item.titulo,
+            mensaje: 'Esta sección está pendiente de construir.',
+            icono: item.icono,
+          ),
+        );
+    }
   }
 }

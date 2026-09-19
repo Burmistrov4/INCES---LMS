@@ -6805,6 +6805,16 @@
               }
             }
           },
+          "403": {
+            "description": "El módulo de archivos está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "La entidad ya alcanzó el máximo de archivos (DEMASIADOS_ARCHIVOS).",
             "content": {
@@ -6876,6 +6886,16 @@
           },
           "401": {
             "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de archivos está deshabilitado por el administrador (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {
@@ -6973,6 +6993,16 @@
               }
             }
           },
+          "403": {
+            "description": "El módulo de archivos está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "El archivo no existe o no tienes acceso a él.",
             "content": {
@@ -7053,7 +7083,7 @@
             }
           },
           "403": {
-            "description": "El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO).",
+            "description": "El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO), o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {
@@ -7142,7 +7172,7 @@
             }
           },
           "403": {
-            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "description": "La sesión no es de administrador (SOLO_ADMIN), la cuenta está inactiva, o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {

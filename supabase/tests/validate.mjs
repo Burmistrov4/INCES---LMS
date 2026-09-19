@@ -121,17 +121,23 @@ async function main() {
   );
   check('m9 (certificados/QR) NO se siembra', !modulos.some((m) => m.clave.startsWith('m9')));
   check(
-    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3, m4)',
+    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3, m4, m5)',
     modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
-      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones',
+      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones,m5_archivos',
   );
-  // `m5_archivos` ya trae la tabla de metadatos, las RPC de escritura y la
-  // semilla de límites, pero su BANDERA se deja apagada: se enciende cuando
-  // existan las rutas de firmas (Capa 4) y la UI (Capa 7). Encenderlo antes
-  // dejaría un ítem sin circuito detrás (el patrón de R-22).
+  // `m5_archivos` estuvo APAGADO a propósito hasta que existiera la Capa 7 (la
+  // UI). Se encendía antes y habría quedado un ítem de menú sin circuito detrás
+  // —el patrón de R-22—, así que tres aserciones lo fijaban en `false` y su
+  // inversión es parte del mismo ciclo que esta.
+  //
+  // Lo enciende `202609210002_mod5_habilitar_modulo.sql`, **no**
+  // `202609210001_mod5_archivos.sql`: esa construye la tabla, las RPC y los
+  // parámetros y deja la bandera como estaba. Es la división que ya usó M4
+  // (`202609200001` construye, `202609200002` enciende). Se deja escrito porque
+  // atribuir el encendido a la migración equivocada es el error natural aquí.
   check(
-    'm5_archivos sigue apagado: su bandera se enciende con la Capa 4/7',
-    modulos.find((m) => m.clave === 'm5_archivos').habilitado === false,
+    'm5_archivos arranca encendido: lo enciende 202609210002',
+    modulos.find((m) => m.clave === 'm5_archivos').habilitado === true,
   );
   check(
     'm0_cpanel está restringido al rol admin',
@@ -2154,8 +2160,15 @@ async function main() {
   // ------------------------------------------------- 18.7 idempotencia
   // Reaplicar la migración entera no debe duplicar la semilla ni el estado del
   // módulo. La semilla usa `on conflict do nothing`; y la bandera de
-  // `m5_archivos` NO se toca en esta migración (se deja apagada a propósito: se
-  // enciende con la Capa 4/7), así que reaplicar la deja igual: apagada.
+  // `m5_archivos` NO se toca en esta migración, así que reaplicarla la deja
+  // igual: **encendida**, porque quien la encendió es `202609210002`.
+  //
+  // El valor esperado cambió con el ciclo de la Capa 7, y el nuevo es el que
+  // enseña algo: reaplicar una migración vieja **no puede deshacer** una
+  // posterior. Si esto devolviera `false`, significaría que `202609210001`
+  // escribe la bandera —y entonces el encendido de `202609210002` se perdería en
+  // cada reaplicación, que es exactamente el fallo que el libro mayor existe
+  // para evitar.
   const settingsAntesM5 = (await db.query('select count(*)::int as n from public.system_settings')).rows[0].n;
   const archivosAntesM5 = (await db.query('select count(*)::int as n from public.files_metadata')).rows[0].n;
   await aplicar(path.join(SUPABASE, 'migrations', '202609210001_mod5_archivos.sql'));
@@ -2174,7 +2187,10 @@ async function main() {
     archivosDespuesM5 === archivosAntesM5,
     `${archivosAntesM5} → ${archivosDespuesM5}`,
   );
-  check('reaplicar la migración de M5 deja el módulo APAGADO (no lo enciende)', m5Sigue === false);
+  check(
+    'reaplicar la migración de M5 deja el módulo ENCENDIDO (no lo apaga ni lo enciende)',
+    m5Sigue === true,
+  );
 
   // ---------------------------------------------------------------- resumen
   console.log(

@@ -2564,6 +2564,18 @@ export function construirRegistro(): OpenAPIRegistry {
   // ----------------------------------------------------------- archivos -----
   const archivosTag = { tags: ['Archivos'] };
 
+  /**
+   * El 403 que produce la guardia de módulo cuando el administrador lo apaga.
+   *
+   * Es el único 403 de este grupo que **no** habla de propiedad: `ARCHIVO_AJENO`
+   * dice «el archivo no es tuyo», y éste dice «el módulo está apagado». Se
+   * nombra una vez en lugar de repetir el texto en las cinco rutas, donde cuatro
+   * acabarían desviándose de la primera.
+   */
+  const moduloApagado = error(
+    'El módulo de archivos está deshabilitado por el administrador (MODULO_DESHABILITADO).',
+  );
+
   registro.registerPath({
     ...archivosTag,
     method: 'post',
@@ -2585,6 +2597,7 @@ export function construirRegistro(): OpenAPIRegistry {
       },
       400: error('El nombre no tiene extensión, o la extensión no está admitida.'),
       401: RESPUESTAS_ERROR[401],
+      403: moduloApagado,
       409: error('La entidad ya alcanzó el máximo de archivos (DEMASIADOS_ARCHIVOS).'),
       503: RESPUESTAS_ERROR[503],
     },
@@ -2606,6 +2619,7 @@ export function construirRegistro(): OpenAPIRegistry {
       },
       400: error('El tamaño medido no es un número válido: el dato está corrupto.'),
       401: RESPUESTAS_ERROR[401],
+      403: moduloApagado,
       404: error(
         'El archivo no existe, no es tuyo, o el objeto nunca llegó (OBJETO_NO_SUBIDO).',
       ),
@@ -2630,6 +2644,12 @@ export function construirRegistro(): OpenAPIRegistry {
         content: { 'application/json': { schema: RespuestaUrlLectura } },
       },
       401: RESPUESTAS_ERROR[401],
+      // El 403 de esta ruta es **sólo** el del módulo apagado, y no contradice la
+      // regla de arriba —«404 y no 403 también cuando el archivo es de otro»—:
+      // quién es el dueño no cambia nada de esto. Se separa a propósito para que
+      // quien lea el contrato no deduzca que un 403 puede significar «existe,
+      // pero no es tuyo», que es justo la información que no debe filtrarse.
+      403: moduloApagado,
       404: error('El archivo no existe o no tienes acceso a él.'),
       409: error('El archivo todavía no está disponible para descargar (ARCHIVO_NO_DISPONIBLE).'),
       503: RESPUESTAS_ERROR[503],
@@ -2651,7 +2671,9 @@ export function construirRegistro(): OpenAPIRegistry {
         content: { 'application/json': { schema: RespuestaArchivo } },
       },
       401: RESPUESTAS_ERROR[401],
-      403: error('El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO).'),
+      403: error(
+        'El archivo es de otra persona y la sesión no es de administrador (ARCHIVO_AJENO), o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).',
+      ),
       404: error('El archivo no existe (ARCHIVO_INEXISTENTE).'),
       409: error('El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).'),
       503: RESPUESTAS_ERROR[503],
@@ -2673,7 +2695,9 @@ export function construirRegistro(): OpenAPIRegistry {
         content: { 'application/json': { schema: RespuestaArchivo } },
       },
       401: RESPUESTAS_ERROR[401],
-      403: RESPUESTAS_ERROR[403],
+      403: error(
+        'La sesión no es de administrador (SOLO_ADMIN), la cuenta está inactiva, o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).',
+      ),
       404: error('El archivo no existe (ARCHIVO_INEXISTENTE).'),
       409: error('El archivo ya estaba borrado (ESTADO_DE_ARCHIVO).'),
       503: RESPUESTAS_ERROR[503],

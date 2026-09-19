@@ -9,8 +9,15 @@
 > adaptador R2. Falta la **Capa 4 (rutas HTTP)** — este documento —, la **Capa 6
 > (pruebas)** y la **Capa 7 (frontend)**.
 >
-> El módulo `m5_archivos` está **apagado a propósito** y debe seguir así: su
-> bandera se enciende cuando existan las rutas y la UI que la sostienen.
+> ~~El módulo `m5_archivos` está **apagado a propósito** y debe seguir así: su
+> bandera se enciende cuando existan las rutas y la UI que la sostienen.~~
+>
+> **SUPERADO (2026-09-19).** La condición que este párrafo ponía se cumplió —ya
+> existen las rutas y la UI—, así que la bandera se encendió
+> (`202609210002_mod5_habilitar_modulo.sql`) **y** las cinco rutas llevan ya la
+> guardia de módulo. Lo que sigue describe el plan de la Capa 4 y se conserva como
+> registro; para el estado real, `ESTADO_DEL_SISTEMA.md`. **Antes de fiarte de
+> §5, lee las cuatro correcciones que hay al final de esa sección.**
 
 > ⚠️ **Ya ejecutado (2026-09-18, misma fecha).** La Capa 4 y su Capa 6 están
 > construidas: `http/rutas/archivos.ts` (5 rutas), `test/archivos.test.ts` (34
@@ -437,10 +444,16 @@ con las rutas registradas: si se olvida, **falla**.
 
 ---
 
-## 5. La bandera del módulo: **no la enciendas**
+## 5. La bandera del módulo: ~~**no la enciendas**~~ → **encendida el 2026-09-19**
 
-`m5_archivos` debe seguir **apagado**. Tres aserciones lo fijan, y las tres son
-pruebas **desactualizadas a propósito** hasta que la Capa 7 exista:
+> **Sección conservada como registro; su instrucción está revocada.** El
+> 2026-09-19 llegó el momento que describía: con la Capa 7 construida se encendió
+> la bandera. Se deja escrita a propósito porque **contiene cuatro imprecisiones
+> que costaron trabajo descubrir**, y quien relea el plan debería saberlo antes de
+> fiarse de él.
+
+`m5_archivos` debía seguir **apagado**. Tres aserciones lo fijaban, y las tres eran
+pruebas **desactualizadas a propósito** hasta que la Capa 7 existiera:
 
 | Archivo | Qué fija |
 |---|---|
@@ -448,13 +461,40 @@ pruebas **desactualizadas a propósito** hasta que la Capa 7 exista:
 | `supabase/verificar-esquema.mjs` | lo excluye de los módulos encendidos |
 | `backend/test-humo.mjs` | `m5_archivos existe y está APAGADO (se enciende con la Capa 4/7)` |
 
-Cuando llegue el momento de encenderlo, hay que actualizar **las tres** — más la
-lista de tablas esperadas de `verificar-esquema.mjs` — y usar
+Cuando llegó el momento, hubo que actualizar **las tres** — más la lista de
+módulos encendidos de `verificar-esquema.mjs` — y usar
 `update public.system_modules set habilitado = true where clave = 'm5_archivos'`.
 
-> **`exigirModulo()` existe en `http/plugins/modulos.ts` y no se usa en ninguna
-> ruta.** La API **no** comprueba la bandera del módulo; la oculta el frontend.
-> No inventes una guardia de módulo para M5: romperías la coherencia con M1–M4.
+**Lo que este plan decía mal, y conviene no repetir:**
+
+1. **Eran cuatro aserciones, no tres.** Además de las tres de la tabla, hay una
+   **cuarta** que no aparece en ninguna lista: la de **idempotencia** de
+   `supabase/tests/validate.mjs`, la que reaplica `202609210001` y esperaba
+   `false`. Corregir sólo las tres la deja fallando.
+2. **`validate.mjs` tenía dos aserciones que cambiar**, no una: la del estado
+   inicial **y** la de idempotencia. Y el valor nuevo de la segunda enseña algo:
+   reaplicar una migración vieja **no puede deshacer** una posterior.
+3. **La migración no puede llamarse `202609190001`.** El orden de aplicación es
+   **lexicográfico** y esa versión **ya está tomada** por `mod4_inscripciones.sql`;
+   además ordenaría antes de `202609210001`, o sea antes de que exista la tabla
+   que la fila necesita. Se llama `202609210002_mod5_habilitar_modulo.sql`.
+4. **El arnés de Vitest necesitaba una fila nueva, no un `true`.** La instrucción
+   correcta es «**añade** `m5_archivos` a `MODULOS_POR_DEFECTO`»: la fila no
+   existía, y sin ella la guardia devuelve **404 `MODULO_DESCONOCIDO`** —no 403—,
+   así que las 34 pruebas de archivos habrían fallado por el motivo equivocado.
+
+> **`exigirModulo()` existe en `http/plugins/modulos.ts` y no lo usa nadie.** Y
+> aquí el plan daba un consejo que el 2026-09-19 se siguió **al revés, a
+> propósito**: decía «no inventes una guardia de módulo para M5: romperías la
+> coherencia con M1–M4». Se hizo exactamente eso, por decisión explícita del
+> dueño del proyecto, porque **una bandera que nadie comprueba no es una barrera
+> de seguridad: es un ítem de menú**. La asimetría con M1–M4 es real y se asume:
+> M5 es el primer módulo cuyo apagado se puede probar de extremo a extremo.
+>
+> Dos detalles de la firma que cuestan un ciclo si se ignoran:
+> `exigirModulo(cache, clave)` son **dos** argumentos y devuelve el `preHandler`
+> (no es el hook); y va **después** de `exigirSesion()` / `exigirAdmin()`, porque
+> al revés una petición anónima recibiría 404/403 en vez del 401 que le toca.
 
 ---
 

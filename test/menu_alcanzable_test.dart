@@ -33,50 +33,90 @@ import 'package:inces_lms_app/widgets/andamiaje.dart';
 /// títulos copiada en la prueba— porque eso sólo probaría que la copia coincide
 /// consigo misma. Se lee el archivo real, igual que `reglas-cuadrante.test.ts`
 /// lee la migración de M3.
+/// Los dashboards que deben cumplir el contrato, con el suelo de cada uno.
+///
+/// **Los tres, y no sólo el cPanel.** R-22 pasó en el cPanel y por eso el
+/// contrato se escribió mirando sólo `admin_dashboard.dart`… pero el fallo no
+/// era del cPanel: era de **cualquier** dashboard con un menú y un `switch`. El
+/// docente y el estudiante tenían exactamente la misma exposición, sin red.
+/// Cuando se cableó la Capa 7 de M5 en los tres, se extendió la guardia.
+///
+/// **El suelo es por dashboard, no global.** Si el analizador se rompe en uno
+/// solo (un formato distinto, un renombrado), un suelo compartido lo dejaría
+/// pasar comparando dos conjuntos vacíos y daría un verde hueco — justo el fallo
+/// que el suelo existe para evitar. Los números son el estado real de cada
+/// archivo, no una estimación: `items` es el total del menú y `ramas` las
+/// secciones que de verdad tienen panel.
+const Map<String, ({int items, int ramas})> _dashboards = {
+  'admin_dashboard.dart': (items: 10, ramas: 8),
+  'docente_dashboard.dart': (items: 5, ramas: 3),
+  'aspirante_dashboard.dart': (items: 6, ramas: 4),
+};
+
 void main() {
-  group('cPanel · cada sección con panel construido es alcanzable', () {
-    test('las secciones disponibles y las ramas del switch coinciden', () {
-      final fuente = _fuenteDashboard().readAsStringSync();
-      final secciones = _leerSecciones(fuente);
-      final atendidas = _leerRamasDelSwitch(fuente);
+  group('cada dashboard · toda sección con panel construido es alcanzable', () {
+    for (final entrada in _dashboards.entries) {
+      test('${entrada.key}: disponibles y ramas del switch coinciden', () {
+        final fuente = _fuente(entrada.key).readAsStringSync();
+        final secciones = _leerSecciones(fuente);
+        final atendidas = _leerRamasDelSwitch(fuente);
 
-      // Suelo explícito: si el analizador se rompe (un formato distinto, un
-      // renombrado), esta prueba fallaría comparando dos conjuntos vacíos y
-      // daría un verde hueco. Con el suelo, un fallo del analizador se ve como
-      // lo que es.
+        // Suelo explícito: si el analizador se rompe, esta prueba fallaría
+        // comparando dos conjuntos vacíos y daría un verde hueco. Con el suelo,
+        // un fallo del analizador se ve como lo que es.
+        expect(
+          secciones.length,
+          greaterThanOrEqualTo(entrada.value.items),
+          reason: 'se esperaban al menos ${entrada.value.items} secciones en el '
+              'menú de ${entrada.key}; el analizador de _items probablemente se '
+              'rompió',
+        );
+        expect(
+          atendidas.length,
+          greaterThanOrEqualTo(entrada.value.ramas),
+          reason: 'se esperaban al menos ${entrada.value.ramas} ramas en el '
+              'switch de _contenido() de ${entrada.key}; el analizador '
+              'probablemente se rompió',
+        );
+
+        final disponibles = {
+          for (final seccion in secciones)
+            if (seccion.disponible) seccion.titulo,
+        };
+
+        // Las dos direcciones, y cada una tapa un fallo distinto:
+        //
+        //  · una sección con rama y la bandera puesta es **inalcanzable** — es
+        //    exactamente R-22, y por eso esta igualdad es la que lo habría
+        //    atrapado;
+        //  · una sección disponible **sin** rama cae al `default:` del switch,
+        //    que sólo pinta las migas de pan: el usuario entra y ve una página
+        //    vacía. Es peor que no poder entrar, que es justo lo que la bandera
+        //    existía para evitar.
+        expect(
+          disponibles,
+          atendidas,
+          reason: 'En ${entrada.key}, toda sección con panel construido debe '
+              'tener la bandera levantada Y su rama en el switch. Una '
+              'diferencia aquí significa o un panel inalcanzable (R-22) o una '
+              'sección que abre en blanco.',
+        );
+      });
+    }
+
+    test('el gestor documental de cada dashboard declara el tipo que le toca', () {
+      // El tipo no es decorativo: el servidor lo valida contra un `CHECK`, así
+      // que intercambiarlos haría fallar **toda** subida con un 400 mientras la
+      // pantalla se vería exactamente igual. El docente sube guías; el
+      // estudiante, entregas. Sin esta comprobación, un copiar-pegar entre los
+      // dos dashboards pasa desapercibido hasta que alguien intenta subir.
       expect(
-        secciones.length,
-        greaterThanOrEqualTo(8),
-        reason: 'se esperaban al menos 8 secciones en el menú del cPanel; '
-            'el analizador de _items probablemente se rompió',
+        _fuente('docente_dashboard.dart').readAsStringSync(),
+        contains('TipoEntidadArchivo.teacherGuide'),
       );
       expect(
-        atendidas.length,
-        greaterThanOrEqualTo(6),
-        reason: 'se esperaban al menos 6 ramas en el switch de _contenido(); '
-            'el analizador probablemente se rompió',
-      );
-
-      final disponibles = {
-        for (final seccion in secciones)
-          if (seccion.disponible) seccion.titulo,
-      };
-
-      // Las dos direcciones, y cada una tapa un fallo distinto:
-      //
-      //  · una sección con rama y la bandera puesta es **inalcanzable** — es
-      //    exactamente R-22, y por eso esta igualdad es la que lo habría
-      //    atrapado;
-      //  · una sección disponible **sin** rama cae al `default:` del switch,
-      //    que sólo pinta las migas de pan: el usuario entra y ve una página
-      //    vacía. Es peor que no poder entrar, que es justo lo que la bandera
-      //    existía para evitar.
-      expect(
-        disponibles,
-        atendidas,
-        reason: 'Toda sección con panel construido debe tener la bandera '
-            'levantada Y su rama en el switch. Una diferencia aquí significa '
-            'o un panel inalcanzable (R-22) o una sección que abre en blanco.',
+        _fuente('aspirante_dashboard.dart').readAsStringSync(),
+        contains('TipoEntidadArchivo.taskSubmission'),
       );
     });
 
@@ -226,19 +266,17 @@ class _Seccion {
   final bool disponible;
 }
 
-/// Localiza `lib/screens/admin_dashboard.dart` sin dar por hecho el directorio.
+/// Localiza un dashboard bajo `lib/screens/` sin dar por hecho el directorio.
 ///
 /// `flutter test` corre desde la raíz del paquete, pero asumirlo convertiría un
 /// cambio de invocación en un «fichero no encontrado» que no explica nada. Se
 /// sube por los directorios padres hasta encontrarlo, y si no aparece se falla
 /// diciendo desde dónde se buscó.
-File _fuenteDashboard() {
+File _fuente(String nombre) {
   var directorio = Directory.current;
 
   for (var intentos = 0; intentos < 6; intentos++) {
-    final candidato = File(
-      '${directorio.path}/lib/screens/admin_dashboard.dart',
-    );
+    final candidato = File('${directorio.path}/lib/screens/$nombre');
     if (candidato.existsSync()) return candidato;
 
     final padre = directorio.parent;
@@ -247,7 +285,7 @@ File _fuenteDashboard() {
   }
 
   fail(
-    'No se encontró lib/screens/admin_dashboard.dart subiendo desde '
+    'No se encontró lib/screens/$nombre subiendo desde '
     '${Directory.current.path}',
   );
 }

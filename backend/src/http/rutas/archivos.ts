@@ -12,6 +12,7 @@ import type { ParametroSistema } from '../../dominio/tipos.js';
 import type { DependenciasRutas } from '../dependencias.js';
 import { esquemaFirmarSubida, esquemaIdArchivo } from '../esquemas.js';
 import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Rutas del Módulo 5 — Archivos en Cloudflare R2.
@@ -32,6 +33,13 @@ import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js'
  * `security definer` que comprueban `auth.uid()` e `is_admin()`; las lecturas van
  * por PostgREST y las filtra la RLS. Repetir esa comprobación aquí sería una
  * segunda copia de la regla, y dos copias se desvían.
+ *
+ * **La guardia de módulo es la excepción, y no contradice lo anterior.** Que el
+ * módulo esté encendido no lo sabe la base: no hay política RLS ni RPC que
+ * consulte `system_modules`. Es una regla que sólo existe aquí, así que
+ * comprobarla aquí no duplica nada. Las cinco rutas llevan `exigirModulo()`, y
+ * por eso apagar `m5_archivos` desde el cPanel surte efecto de verdad y no sólo
+ * esconde el ítem del menú.
  */
 
 /** Envoltorio de `params`: Fastify tipa `params` como objeto y el esquema es del valor suelto. */
@@ -91,6 +99,25 @@ export function rutasArchivos(
   app: FastifyInstance,
   deps: DependenciasRutas,
 ): void {
+  /**
+   * La guardia del módulo, construida **una sola vez**.
+   *
+   * `exigirModulo` es una fábrica: recibe la caché y la clave, y devuelve el
+   * `preHandler`. Se construye aquí arriba, y no dentro de cada ruta, para que la
+   * clave `m5_archivos` aparezca una sola vez en el archivo: si el módulo se
+   * renombrara, hay un único sitio que corregir. El hook devuelto es una función
+   * sin estado, así que compartirlo entre cinco rutas es seguro.
+   *
+   * **Va siempre en segundo lugar, después de `exigirSesion()`.** El orden no es
+   * cosmético: sin sesión, `request.usuario` es `null` y la guardia no puede
+   * distinguir «el módulo está apagado» de «no hay quien pregunte». Colocada
+   * primero, una petición anónima recibiría 403 (o 404, si la semilla faltara) en
+   * vez del **401** que le corresponde — que es justo lo que exige
+   * `openapi.test.ts`, que inyecta cada ruta documentada sin token y comprueba
+   * que responde 401 y no 404.
+   */
+  const exigirArchivos = exigirModulo(deps.caches.modulos, 'm5_archivos');
+
   /**
    * El almacenamiento, o un 503 si R2 no está configurado.
    *
@@ -156,6 +183,12 @@ export function rutasArchivos(
     async (admin) => {
       admin.addHook('preHandler', exigirAdmin());
 
+      // La guardia de módulo va **después** de `exigirAdmin()`: primero se
+      // comprueba quién llama —401 sin sesión, 403 si no es admin— y sólo
+      // entonces si el módulo está encendido. Al revés, una petición anónima a
+      // esta ruta recibiría el error del módulo en lugar del 401 que le toca.
+      admin.addHook('preHandler', exigirArchivos);
+
       // El administrador borra cualquier archivo. La RPC lo autoriza por
       // `is_admin()`, así que la única diferencia con la ruta del propietario es
       // la guardia: el mismo camino, con otro portero.
@@ -183,7 +216,7 @@ export function rutasArchivos(
    */
   app.post(
     '/api/v1/archivos/firmar-subida',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirArchivos] },
     async (request, reply) => {
       const almacen = almacenamiento();
 
@@ -261,7 +294,7 @@ export function rutasArchivos(
    */
   app.post<{ Params: { id: string } }>(
     '/api/v1/archivos/:id/confirmar',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirArchivos] },
     async (request) => {
       const almacen = almacenamiento();
       const { id } = esquemaRutaIdArchivo.parse(request.params);
@@ -328,7 +361,7 @@ export function rutasArchivos(
    */
   app.get<{ Params: { id: string } }>(
     '/api/v1/archivos/:id/url-lectura',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirArchivos] },
     async (request) => {
       const almacen = almacenamiento();
       const { id } = esquemaRutaIdArchivo.parse(request.params);
@@ -371,7 +404,7 @@ export function rutasArchivos(
 
   app.delete<{ Params: { id: string } }>(
     '/api/v1/archivos/:id',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirArchivos] },
     async (request) => borrar(request),
   );
 }

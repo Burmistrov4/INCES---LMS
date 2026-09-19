@@ -211,17 +211,25 @@ comprobar(
 );
 // La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero las
 // migraciones posteriores encienden `m2_curriculo`, `m3_cuadrante`,
-// `m4_inscripciones` (202609200002) y `m5_archivos` (202609210001) a propósito:
+// `m4_inscripciones` (202609200002) y `m5_archivos` (202609210002) a propósito:
 // están construidos y verificados de extremo a extremo. Exigir «sólo dos»
 // quedaría obsoleto y marcaría como fallo un estado correcto. Se fija el estado
 // real: m0…m5 encendidos y m6…m8 apagados hasta que se construyan (cada uno lo
 // encenderá su propia migración cuando el dueño lo decida).
+//
+// Ojo al leer el reparto, porque es fácil atribuirlo mal:
+// `202609210001_mod5_archivos.sql` **no** enciende esta bandera —crea la tabla,
+// las RPC y los parámetros, y lo dice de forma explícita en su cabecera—. Quien
+// la enciende es `202609210002_mod5_habilitar_modulo.sql`. Es la misma división
+// que hizo M4: `202609200001` construye y `202609200002` enciende. Una versión
+// anterior de este comentario afirmaba lo contrario y contradecía a la aserción
+// que tiene justo debajo.
 const habilitados = modulos
   .filter((m) => m.habilitado)
   .map((m) => m.clave)
   .sort();
 comprobar(
-  'm0…m4 habilitados y m5…m8 apagados',
+  'm0…m5 habilitados y m6…m8 apagados',
   JSON.stringify(habilitados) ===
     JSON.stringify([
       'm0_cpanel',
@@ -229,8 +237,9 @@ comprobar(
       'm2_curriculo',
       'm3_cuadrante',
       'm4_inscripciones',
+      'm5_archivos',
     ]) &&
-    modulos.filter((m) => !m.habilitado).every((m) => /^m[5-8]_/.test(m.clave)),
+    modulos.filter((m) => !m.habilitado).every((m) => /^m[6-8]_/.test(m.clave)),
   `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');

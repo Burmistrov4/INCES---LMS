@@ -33,10 +33,17 @@
 > `estadisticas()`, que devuelve el **tamaño** —un booleano no bastaba para aplicar
 > el límite, porque una URL `PUT` prefirmada no admite `content-length-range` y el
 > peso real sólo se conoce con el `HeadObject` posterior—, y `ErrorApi` estrenó el
-> **413**, que deja el 400 exclusivamente para los tamaños *corruptos*. La bandera
-> `m5_archivos` sigue **apagada**: encenderla es un acto aparte y hay tres
-> aserciones que la vigilan. **Faltan el frontend (Capa 7) y el humo de archivos
-> contra la nube.**
+> **413**, que deja el 400 exclusivamente para los tamaños *corruptos*.
+>
+> **El ciclo siguiente cerró M5.** Con la Capa 7 construida y verificada llegó el
+> encendido, y con él algo que el proyecto no había hecho nunca:
+> `202609210002_mod5_habilitar_modulo.sql` pone `habilitado = true` **y** las cinco
+> rutas de `rutas/archivos.ts` llevan ya la guardia
+> `exigirModulo('m5_archivos')`. Hasta este ciclo `exigirModulo()` estaba definido
+> y sin usar, así que la bandera sólo ocultaba el ítem del menú; ahora apagarla
+> desde el cPanel devuelve **403 `MODULO_DESHABILITADO`**. Las tres aserciones que
+> fijaban «apagado» quedaron invertidas (más una cuarta que el briefing no
+> listaba) y hay dos pruebas nuevas que apagan el módulo para comprobarlo.
 >
 > ⚠️ **Nota sobre este documento.** Hasta 2026-09-14 arrastraba cifras viejas
 > (138 tests backend, 88 Flutter, 11 rutas OpenAPI, 4 migraciones) mientras el
@@ -78,28 +85,31 @@
 | **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
 | **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ✅ **Completo** (2026-09-18) |
-| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | 🔶 **Datos hechos** (2026-09-18): modelo, puerto, `BackendArchivosGateway` y repositorio, con 28 pruebas que **sí se ejecutan**. Falta la UI. **Desbloqueada**: D16 (CORS) se resolvió el **2026-09-19**, así que el navegador ya puede hablar con R2 |
+| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ✅ **Construido y probado** (2026-09-19): el `GestorDocumentalPanel` orquesta los tres pasos —firmar, `PUT` directo a R2, confirmar— y está montado en el panel del docente (`teacherGuide`) y en el del aspirante (`taskSubmission`), con **19 pruebas de widget** propias. D16 (CORS) está resuelta, así que el navegador ya puede hablar con R2; **falta recorrer el ciclo una vez en un navegador real**, que es lo único que las pruebas de widget no pueden demostrar |
 | **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del **2026-09-18**
-(backend 468, Flutter 365, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
-verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
+**Verificación al cierre de esta iteración** — suites del **2026-09-19**
+(backend **470**, Flutter **387**, SQL 271, esquema 99/99); migraciones de M3
+aplicadas y verificadas el **2026-09-17**, las dos de M4 y `202609210001` el
+**2026-09-18**. `202609210002` está creada y verificada **en local**, pendiente de
+aplicar a la nube (ver el aviso de arriba)
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **365 / 365** en verde — **medido el 2026-09-18**. Exige la receta de dos piezas de §"Verificación" (ver aviso) |
-| `npm test` (backend) | **468 / 468** en verde (20 archivos) |
+| `flutter test` | **387 / 387** en verde — **medido el 2026-09-19**, con la Capa 7 incluida. Exige la receta de dos piezas de §"Verificación" (ver aviso) |
+| `npm test` (backend) | **470 / 470** en verde (20 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **271 / 271** aserciones en verde, en 18 secciones: **51** de la base y M1 + **51** de M2 + **64** de M3 + **57** de M4 + **48** de M5 |
-| **Migraciones en la nube** | **16 / 16** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **99 / 99** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
+| **Migraciones en el repositorio** | **17** archivos en `supabase/migrations/` (16 + `202609210002_mod5_habilitar_modulo.sql`) |
+| **Migraciones en la nube** | **16 / 16** registradas en `schema_migrations`. ⚠️ **Falta aplicar `202609210002`**: hasta entonces la nube tiene `m5_archivos` apagado y **dos verificadores darán un fallo** (ver la nota de abajo) |
+| **Verificación independiente del esquema en la nube** | **99 / 99** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-18, antes de `202609210002`** |
 | **Libro mayor de migraciones (D10)** | 16 versiones aplicadas con checksum SHA-256 válido |
 | **Migraciones de M2, M3, M4 y M5 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18) — **18 tablas** + **5 vistas**, con RLS activo en las 18 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
-| **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. La bandera `m5_archivos` sigue **apagada** |
+| **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
 | **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
 | **Frontera de escritura de M5, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `files_metadata` → **42501**; `anon` no ejecuta las RPC; el propietario ve sólo lo suyo y el admin lo ve todo |
@@ -108,10 +118,26 @@ verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
-| **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está apagado** |
+| **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está encendido** (⚠️ dará **23/24** hasta aplicar `202609210002`) |
 | Documento OpenAPI | OpenAPI 3.1.0 · **47 rutas · 84 esquemas** (las 14 de M3, las 14 de M4 y las 5 de M5 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
+
+> **⚠️ Acción pendiente de una persona: aplicar `202609210002` a la nube.** El
+> código de este ciclo está completo y verificado en local, pero la bandera vive
+> en PostgreSQL, así que **hasta que la migración se aplique a Supabase la nube
+> sigue con `m5_archivos` apagado**. Y eso, ahora, tiene una consecuencia visible:
+> dos verificadores que antes pasaban van a reportar **un fallo cada uno**,
+> porque su aserción ya exige el módulo encendido.
+>
+> | Verificador | Qué fallará | Por qué no es un error del cambio |
+> | --- | --- | --- |
+> | `supabase/verificar-esquema.mjs` | «m0…m5 habilitados y m6…m8 apagados» → **98/99** | La aserción es correcta; lo que falta es la migración |
+> | `backend/test-humo.mjs` | «m5_archivos existe y está ENCENDIDO» → **23/24** | Igual: mide la nube, y la nube aún no la tiene |
+>
+> Se deja escrito porque un fallo rojo sin explicación se lee como una regresión, y
+> esto es lo contrario: es la comprobación funcionando. Aplicada la migración, los
+> dos vuelven a verde sin tocar nada. **No los «arregles» bajando la aserción.**
 
 > **✅ CORRECCIÓN (2026-09-18, medida posterior el mismo día): `flutter test` SÍ se
 > puede ejecutar en este entorno.** El aviso anterior daba por imposible lo que sólo
@@ -197,10 +223,20 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 >
 > **Y tras `202609210001`** (M5, los archivos): la proyección que había aquí
 > —«M5 suma 1 tabla, 2 políticas, 3 funciones y 2 parámetros»— **se midió y era
-> correcta**, así que ya no es una proyección. La bandera `m5_archivos` sigue
-> **apagada**, y el humo contra la nube lo comprueba explícitamente: `backend/test-humo.mjs`
-> da **24/24** el 2026-09-18, incluida la aserción
-> `m5_archivos existe y está APAGADO`.
+> correcta**, así que ya no es una proyección. Esa migración **no toca la
+> bandera**: deja `m5_archivos` apagado a propósito, y el humo contra la nube lo
+> comprobaba —`backend/test-humo.mjs` da **24/24** el 2026-09-18, con la aserción
+> `m5_archivos existe y está APAGADO`—.
+>
+> **Y tras `202609210002`** (encender M5): **ningún objeto nuevo** — sólo
+> `m5_archivos` pasa a `habilitado = true`, así que los módulos encendidos van de
+> **5 a 6 de 9**, exactamente como hizo `202609200002` con M4. El nombre es
+> `202609210002` y no una fecha de hoy **a propósito**: el orden de aplicación es
+> lexicográfico y `202609190001` ya está tomado por `mod4_inscripciones`, así que
+> una fecha anterior habría aplicado el encendido *antes* de que la tabla
+> existiera. Esta migración **sí mueve aserciones**: las de `test-humo.mjs` y
+> `verificar-esquema.mjs` se invirtieron en el mismo ciclo, y las dos fallarán
+> contra la nube hasta que se aplique.
 
 **`classrooms`, `teacher_duties` y `schedule_slots` están vacías, y es lo
 correcto.** No se sembró ni un aula ni una guardia: el inventario de espacios del
@@ -646,7 +682,7 @@ administrador real: ni el admin puede insertar una traza a mano.
 | `m2_curriculo` | Currículo y Pensum | 🟢 activo | todos |
 | `m3_cuadrante` | Cuadrante y Horarios | 🟢 activo | todos |
 | `m4_inscripciones` | Inscripciones y Cupos | 🟢 activo | todos |
-| `m5_archivos` | Almacenamiento (R2) | ⚪ inactivo | todos |
+| `m5_archivos` | Almacenamiento (R2) | 🟢 activo | todos |
 | `m6_asistencia` | Asistencia | ⚪ inactivo | todos |
 | `m7_calificaciones` | Calificaciones | ⚪ inactivo | todos |
 | `m8_pasantias` | Pasantías | ⚪ inactivo | todos |
@@ -654,11 +690,18 @@ administrador real: ni el admin puede insertar una traza a mano.
 **`m9` (Certificados/QR) no se siembra:** quedó descartado del alcance.
 
 Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo`,
-`m3_cuadrante` y `m4_inscripciones`. `m5_archivos` (Almacenamiento R2) ya tiene el
-esquema, el puerto, el adaptador **y las rutas de firmas (Capa 4)**, pero se deja
-**apagado a propósito**: su bandera se enciende cuando exista la UI (Capa 7), porque
-un módulo encendido que no tiene pantalla es un botón que no lleva a ninguna parte.
-`m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
+`m3_cuadrante`, `m4_inscripciones` y `m5_archivos`. M5 llegó el último: tenía el
+esquema, el puerto, el adaptador, las rutas de firmas (Capa 4) y la UI (Capa 7), y
+su bandera se mantuvo **apagada a propósito** hasta que hubo pantalla, porque un
+módulo encendido sin UI es un botón que no lleva a ninguna parte. **En local ya
+está encendido** (`202609210002`); en la nube lo estará cuando esa migración se
+aplique. `m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
+
+**`m5_archivos` es el primer módulo cuyo apagado tiene efecto en la API.** Las
+cinco rutas de `rutas/archivos.ts` llevan `exigirModulo('m5_archivos')`, así que
+apagarlo desde el cPanel devuelve **403 `MODULO_DESHABILITADO`** dentro del TTL de
+la caché. En `m1`–`m4` la bandera sigue siendo decorativa a nivel de API —la
+respeta sólo el frontend—, y esa asimetría es deuda conocida, no un descuido.
 
 ### Semilla de parámetros
 
@@ -1008,19 +1051,32 @@ la fuente de verdad de esta deuda. Dos correcciones de fondo:
    `ON DELETE CASCADE` sobre `propietario_id` borra la fila al borrar la cuenta y
    **deja el objeto**: esa fuga no la ve ni la base ni un barrido.
 
-**No está latente por la bandera del módulo.** `m5_archivos` está apagado, pero
-`exigirModulo()` está definido y **no se usa en ninguna ruta** (`app.ts` sólo
-registra el hook global de mantenimiento): la API sirve M5 a cualquier usuario
-autenticado. La bandera oculta el módulo en el frontend, no lo cierra. Y no es
-teórico: el 2026-09-18 había **un objeto huérfano real** en el bucket, con **cero
-filas** en `files_metadata` y un dueño inexistente en `auth.users`.
+**La bandera del módulo ya no es un adorno — pero tampoco mitiga D9.** Hasta este
+ciclo `exigirModulo()` estaba definido y **no se usaba en ninguna ruta** (`app.ts`
+sólo registraba el hook global de mantenimiento), así que la API servía M5 a
+cualquier usuario autenticado y la bandera sólo ocultaba el ítem del menú. Eso ya
+no es cierto: las cinco rutas llevan la guardia y apagarla devuelve 403.
 
-**Y un bloqueante que D9 no mencionaba: el bucket no tiene política de CORS.** El
-preflight `OPTIONS` desde `http://localhost:8080` y `http://127.0.0.1:8080`
-devuelve **403 sin ninguna cabecera `Access-Control-Allow-*`**, así que un
-navegador bloquea la subida aunque el `PUT` desde Node devuelva 200. **Ninguna de
-las 468 pruebas puede detectarlo** (todas hablan con R2 desde Node, y Node no
-aplica CORS). Sonda re-ejecutable: `npx tsx backend/scripts/probe-r2-cors.mts`.
+Aun así, **D9 no queda cerrada, y conviene no confundir las dos cosas.** La fuga
+de D9 es un objeto que existe en el bucket sin fila que lo gobierne —y el
+2026-09-18 había **uno real**, con **cero filas** en `files_metadata` y un dueño
+inexistente en `auth.users`—. Apagar el módulo cierra la puerta: no limpia lo que
+ya entró, y no habría impedido la fuga original, que ocurrió con el módulo
+apagado. La bandera no es un barrido.
+
+**Y un bloqueante que D9 no mencionaba: el CORS del bucket — resuelto el
+2026-09-19.** Durante un tiempo el preflight `OPTIONS` desde
+`http://localhost:8080` y `http://127.0.0.1:8080` devolvía **403 sin ninguna
+cabecera `Access-Control-Allow-*`**, así que el navegador bloqueaba la subida
+aunque el `PUT` desde Node devolviera 200. **Ya no:** el bucket tiene la política
+aplicada, y la sonda lo vuelve a confirmar —preflight **204** con
+`allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type` en los
+dos orígenes, y el `PUT` real con `allow-origin`—. Sonda re-ejecutable:
+`npx tsx backend/scripts/probe-r2-cors.mts`, que sale con **exit 0**.
+**Lo que sigue siendo cierto, y es la lección:** ninguna de las 468 pruebas podía
+detectarlo, porque todas hablan con R2 desde Node y **Node no aplica CORS**. Que
+este documento lo diera por abierto después de resuelto es la misma deriva de
+siempre, en la dirección contraria.
 
 ### El ciclo de dos pasos, y por qué el orden cambia según la operación
 
@@ -1403,8 +1459,10 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    del fragmento. Es la mitad de interfaz que el humo no cubre.
 2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
    el libro mayor marca 10/10 y la verificación independiente del esquema da 81/81.
-3. **Mandar las credenciales de Cloudflare R2** cuando quiera encender M5. El
-   módulo está construido y probado; sólo está apagado.
+3. **Mandar las credenciales de Cloudflare R2** cuando quiera que las subidas
+   funcionen de verdad desde el navegador. El módulo está construido, probado **y
+   encendido en local**; lo único que falta para que lo esté también en la nube es
+   aplicar `202609210002_mod5_habilitar_modulo.sql`.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
 
    ```bash

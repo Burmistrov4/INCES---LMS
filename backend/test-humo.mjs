@@ -192,9 +192,14 @@ console.log('\n  5. Lectura de system_modules en la nube\n');
   comprobar('GET /api/v1/admin/modulos → 200', cp.estado === 200, `HTTP ${cp.estado}`);
   const todos = cp.cuerpo?.modulos ?? [];
   comprobar('el panel ve los 9 módulos', todos.length === 9, `${todos.length}`);
+  // Estuvo APAGADO a propósito mientras la Capa 7 (la UI) no existía: encenderlo
+  // antes habría dejado un ítem de menú sin circuito detrás, que es el patrón de
+  // R-22. Con la UI construida y verificada, `202609210002` lo enciende y las
+  // cinco rutas de archivos llevan ya la guardia `exigirModulo()`, así que la
+  // bandera tiene efecto real: apagarla devuelve 403 MODULO_DESHABILITADO.
   comprobar(
-    'm5_archivos existe y está APAGADO (se enciende con la Capa 4/7)',
-    todos.some((m) => m.clave === 'm5_archivos' && m.habilitado === false),
+    'm5_archivos existe y está ENCENDIDO (202609210002)',
+    todos.some((m) => m.clave === 'm5_archivos' && m.habilitado === true),
   );
 }
 
