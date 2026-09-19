@@ -57,33 +57,40 @@
 | **Módulo 4 (esquema)** | Inscripciones y cupos: cola FIFO, ofertas con vencimiento, anti-acaparamiento y **frontera de escritura por RPC** | ✅ **Aplicado y verificado** (2026-09-18) |
 | **Módulo 4 (backend)** | Las 14 rutas de inscripciones y del catálogo de secciones | ✅ **Completo** |
 | **Módulo 4 (frontend)** | Catálogo de secciones, solicitud y aceptación de cupo, panel de cola en el cPanel | ⏳ Pendiente |
-| **Fase 5+** | M5 Archivos … M8 Pasantías | ⏳ Pendiente |
+| **Módulo 5 (esquema)** | Archivos en R2: `files_metadata`, 3 RPC `security definer`, 2 parámetros configurables y la frontera de escritura | ✅ **Aplicado y verificado** (2026-09-18) |
+| **Módulo 5 (dominio)** | Reglas puras de almacenamiento: construcción de claves, extensiones, límite de tamaño y `Content-Disposition` | ✅ **Completo** |
+| **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
+| **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) | ⏳ Pendiente |
+| **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ⏳ Pendiente |
+| **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-18**
-(backend 341, Flutter 307, SQL 222, esquema 92/92); migraciones de M3 aplicadas y
-verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
+(backend 434, Flutter 307, SQL 271, esquema 99/99); migraciones de M3 aplicadas y
+verificadas el **2026-09-17**, las dos de M4 y la de M5 el **2026-09-18**
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
 | `flutter test` | **307 / 307** en verde — **última medición válida, 2026-09-15**. No re-ejecutable en este entorno (ver aviso) |
-| `npm test` (backend) | **428 / 428** en verde (19 archivos) |
+| `npm test` (backend) | **434 / 434** en verde (19 archivos) |
 | `npm run typecheck` (backend) | Sin errores |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **223 / 223** aserciones en verde (49 de M1 + 17 del diseño de M2 + 30 de D12/D13 + 14 de las funciones del asistente + 46 de M3 + 8 del camino real de M3 + 41 de M4 + 6 de la frontera de escritura + 10 del ajuste de reglas institucionales + **1 del encendido del módulo**) |
-| **Migraciones en la nube** | **15 / 15** registradas en `schema_migrations` |
-| **Verificación independiente del esquema en la nube** | **92 / 92** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
-| **Libro mayor de migraciones (D10)** | 14 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3 y M4 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 el 2026-09-18) — 17 tablas + **5 vistas**, con RLS activo en las 17 (ver §3) |
+| Validador SQL contra PostgreSQL real (pglite) | **271 / 271** aserciones en verde, en 18 secciones: **51** de la base y M1 + **51** de M2 + **64** de M3 + **57** de M4 + **48** de M5 |
+| **Migraciones en la nube** | **16 / 16** registradas en `schema_migrations` |
+| **Verificación independiente del esquema en la nube** | **99 / 99** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) |
+| **Libro mayor de migraciones (D10)** | 16 versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4 y M5 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18) — **18 tablas** + **5 vistas**, con RLS activo en las 18 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
+| **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. La bandera `m5_archivos` sigue **apagada** |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
 | **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
+| **Frontera de escritura de M5, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `files_metadata` → **42501**; `anon` no ejecuta las RPC; el propietario ve sólo lo suyo y el admin lo ve todo |
 | **Humo de integración del canal de invitación** | **17 / 17** (`supabase/humo-invitaciones.mjs`) |
 | **Humo de integración del asistente de currículo** | **15 / 15** (`supabase/humo-curriculo.mjs`), incluida la atomicidad — **medido el 2026-09-18**, lo que zanja la discrepancia 14 vs 15 a favor de **15** |
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
-| Humo anterior contra la nube (superficie previa a M1) | 24 / 24 comprobaciones |
+| **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está apagado** |
 | Documento OpenAPI | OpenAPI 3.1.0 · **42 rutas · 79 esquemas** (las 14 de M3 y las 14 de M4 incluidas) |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
@@ -108,8 +115,8 @@ verificadas el **2026-09-17** y las dos de M4 el **2026-09-18**
 > **válida**, del 2026-09-15, **no una medición de hoy**. Cualquier cifra de
 > Flutter que se cite sin re-ejecutar arrastra esa fecha. La nota del `HANDOVER.md`
 > que afirmaba que `flutter test` sí funcionaba aquí **es falsa** y quedó corregida.
-> Las demás redes (SQL 223/223, esquema 92/92, libro mayor 15/15) **sí** se
-> re-ejecutaron el 2026-09-18 y están al día.
+> Las demás redes (SQL 271/271, esquema 99/99, libro mayor 16/16, backend
+> 434/434) **sí** se re-ejecutaron y están al día, todas medidas el **2026-09-18**.
 
 > **Qué cubre el humo de invitación (17/17)** y qué no: verifica RLS con JWT
 > reales (admin ve, `anon` no ve, un docente no ve, nadie inserta trazas a mano),
@@ -132,16 +139,20 @@ triggers** y **37 políticas RLS**, más 9 módulos sembrados, **11 parámetros*
 lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
 `programs` como `CURSO_LIBRE`.
 
-> **M5 suma a estas cifras:** 1 tabla (`files_metadata`), 2 políticas RLS de
-> lectura (`files_metadata_read_own`, `files_metadata_admin_read`), 3 funciones
-> (`registrar_archivo_pendiente`, `confirmar_archivo`, `marcar_archivo_borrado`)
-> y 2 parámetros (`m5_max_bytes`, `m5_max_archivos_por_entidad`). Sin triggers
-> nuevos.
+> **M5 ya está contado, no sumado.** Recontado el **2026-09-18** con
+> `supabase/contar-catalogo.mjs` **después** de aplicar `202609210001`, la
+> aritmética cierra pieza por pieza: **+1 tabla** (`files_metadata`), **+2 políticas
+> RLS** de lectura (`files_metadata_read_own`, `files_metadata_admin_read`),
+> **+3 funciones** (`registrar_archivo_pendiente`, `confirmar_archivo`,
+> `marcar_archivo_borrado`) y **+2 parámetros** (`m5_max_bytes`,
+> `m5_max_archivos_por_entidad`). **Sin triggers nuevos** (siguen 23) y **sin vistas
+> nuevas** (siguen 5). Nada se coló sin documentar.
 
 > **Estas cifras están medidas, no estimadas.** Salen de `supabase/verificar-esquema.mjs`
-> (**92/92**) y de `supabase/contar-catalogo.mjs` (recuento directo al catálogo),
-> ejecutados **después** de aplicar. Es la lección de D11: cuando una migración se
-> aplica, se vuelve a contar en vez de confiar en lo que decía el documento.
+> (**99/99**, recontado el 2026-09-18) y de `supabase/contar-catalogo.mjs` (recuento
+> directo al catálogo), ejecutados **después** de aplicar. Es la lección de D11: cuando
+> una migración se aplica, se vuelve a contar en vez de confiar en lo que decía el
+> documento.
 >
 > **Recontadas el 2026-09-18 tras M4**, y la aritmética cierra: **+1 vista**
 > (`v_ocupacion_secciones`), **+10 funciones** (los 2 helpers de cupo, las 6 RPC
@@ -161,6 +172,13 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 > `m4_inscripciones` pasa a `habilitado = true`, así que los módulos encendidos van
 > de **4 a 5 de 9**. Que esta migración no mueva ninguna otra cifra es la
 > comprobación de que hizo exactamente una cosa.
+>
+> **Y tras `202609210001`** (M5, los archivos): la proyección que había aquí
+> —«M5 suma 1 tabla, 2 políticas, 3 funciones y 2 parámetros»— **se midió y era
+> correcta**, así que ya no es una proyección. La bandera `m5_archivos` sigue
+> **apagada**, y el humo contra la nube lo comprueba explícitamente: `backend/test-humo.mjs`
+> da **24/24** el 2026-09-18, incluida la aserción
+> `m5_archivos existe y está APAGADO`.
 
 **`classrooms`, `teacher_duties` y `schedule_slots` están vacías, y es lo
 correcto.** No se sembró ni un aula ni una guardia: el inventario de espacios del
@@ -195,7 +213,7 @@ cuando **era la dirección correcta**. La cuenta original se había creado sin
 guion, y por eso Supabase no encontraba al usuario real al solicitar la
 recuperación.
 
-La cuenta sin guion (`lorenzoroca11@hotmail.com`) fue **eliminada** el
+La cuenta sin guion (`lorenzoroca11@hotmail.com`) **se intentó** eliminar el
 2026-09-13 con `supabase/eliminar-cuenta.mjs`, tras comprobar que ninguna tabla
 la referenciaba. El script hace ese inventario antes de borrar y **se niega a
 proceder** si encuentra referencias: `profiles.id` es el `auth.uid()` de todas
@@ -203,6 +221,24 @@ las políticas RLS, y borrarlo con filas apuntando a él dejaría registros colg
 de un usuario inexistente. También verifica D8 antes de intentarlo, para no
 chocar con `proteger_ultimo_admin` y recibir un error de Postgres que no explica
 nada.
+
+> ⚠️ **Corrección del 2026-09-18: esa cuenta sigue existiendo.** Aquí decía «fue
+> eliminada», y la base real dice otra cosa. `lorenzoroca11@hotmail.com` está
+> registrada —`id c05df98e-d35b-45f9-9ffc-9722883f33ed`, rol `estudiante`,
+> `active = true`, correo confirmado— con `created_at` del **2026-09-13T17:09:38Z**,
+> unas **tres horas y media después** de que naciera la cuenta buena (13:43:04Z).
+> Es decir: o la eliminación no dejó el sistema sin esa cuenta, o se volvió a crear
+> justo después. Lo que no cabe es dar por hecho que ya no está.
+>
+> **Y tuvo un costo real, ya pagado.** Era la dirección que `backend/test-humo.mjs`
+> usaba **por defecto**, así que el humo se autenticaba como *estudiante*: la API
+> respondía 403 en todo lo administrativo y **ocho de las veinticuatro
+> comprobaciones fallaban** —incluidas las del invariante D8 y la de la bandera de
+> M5— presentándose como un fallo del sistema cuando era un fallo del test. Corregido
+> el valor por defecto a la cuenta con guion; el humo pasa **24/24**.
+>
+> Queda **a decisión de Lorenzo** si esa cuenta se elimina. No se tocó: borrar una
+> cuenta no tiene papelera y no era el objetivo de esta sesión.
 
 > **Regla para el futuro:** un script que borra datos de producción se escribe
 > primero en modo simulación, y no escribe hasta que se le pasa `--confirmar`.
@@ -1068,7 +1104,7 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 341 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
+npm test              # 434 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
@@ -1086,7 +1122,7 @@ node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprob
 | --- | --- | --- |
 | `flutter test` (203) | La lógica del cliente | El SQL, la API, la red |
 | `supabase/tests` (164) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (341) | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `npm test` (434) | La API completa sobre dobles en memoria | La base real, las credenciales |
 | `verificar-esquema.mjs` (81) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
 | `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
@@ -1126,18 +1162,22 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las quince migraciones**, y ejecuta **223** aserciones
-sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
+aplica el shim de Supabase y **las dieciséis migraciones**, y ejecuta **271**
+aserciones sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
 en las dos direcciones), el Módulo 3 completo (aulas, lapsos, guardias,
 cuadrante, los dos triggers anti-colisión en las dos direcciones —lo que debe
 rechazar y lo que debe permitir—, el cruce guardia/clase, y la escritura **como
-`authenticated` real**, que es lo que cubre el punto ciego de R-20) y **el motor de
+`authenticated` real**, que es lo que cubre el punto ciego de R-20), **el motor de
 cupos de M4** (cola FIFO, ofertas con vencimiento, idempotencia de
 `expirar_ofertas_cupo`, anti-acaparamiento, y la frontera de escritura con sus tres
 aserciones de rol: `anon` no escribe, `anon` no lee, y **ni un admin escribe
-directo**).
+directo**) y **el módulo de archivos de M5** (48 aserciones: el ciclo
+`PENDING → CONFIRMED → DELETED`, que reconfirmar y doble borrar dan `23514`, que
+`anon` no alcanza ninguna RPC, la RLS por propietario y por admin, la frontera de
+escritura directa, y que **reaplicar la migración no duplica parámetros, no duplica
+filas y no enciende el módulo**).
 **Las migraciones se validan aquí aunque el validador corra en PGlite**: el
 validador las levanta en un PostgreSQL real y comprueba que los triggers hacen
 lo que dicen hacer.
@@ -1167,7 +1207,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 
 | Elemento | Estado |
 | --- | --- |
-| Base de datos en la nube | ✅ Migrada y verificada (92/92) |
+| Base de datos en la nube | ✅ Migrada y verificada (99/99) |
 | Libro mayor de migraciones | ✅ 15/15 con checksum (D10 resuelta) |
 | Primer administrador | ✅ `lorenzo-roca11@hotmail.com` con rol `admin` |
 | Canal de invitación de docentes | ✅ Humo de extremo a extremo (17/17) |
