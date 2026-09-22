@@ -5,29 +5,27 @@
 /// clase» se construye contra este puerto, igual que el gestor documental de M5
 /// se construye contra `ArchivosGateway`.
 ///
-/// ## Estado de la implementación (leer antes de tocar esto)
+/// ## De dónde sale la forma del JSON (leer antes de tocar esto)
 ///
-/// **El puerto está completo y es lo que la UI consume.** La implementación HTTP
-/// del **contenido** de M6 —[AulaGateway.tablon], [AulaGateway.trabajoDeClase],
-/// [AulaGateway.misEntregas], [AulaGateway.entregar] y [AulaGateway.reclamar]—
-/// sigue **deliberadamente pendiente**: el backend de M6 se está escribiendo en
-/// paralelo y la forma de sus `payloads` JSON todavía no está cerrada. Esos
-/// cinco métodos viven hoy **sólo** en el doble
-/// `test/support/fake_aula_gateway.dart`, que es lo que la UI usa para
-/// desarrollarse y probarse.
+/// El contrato está **congelado**, y su fuente autoritativa es el backend en dos
+/// piezas que hay que leer juntas:
 ///
-/// La excepción es [AulasPropiasGateway.misAulas], que **sí** tiene
-/// implementación real en `lib/services/aula_service.dart`: su contrato es
-/// `GET /api/v1/mi-horario`, una ruta **congelada desde M3** y publicada en el
-/// OpenAPI, así que ahí no hay nada que adivinar.
+/// 1. Las interfaces de `backend/src/dominio/tipos.ts` —`Anuncio`, `Tarea`,
+///    `Entrega`, `LibroEntrega`—.
+/// 2. Los mapeadores `a*` de `backend/src/infra/repos-supabase.ts`, que son los
+///    que **de verdad** nombran las claves de la respuesta.
 ///
-/// Escribir aquí un `fromJson` que adivine las claves de M6 produciría un fallo
-/// **silencioso** —no un error—: la pantalla se vería vacía porque los campos no
-/// se encuentran, y nada avisaría. Por eso los modelos de M6 **no** traen
-/// `fromJson`: el parseo llega junto con el servicio, cuando las claves sean un
-/// hecho y no una suposición. [MisAulas] es la excepción por la misma razón que
-/// [AulasPropiasGateway]: se construye a partir de `MiHorario`, que ya sabe
-/// parsearse a sí mismo.
+/// Hacen falta las dos porque **ninguna ruta declara un esquema Zod de
+/// respuesta**: Fastify serializa el objeto del mapeador tal cual, así que la
+/// interfaz sola no basta —hay campos de la interfaz que el mapeador no emite, y
+/// viceversa—. Las diez rutas emiten **camelCase**.
+///
+/// Los `fromJson` de aquí se escriben contra esas claves y no contra una
+/// suposición: uno que adivine la clave devuelve `null` en silencio y la
+/// pantalla se ve vacía sin que nada avise. Ese es el fallo que la cabecera
+/// anterior de este archivo existía para evitar, y por el que los modelos
+/// nacieron **sin** `fromJson`: se añadieron cuando las claves dejaron de ser una
+/// suposición y pasaron a ser un hecho.
 ///
 /// Las implementaciones del puerto **lanzan** [AppException]; quien las envuelve
 /// en `Result` es el consumidor (hoy las pantallas, vía `Result.guard`).
@@ -156,6 +154,21 @@ class Anuncio {
   /// Cuándo se publicó. Es la clave de orden del feed; `null` mientras siga
   /// siendo borrador.
   final String? publicadoEn;
+
+  /// Parsea una fila del mapeador `aAnuncio`.
+  ///
+  /// `autorId` viene en el payload pero **no se lee aquí**: la UI no lo pinta y
+  /// un campo que nadie consume es una invitación a que alguien lo use como
+  /// fuente de verdad. Si hace falta, se añade con su consumidor.
+  factory Anuncio.fromJson(Map<String, dynamic> json) => Anuncio(
+        id: json['id'] as String,
+        seccionId: json['seccionId'] as String,
+        titulo: json['titulo'] as String,
+        cuerpo: json['cuerpo'] as String,
+        estado: EstadoAnuncio.desde(json['estado'] as String?),
+        programadoPara: json['programadoPara'] as String?,
+        publicadoEn: json['publicadoEn'] as String?,
+      );
 }
 
 /// Una tarea (o material) del Trabajo de clase de una sección.
@@ -194,6 +207,30 @@ class TareaDeClase {
   final int orden;
 
   final EstadoTarea estado;
+
+  /// Parsea una fila del mapeador `aTarea`.
+  ///
+  /// **`puntosMaximos` se lee como `num`, no como `int`.** La columna es
+  /// `numeric(4,2)`, así que un 17,5 es válido; pero según cómo viaje —JSON de
+  /// PostgREST, o un entero cuando vale 20— puede llegar como `int` o como
+  /// `double`. Un `as double` sobre un `20` entero revienta en tiempo de
+  /// ejecución; `(… as num?)?.toDouble()` acepta los dos. El `0` de respaldo
+  /// repite el que ya usa el mapeador para un material.
+  ///
+  /// `permitirEntregaTardia` y `publicadoEn` vienen en el payload y no se leen:
+  /// la UI no los pinta todavía.
+  factory TareaDeClase.fromJson(Map<String, dynamic> json) => TareaDeClase(
+        id: json['id'] as String,
+        seccionId: json['seccionId'] as String,
+        titulo: json['titulo'] as String,
+        descripcion: json['descripcion'] as String,
+        tipo: TipoTarea.desde(json['tipo'] as String?),
+        puntosMaximos: (json['puntosMaximos'] as num?)?.toDouble() ?? 0,
+        fechaLimite: json['fechaLimite'] as String?,
+        tema: json['tema'] as String?,
+        orden: (json['orden'] as num?)?.toInt() ?? 0,
+        estado: EstadoTarea.desde(json['estado'] as String?),
+      );
 }
 
 /// La entrega de **un estudiante** para una tarea.
@@ -209,11 +246,21 @@ class TareaDeClase {
 /// que la base se molesta en esconder. Por eso el campo **no existe aquí**, y no
 /// debe añadirse «por comodidad» en un refactor: el único tipo con
 /// `notaBorrador` es [LibroEntrega], que es del docente.
+///
+/// ## Por qué este tipo tampoco tiene `estudianteId`
+///
+/// Porque **el servidor no lo manda**. Esta forma es la del alumno: `aEntrega`
+/// lee `id, tarea_id, estado, es_tardia, nota_asignada, entregada_en` —las
+/// mismas seis columnas de `COLUMNAS_ENTREGA`—, y `estudiante_id` no está entre
+/// ellas. Un campo `required` que ningún `payload` llena no es un dato que
+/// falte: es un `null` disfrazado que revienta al parsear. El «yo» de la entrega
+/// lo pone `auth.uid()` en el servidor, así que el cliente no necesita el id
+/// para saber de quién es. [LibroEntrega] **sí** lo tiene, porque es el del
+/// docente y ahí el `estudiante_id` es la fila.
 class Entrega {
   const Entrega({
     required this.id,
     required this.tareaId,
-    required this.estudianteId,
     required this.estado,
     required this.esTardia,
     this.notaAsignada,
@@ -226,7 +273,6 @@ class Entrega {
   final String id;
 
   final String tareaId;
-  final String estudianteId;
   final EstadoEntrega estado;
 
   /// Se escribe **al entregar**, no con un job: `now() > fecha_limite` (§4.2).
@@ -237,11 +283,29 @@ class Entrega {
 
   final String? entregadaEn;
 
+  /// Parsea una fila del mapeador `aEntrega`.
+  ///
+  /// **`notaAsignada` se lee como `num`.** Es `numeric` en la base, así que un
+  /// 17,5 es válido y un 20 puede llegar como entero; el `as num?` cubre los dos
+  /// casos sin reventar.
+  ///
+  /// `esTardia` cae a `false` si faltara, que es el mismo respaldo que usa el
+  /// mapeador: no marcar a nadie como tardío es más prudente que acusarlo sin
+  /// dato.
+  factory Entrega.fromJson(Map<String, dynamic> json) => Entrega(
+        id: json['id'] as String,
+        tareaId: json['tareaId'] as String,
+        estado: EstadoEntrega.desde(json['estado'] as String?),
+        esTardia: json['esTardia'] as bool? ?? false,
+        notaAsignada: (json['notaAsignada'] as num?)?.toDouble(),
+        entregadaEn: json['entregadaEn'] as String?,
+      );
+
   /// Copia con campos cambiados.
   ///
   /// Existe porque el doble de pruebas necesita producir la fila mutada tras
-  /// `entregar`/`reclamar`, y copiar a mano los siete campos invita a olvidar
-  /// uno. No es una utilidad de propósito general: sólo la usa el doble.
+  /// `entregar`/`reclamar`, y copiar a mano los campos invita a olvidar uno. No
+  /// es una utilidad de propósito general: sólo la usa el doble.
   Entrega copyWith({
     EstadoEntrega? estado,
     bool? esTardia,
@@ -251,7 +315,6 @@ class Entrega {
       Entrega(
         id: id,
         tareaId: tareaId,
-        estudianteId: estudianteId,
         estado: estado ?? this.estado,
         esTardia: esTardia ?? this.esTardia,
         notaAsignada: notaAsignada ?? this.notaAsignada,
@@ -274,6 +337,7 @@ class LibroEntrega {
     required this.faltante,
     this.notaBorrador,
     this.notaAsignada,
+    this.devueltaEn,
   });
 
   final String estudianteId;
@@ -285,9 +349,40 @@ class LibroEntrega {
 
   final double? notaAsignada;
 
+  /// Cuándo se devolvió la entrega al alumno. `null` mientras siga sin devolver.
+  ///
+  /// **Puede venir ausente, no sólo nula.** `JSON.stringify` borra las claves
+  /// `undefined`, y la respuesta de `calificar` no toca `devuelta_en`, así que la
+  /// clave no está. En Dart `json['devueltaEn']` devuelve `null` tanto si la
+  /// clave falta como si vale `null`, y por eso el parseo no necesita
+  /// distinguirlas: lo que **no** se puede hacer es dar por hecho que la clave
+  /// existe y reventar con un `as String` no nulo.
+  final String? devueltaEn;
+
   /// «No entregó y ya venció», **derivado al leer** (§4.3), no escrito: no se
   /// auto-imputa un 0 en nombre de un docente que no lo pidió.
   final bool faltante;
+
+  /// Parsea una fila del mapeador `aLibroEntrega`.
+  ///
+  /// Este `fromJson` cubre también la respuesta de `calificar`/`devolver`, que
+  /// es del mismo linaje: trae `notaBorrador` y `devueltaEn`, pero **no** trae
+  /// `faltante` ni `entregadaEn`. Por eso los dos se leen con respaldo —
+  /// `faltante` cae a `false`, que es lo que hace el mapeador— y no como
+  /// obligatorios. Un `as bool` a secas haría que la respuesta de `calificar`
+  /// reventara al parsear.
+  ///
+  /// `id` y `entregadaEn` vienen del libro de calificaciones y no se leen: la UI
+  /// del docente todavía no los pinta.
+  factory LibroEntrega.fromJson(Map<String, dynamic> json) => LibroEntrega(
+        estudianteId: json['estudianteId'] as String,
+        estado: EstadoEntrega.desde(json['estado'] as String?),
+        esTardia: json['esTardia'] as bool? ?? false,
+        notaBorrador: (json['notaBorrador'] as num?)?.toDouble(),
+        notaAsignada: (json['notaAsignada'] as num?)?.toDouble(),
+        devueltaEn: json['devueltaEn'] as String?,
+        faltante: json['faltante'] as bool? ?? false,
+      );
 }
 
 /// Una de las aulas del llamante, reducida a lo que el menú necesita.
@@ -369,18 +464,18 @@ class MisAulas {
       'MisAulas(esDocente: $esDocente, ${aulas.length} aula(s))';
 }
 
-/// Lo que **hoy** se puede pedir de verdad sobre las aulas de una persona.
+/// Lo que se puede saber de las aulas de una persona **sin abrir ninguna**.
 ///
-/// Es un puerto **más estrecho** que [AulaGateway] y vive aquí, junto a él, por
-/// una razón concreta: `GET /api/v1/mi-horario` es una ruta **congelada** —está
-/// en el OpenAPI y sirve al panel «Mi horario» desde M3— mientras que los
-/// `payloads` del contenido de M6 todavía no están cerrados.
+/// Es un puerto **más estrecho** que [AulaGateway] y vive aquí, junto a él,
+/// porque listar aulas y leer su contenido son dos cosas distintas: el listado se
+/// apoya en `GET /api/v1/mi-horario` —una ruta de M3 que sirve también al panel
+/// «Mi horario»— y no necesita saber nada del tablón ni de las entregas.
 ///
-/// Un solo puerto con las dos cosas obligaría a que su implementación HTTP
-/// declarara los cinco métodos de M6 sin poder implementarlos, y una clase de
-/// producción cuyos métodos revientan es una trampa para el siguiente que la
-/// cablee. Separando, `lib/services/aula_service.dart` implementa **sólo** lo que
-/// existe, y los métodos de M6 siguen viviendo únicamente en el doble.
+/// Un solo puerto obligaría a que cualquier implementación del listado declarara
+/// los cinco métodos de contenido aunque no los tocara; separando, quien sólo
+/// necesita listar aulas declara sólo esto. [AulaGateway] **hereda** de aquí
+/// porque el aula se abre **desde** el listado: quien tiene la puerta del
+/// contenido tiene, por construcción, la del listado.
 abstract interface class AulasPropiasGateway {
   /// Las secciones del llamante, una por aula.
   ///
@@ -408,17 +503,17 @@ abstract interface class AulasPropiasGateway {
 /// | [trabajoDeClase] | `GET /aula/secciones/:seccionId/trabajo` |
 /// | [misEntregas] | `GET /aula/mis-entregas` |
 /// | [entregar] | `POST /aula/entregas/:entregaId/entregar` |
-/// | [reclamar] | RPC `m6_reclamar_entrega` (sin ruta propia en §6) |
+/// | [reclamar] | `POST /aula/entregas/:entregaId/reclamar` |
 ///
 /// Las rutas de escritura del docente (crear anuncio/tarea, publicar,
 /// calificar, devolver, libro de calificaciones) **no** están en el puerto
-/// todavía: su UI es un ciclo aparte y el contrato de su payload aún no está
-/// cerrado. Añadirlas sin esa UI daría métodos sin consumidor.
+/// todavía: su UI es un ciclo aparte. Añadirlas sin esa UI daría métodos sin
+/// consumidor.
 ///
-/// Hereda de [AulasPropiasGateway] porque el aula se abre **desde** el listado
-/// de aulas: quien tiene la puerta del contenido tiene, por construcción, la del
-/// listado. La implementación real de hoy (`BackendAulaGateway`) cubre sólo la
-/// parte congelada, y por eso declara [AulasPropiasGateway] y no este puerto.
+/// La implementación real es `BackendAulaGateway` (`lib/services/aula_service.dart`),
+/// que cubre este puerto entero. El doble de pruebas
+/// (`test/support/fake_aula_gateway.dart`) sigue valiendo para la UI, como el de
+/// M5.
 abstract interface class AulaGateway implements AulasPropiasGateway {
   /// El feed del tablón de una sección.
   ///

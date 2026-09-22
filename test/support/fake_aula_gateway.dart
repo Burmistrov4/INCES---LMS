@@ -187,10 +187,14 @@ TareaDeClase tareaEjemplo({
     );
 
 /// Fixture: una entrega del estudiante.
+///
+/// **No lleva `estudianteId`** porque el servidor no lo manda: la entrega del
+/// alumno es anónima respecto de sí misma —el «yo» lo pone `auth.uid()` en el
+/// servidor—. El id del estudiante sólo aparece en el libro del docente
+/// (`LibroEntrega`).
 Entrega entregaEjemplo({
   String id = 'ent-1',
   String tareaId = 'tar-1',
-  String estudianteId = 'est-1',
   EstadoEntrega estado = EstadoEntrega.asignada,
   bool esTardia = false,
   double? notaAsignada,
@@ -199,7 +203,6 @@ Entrega entregaEjemplo({
     Entrega(
       id: id,
       tareaId: tareaId,
-      estudianteId: estudianteId,
       estado: estado,
       esTardia: esTardia,
       notaAsignada: notaAsignada,

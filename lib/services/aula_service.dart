@@ -3,31 +3,39 @@ import '../core/network/api_client.dart';
 import '../models/cuadrante.dart';
 import 'supabase_service.dart';
 
-/// Implementación de [AulasPropiasGateway] contra el backend Fastify.
+/// Implementación de [AulaGateway] contra el backend Fastify.
 ///
-/// Lee `GET /api/v1/mi-horario` —la misma ruta que sirve al panel «Mi horario»
-/// de M3— y la reduce al listado de aulas del menú «Mis aulas».
+/// Cubre el listado de aulas y el contenido del aula, que son las seis
+/// operaciones que la UI usa hoy:
 ///
-/// ## Lo que este servicio NO implementa
+/// | Método | Ruta |
+/// |---|---|
+/// | [misAulas] | `GET /api/v1/mi-horario` (heredada de [AulasPropiasGateway]) |
+/// | [tablon] | `GET /api/v1/aula/secciones/:seccionId/tablon` |
+/// | [trabajoDeClase] | `GET /api/v1/aula/secciones/:seccionId/trabajo` |
+/// | [misEntregas] | `GET /api/v1/aula/mis-entregas` |
+/// | [entregar] | `POST /api/v1/aula/entregas/:entregaId/entregar` |
+/// | [reclamar] | `POST /api/v1/aula/entregas/:entregaId/reclamar` |
 ///
-/// El **contenido** del aula: `tablon`, `trabajoDeClase`, `misEntregas`,
-/// `entregar` y `reclamar`. Los `payloads` de M6 no están cerrados (ver la
-/// cabecera de `lib/core/gateways/aula_gateway.dart`), así que esos cinco
-/// métodos viven **sólo** en `test/support/fake_aula_gateway.dart`.
+/// **La forma de las respuestas no está adivinada.** Sale de los mapeadores
+/// `a*` de `backend/src/infra/repos-supabase.ts`: ninguna ruta declara un
+/// esquema Zod de respuesta, así que Fastify serializa el objeto del mapeador
+/// tal cual, y las diez rutas emiten **camelCase**. El detalle de dónde sale
+/// cada clave está en la cabecera de `lib/core/gateways/aula_gateway.dart`.
 ///
-/// Por eso esta clase declara [AulasPropiasGateway] y no [AulaGateway]: es la
-/// forma de que el compilador impida cablearla donde se espera una puerta de
-/// contenido, en vez de dejar cinco métodos que revientan en producción.
+/// **La autorización la hace la base, no este cliente** (ADR-003). Las cinco
+/// rutas de M6 llevan `exigirSesion()` y la guardia del módulo `m6_aula_virtual`;
+/// quién ve qué lo decide la RLS. Por eso el token de sesión viaja en **cada**
+/// petición: es lo que deja al servidor resolver el rol y a `auth.uid()` decidir
+/// de quién es la entrega.
 ///
-/// El token de sesión se manda para que el backend resuelva el rol. La ruta no
-/// cuelga del prefijo de administración: la guarda `exigirSesion()` y el
-/// aislamiento por rol lo hace la RLS.
-class BackendAulaGateway implements AulasPropiasGateway {
+/// Las implementaciones del puerto **lanzan** [AppException]; envolverlas en
+/// `Result` es cosa del consumidor (hoy las pantallas, vía `Result.guard`).
+class BackendAulaGateway implements AulaGateway {
   /// [tokenSesion] es un parámetro y no una llamada directa a `SupabaseService`
   /// por la misma razón que en M5: `SupabaseService.instance.auth` llega hasta
   /// `Supabase.instance`, que **lanza** si Supabase no está inicializado, y
   /// leerlo dentro haría que el gateway no se pudiera construir en una prueba.
-  /// Sin este hueco, la única ruta real de M6 que ya existe quedaría sin cubrir.
   BackendAulaGateway({ApiClient? api, String? Function()? tokenSesion})
       : _api = api ?? ApiClient(),
         _tokenSesion = tokenSesion ?? _tokenDeSupabase;
@@ -41,6 +49,13 @@ class BackendAulaGateway implements AulasPropiasGateway {
   static String? _tokenDeSupabase() =>
       SupabaseService.instance.auth.currentSession?.accessToken;
 
+  /// El prefijo común de las rutas de contenido.
+  ///
+  /// Va en una constante y no repetido en cada método para que el día que el
+  /// prefijo cambie haya un solo sitio que tocar. La ruta del horario **no**
+  /// cuelga de aquí: es de M3 y vive en su propia constante.
+  static const String _rutaAula = '/api/v1/aula';
+
   /// La ruta del horario propio.
   ///
   /// Es la **misma** que usa `BackendCuadranteGateway`: no son dos rutas, son
@@ -48,6 +63,8 @@ class BackendAulaGateway implements AulasPropiasGateway {
   /// sección, la materia y el programa; el panel de horario necesita además el
   /// día y el bloque. Compartir la ruta evita que las dos se desvíen.
   static const String _rutaMiHorario = '/api/v1/mi-horario';
+
+  // --- Listado de aulas -----------------------------------------------------
 
   @override
   Future<MisAulas> misAulas({String? periodo}) async {
@@ -61,6 +78,76 @@ class BackendAulaGateway implements AulasPropiasGateway {
     );
 
     return _reducir(MiHorario.fromJson(respuesta));
+  }
+
+  // --- Contenido del aula ---------------------------------------------------
+
+  @override
+  Future<List<Anuncio>> tablon(String seccionId) async {
+    final respuesta = await _api.get(
+      '$_rutaAula/secciones/$seccionId/tablon',
+      token: _tokenSesion(),
+    );
+
+    // El servidor envuelve la lista en `{ anuncios: [...] }`, no la devuelve
+    // desnuda: es el sobre de todas las rutas de lectura de M6 y por eso se
+    // desempaqueta aquí y no en la pantalla.
+    return _listaDe(respuesta, 'anuncios', Anuncio.fromJson);
+  }
+
+  @override
+  Future<List<TareaDeClase>> trabajoDeClase(String seccionId) async {
+    final respuesta = await _api.get(
+      '$_rutaAula/secciones/$seccionId/trabajo',
+      token: _tokenSesion(),
+    );
+
+    return _listaDe(respuesta, 'tareas', TareaDeClase.fromJson);
+  }
+
+  @override
+  Future<List<Entrega>> misEntregas() async {
+    // Sin parámetro de usuario a propósito: el «yo» lo pone `auth.uid()` en el
+    // servidor. Mandarlo desde aquí sería una segunda fuente de verdad sobre
+    // quién es el llamante.
+    final respuesta = await _api.get(
+      '$_rutaAula/mis-entregas',
+      token: _tokenSesion(),
+    );
+
+    return _listaDe(respuesta, 'entregas', Entrega.fromJson);
+  }
+
+  @override
+  Future<Entrega> entregar(String entregaId) =>
+      _accionDeEntrega(entregaId, 'entregar');
+
+  @override
+  Future<Entrega> reclamar(String entregaId) =>
+      _accionDeEntrega(entregaId, 'reclamar');
+
+  /// Las dos acciones que devuelven la entrega mutada.
+  ///
+  /// `entregar` y `reclamar` comparten forma de respuesta **a propósito**: las
+  /// dos RPC devuelven `id, tarea_id, estado, es_tardia, nota_asignada,
+  /// entregada_en`, y el mapeador `aEntrega` las reduce igual. Escribir dos
+  /// métodos casi idénticos invitaría a que uno se desviara del otro cuando sólo
+  /// cambia el verbo.
+  ///
+  /// POST **sin cuerpo**: el id va en la ruta. `ApiClient` omite
+  /// `Content-Type` cuando no hay cuerpo, que es justo lo que evita el
+  /// `FST_ERR_CTP_EMPTY_JSON_BODY` de Fastify.
+  ///
+  /// Un 400 aquí es del dominio y trae su mensaje: la tarea cerró y no admite
+  /// tardías (§4.4), o la entrega no está en un estado desde el que se pueda
+  /// reclamar. No se reinterpreta: se deja subir tal cual.
+  Future<Entrega> _accionDeEntrega(String entregaId, String accion) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/entregas/$entregaId/$accion',
+      token: _tokenSesion(),
+    );
+
+    return Entrega.fromJson(respuesta['entrega'] as Map<String, dynamic>);
   }
 
   /// Reduce el horario del llamante a un aula por sección.
@@ -106,6 +193,27 @@ class BackendAulaGateway implements AulasPropiasGateway {
       periodo: horario.periodo,
       aulas: aulas,
     );
+  }
+
+  /// Desempaqueta la lista que el servidor deja bajo [clave] y la parsea.
+  ///
+  /// Los tres lectores de M6 comparten sobre (`{ anuncios }`, `{ tareas }`,
+  /// `{ entregas }`), así que el desempaquetado va aquí una vez en lugar de tres.
+  ///
+  /// Una clave ausente o `null` se lee como **lista vacía**, no como error: el
+  /// libro de calificaciones devuelve `200 { entregas: [] }` a quien no dicta la
+  /// sección, y una lista vacía no es un fallo —es «no hay nada que ver»—. Tratar
+  /// ese caso como error obligaría a la UI a distinguir dos vacíos que para ella
+  /// son el mismo.
+  static List<T> _listaDe<T>(
+    Map<String, dynamic> respuesta,
+    String clave,
+    T Function(Map<String, dynamic>) parsear,
+  ) {
+    final crudo = respuesta[clave] as List?;
+    if (crudo == null) return <T>[];
+
+    return crudo.cast<Map<String, dynamic>>().map(parsear).toList();
   }
 
   /// Un texto de consulta en blanco equivale a no filtrar.
