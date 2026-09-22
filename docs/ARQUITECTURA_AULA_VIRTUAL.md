@@ -378,7 +378,7 @@ módulo es la excepción, porque que el módulo esté encendido no lo sabe la ba
 | `draftGrade` → `assignedGrade` al devolver | D-6 + §2.3: dos columnas y un `CHECK` de dependencia |
 | El alumno no edita adjuntos hasta que se le devuelve | §2.3: `RECLAMADA`/`DEVUELTA` gobiernan el ciclo |
 | Placeholders creados al asignar | D-7 + §5: `m6_publicar_tarea` los crea |
-| Tablón cronológico + panel «Upcoming» | §6: `/tablon` devuelve el feed y las próximas entregas |
+| Tablón cronológico + panel «Upcoming» | §6: `/tablon` devuelve **sólo el feed**; lo pendiente se ve como el estado de cada entrega en su tarjeta, sin panel aparte |
 | Semáforo rojo/verde/negro del libro | Se implementa en el libro de calificaciones, derivando el color del estado |
 
 ---
