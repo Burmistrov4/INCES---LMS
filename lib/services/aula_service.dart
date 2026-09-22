@@ -222,3 +222,40 @@ class BackendAulaGateway implements AulaGateway {
     return (limpio == null || limpio.isEmpty) ? null : limpio;
   }
 }
+
+/// Resuelve la puerta de **contenido** del aula que un dashboard entrega a
+/// `PanelMisAulas`.
+///
+/// ## La trampa que evita (leer antes de «simplificar»)
+///
+/// Lo natural sería escribir `widget.aulaGateway ?? BackendAulaGateway()` en el
+/// dashboard. **No sirve**, y el porqué no se ve leyendo el `??`:
+///
+/// Las pruebas de widget inyectan a veces **sólo** el gateway del listado
+/// (`aulasPropias`) y dejan `aulaGateway` en `null` **a propósito**, justo para
+/// comprobar que sin puerta de contenido la tarjeta del aula **no** se puede
+/// pulsar. Con el `??` ingenuo esas pruebas recibirían un gateway real, la
+/// tarjeta pasaría a ser pulsable y el toque saldría a la red: el arreglo
+/// abriría por la puerta de atrás el caso que la prueba existe para proteger.
+///
+/// Por eso la condición no es «`aulaGateway` es `null`» sino **«no se inyectó
+/// nada»**: sólo entonces estamos en producción y el aula debe abrirse con el
+/// servicio real. Si el llamante inyectó cualquiera de las dos puertas, manda
+/// él — y si inyectó la del listado sin la del contenido, lo que pide es un
+/// listado **sin** aula abrible, y eso es lo que recibe.
+///
+/// Vive aquí, y no copiada en cada dashboard, porque es una regla sutil que dos
+/// copias acabarían desviando.
+AulaGateway? resolverPuertaDeContenido({
+  required AulaGateway? inyectada,
+  required AulasPropiasGateway? listadoInyectado,
+}) {
+  if (inyectada != null) return inyectada;
+
+  // Listado inyectado y contenido no: quien llama quiere controlar el listado y
+  // no ha pedido puerta de contenido. Devolver una real rompería su prueba.
+  if (listadoInyectado != null) return null;
+
+  // Ni una ni otra: producción.
+  return BackendAulaGateway();
+}

@@ -22,10 +22,19 @@ import 'aula_virtual_dashboard.dart';
 /// ## Por qué el contenido es opcional
 ///
 /// [aulaGateway] es la puerta del **contenido** del aula (tablón, trabajo de
-/// clase, entregas). Su implementación HTTP no existe todavía —el JSON de M6 no
-/// está cerrado—, así que hoy sólo la implementa el doble de pruebas. Cuando no
-/// se inyecta, el listado **sigue siendo real** (viene de la ruta congelada) y
-/// la pantalla lo dice, en vez de abrir un aula que no puede cargar nada.
+/// clase, entregas). El dashboard de producción **sí** la inyecta —la resuelve
+/// `resolverPuertaDeContenido` en `lib/services/aula_service.dart`—, así que en
+/// producción la tarjeta siempre se puede pulsar.
+///
+/// Sigue siendo opcional porque hay un caso legítimo en que no la hay: quien
+/// quiere el listado **sin** aula abrible. Entonces el listado **sigue siendo
+/// real** (viene de la ruta congelada) y la pantalla lo dice, en vez de abrir un
+/// aula que no puede cargar nada. Es el estado que usan las pruebas de widget
+/// para fijar que sin puerta la tarjeta **no** se puede pulsar.
+///
+/// **No lo «simplifiques» a `BackendAulaGateway()` aquí dentro.** El valor nulo
+/// es una decisión del llamante, no un hueco que rellenar: quien lo deja nulo
+/// está pidiendo justamente esto.
 class PanelMisAulas extends StatefulWidget {
   const PanelMisAulas({super.key, required this.gateway, this.aulaGateway});
 

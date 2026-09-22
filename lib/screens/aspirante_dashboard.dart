@@ -44,11 +44,11 @@ class AspiranteDashboardScreen extends StatefulWidget {
 
   /// La puerta del **contenido** del Aula Virtual (M6).
   ///
-  /// Opcional a propósito: el JSON del contenido de M6 todavía no está cerrado
-  /// (ver `lib/core/gateways/aula_gateway.dart`), así que hoy sólo la implementa
-  /// el doble de pruebas. Se inyecta en las pruebas de widget; sin ella, el
-  /// listado de «Mis aulas» sigue siendo real y lo explica en pantalla en vez de
-  /// abrir un aula que no puede cargar nada.
+  /// Opcional **sólo para las pruebas**: en producción no se inyecta y el
+  /// dashboard cae al servicio real (ver [_aulaContenido]). Se inyecta cuando una
+  /// prueba quiere un doble en lugar de la red, o cuando quiere el listado **sin**
+  /// aula abrible —para eso último basta con inyectar [aulasPropias] y dejar esta
+  /// en `null`—.
   final AulaGateway? aulaGateway;
 
   /// De dónde sale el listado de secciones de «Mis aulas».
@@ -77,6 +77,17 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   late final AulasPropiasGateway _aulasPropias =
       widget.aulasPropias ?? widget.aulaGateway ?? BackendAulaGateway();
 
+  /// La puerta del **contenido** del aula que recibe `PanelMisAulas`.
+  ///
+  /// Es lo que hace que en producción —sin inyectar nada— la tarjeta del aula se
+  /// pueda pulsar. **No es `widget.aulaGateway ?? BackendAulaGateway()`**: ver
+  /// [resolverPuertaDeContenido], que explica por qué ese `??` rompería las
+  /// pruebas de widget que piden un listado sin aula abrible.
+  late final AulaGateway? _aulaContenido = resolverPuertaDeContenido(
+    inyectada: widget.aulaGateway,
+    listadoInyectado: widget.aulasPropias,
+  );
+
   bool _cargando = true;
   AspiranteModel? _aspirante;
   String? _error;
@@ -102,8 +113,9 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
     // «Mis aulas» es la entrada al Aula Virtual (M6). Se enciende aquí porque
     // ya tiene su rama en el `switch` de `_contenido()`: un ítem encendido sin
     // rama abriría en blanco, y una rama sin el ítem encendido sería código
-    // muerto (R-22). El listado de secciones es real —sale de `/mi-horario`—;
-    // lo que el módulo aún no tiene es el contenido del aula.
+    // muerto (R-22). El listado sale de `/mi-horario` y el contenido del aula
+    // del servicio real de M6: el módulo se enciende o se apaga desde el cPanel,
+    // no desde este menú.
     ItemNavegacion(
       icono: Icons.class_outlined,
       titulo: 'Mis aulas',
@@ -205,11 +217,14 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
         // Aula Virtual (M6): el listado de secciones viene de `/mi-horario`
         // —ruta congelada desde M3, una fila por sección— y cada tarjeta abre
         // el tablón y el trabajo de clase de esa sección, con el gestor
-        // documental incrustado para subir las entregas. El contenido del aula
-        // todavía no tiene servicio HTTP, así que sólo se inyecta en pruebas.
+        // documental incrustado para subir las entregas.
+        //
+        // `_aulaContenido` —y no `widget.aulaGateway`— es lo que hace que en
+        // producción la tarjeta se pueda pulsar: sin inyectar nada resuelve el
+        // servicio real, y con algo inyectado respeta lo que pidió la prueba.
         return PanelMisAulas(
           gateway: _aulasPropias,
-          aulaGateway: widget.aulaGateway,
+          aulaGateway: _aulaContenido,
         );
 
       case 'Mis entregas':
