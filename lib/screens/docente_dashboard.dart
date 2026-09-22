@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../core/gateways/aula_gateway.dart';
 import '../models/archivo.dart';
 import '../services/auth_service.dart';
+import '../services/aula_service.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import 'gestor_documental_panel.dart';
 import 'mi_horario_panel.dart';
+import 'mis_aulas_panel.dart';
 
 /// Panel del docente.
 ///
@@ -20,9 +23,32 @@ import 'mi_horario_panel.dart';
 /// del que dependen en el tooltip: así quien usa el panel entiende que falta
 /// algo concreto, en vez de sospechar que la aplicación está rota.
 class DocenteDashboardScreen extends StatefulWidget {
-  const DocenteDashboardScreen({super.key, this.auth});
+  const DocenteDashboardScreen({
+    super.key,
+    this.auth,
+    this.aulaGateway,
+    this.aulasPropias,
+  });
 
   final AuthService? auth;
+
+  /// La puerta del **contenido** del Aula Virtual (M6).
+  ///
+  /// Opcional a propósito: el JSON del contenido de M6 todavía no está cerrado
+  /// (ver `lib/core/gateways/aula_gateway.dart`), así que hoy sólo la implementa
+  /// el doble de pruebas. Se inyecta en las pruebas de widget; sin ella, el
+  /// listado de «Mis aulas» sigue siendo real y lo explica en pantalla en vez de
+  /// abrir un aula que no puede cargar nada.
+  final AulaGateway? aulaGateway;
+
+  /// De dónde sale el listado de secciones de «Mis aulas».
+  ///
+  /// Opcional para las pruebas. Sin él se usa [BackendAulaGateway], que lee
+  /// `GET /api/v1/mi-horario`: es la misma ruta que alimenta «Mi horario», y
+  /// para un docente trae sus secciones además de sus guardias. Las guardias
+  /// **no** se listan como aulas: una guardia es una presencia de custodia, no
+  /// una clase con tablón ni trabajo de clase.
+  final AulasPropiasGateway? aulasPropias;
 
   @override
   State<DocenteDashboardScreen> createState() => _DocenteDashboardScreenState();
@@ -30,6 +56,14 @@ class DocenteDashboardScreen extends StatefulWidget {
 
 class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
   late final AuthService _auth = widget.auth ?? AuthService();
+
+  /// El listado de aulas de «Mis aulas».
+  ///
+  /// Cae al gateway de contenido cuando se inyecta —un [AulaGateway] **es** un
+  /// [AulasPropiasGateway], así que vale como fuente del listado— y si no, a la
+  /// implementación real contra `/mi-horario`.
+  late final AulasPropiasGateway _aulasPropias =
+      widget.aulasPropias ?? widget.aulaGateway ?? BackendAulaGateway();
 
   int _seleccionada = 0;
 
@@ -103,18 +137,14 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
 
     switch (item.titulo) {
       case 'Mis aulas':
-        return ContenidoSeccion(
-          migas: ['Inicio', item.categoria, item.titulo],
-          child: const PanelVacio(
-            titulo: 'Todavía no tienes aulas asignadas',
-            mensaje:
-                'Cuando la coordinación del centro te asigne secciones, '
-                'aparecerán aquí con su horario y su lista de estudiantes.',
-            icono: Icons.class_outlined,
-            nota:
-                'Depende del módulo Currículo y Cuadrante, que está apagado. '
-                'El Administrador Maestro lo activa desde su panel.',
-          ),
+        // El Aula Virtual (M6) es el destino de «Mis aulas». El listado de
+        // secciones es real —sale de `/mi-horario`, la misma ruta que alimenta
+        // «Mi horario»— y cada tarjeta abre el tablón y el trabajo de clase de
+        // esa sección. El contenido del aula todavía no tiene servicio HTTP,
+        // así que sólo se inyecta en pruebas.
+        return PanelMisAulas(
+          gateway: _aulasPropias,
+          aulaGateway: widget.aulaGateway,
         );
 
       case 'Mi horario':

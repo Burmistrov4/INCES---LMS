@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../core/gateways/aula_gateway.dart';
 import '../core/result.dart';
 import '../models/archivo.dart';
 import '../models/aspirante_model.dart';
@@ -10,10 +11,12 @@ import '../models/inscripcion.dart';
 import '../repositories/aspirante_repository.dart';
 import '../repositories/inscripcion_repository.dart';
 import '../services/auth_service.dart';
+import '../services/aula_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import 'gestor_documental_panel.dart';
+import 'mis_aulas_panel.dart';
 
 /// Panel del aspirante y del estudiante.
 ///
@@ -28,10 +31,32 @@ import 'gestor_documental_panel.dart';
 /// asiento está en asignación y no se puede solicitar, **aunque** queden cupos
 /// libres (es la "doble venta" que el diseño evita).
 class AspiranteDashboardScreen extends StatefulWidget {
-  const AspiranteDashboardScreen({super.key, this.repositorio, this.auth});
+  const AspiranteDashboardScreen({
+    super.key,
+    this.repositorio,
+    this.auth,
+    this.aulaGateway,
+    this.aulasPropias,
+  });
 
   final AspiranteRepository? repositorio;
   final AuthService? auth;
+
+  /// La puerta del **contenido** del Aula Virtual (M6).
+  ///
+  /// Opcional a propósito: el JSON del contenido de M6 todavía no está cerrado
+  /// (ver `lib/core/gateways/aula_gateway.dart`), así que hoy sólo la implementa
+  /// el doble de pruebas. Se inyecta en las pruebas de widget; sin ella, el
+  /// listado de «Mis aulas» sigue siendo real y lo explica en pantalla en vez de
+  /// abrir un aula que no puede cargar nada.
+  final AulaGateway? aulaGateway;
+
+  /// De dónde sale el listado de secciones de «Mis aulas».
+  ///
+  /// Opcional para las pruebas. Sin él se usa [BackendAulaGateway], que lee
+  /// `GET /api/v1/mi-horario`: esa ruta **sí** está congelada y responde a los
+  /// dos roles, así que el listado es real aunque el contenido no lo sea aún.
+  final AulasPropiasGateway? aulasPropias;
 
   @override
   State<AspiranteDashboardScreen> createState() =>
@@ -43,6 +68,14 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       widget.repositorio ?? AspiranteRepository();
   late final AuthService _auth = widget.auth ?? AuthService();
   final InscripcionesRepository _inscripciones = InscripcionesRepository();
+
+  /// El listado de aulas de «Mis aulas».
+  ///
+  /// Cae al gateway de contenido cuando se inyecta —un [AulaGateway] **es** un
+  /// [AulasPropiasGateway], así que vale como fuente del listado— y si no, a la
+  /// implementación real contra `/mi-horario`.
+  late final AulasPropiasGateway _aulasPropias =
+      widget.aulasPropias ?? widget.aulaGateway ?? BackendAulaGateway();
 
   bool _cargando = true;
   AspiranteModel? _aspirante;
@@ -66,11 +99,15 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       titulo: 'Mis inscripciones',
       categoria: 'Académico',
     ),
+    // «Mis aulas» es la entrada al Aula Virtual (M6). Se enciende aquí porque
+    // ya tiene su rama en el `switch` de `_contenido()`: un ítem encendido sin
+    // rama abriría en blanco, y una rama sin el ítem encendido sería código
+    // muerto (R-22). El listado de secciones es real —sale de `/mi-horario`—;
+    // lo que el módulo aún no tiene es el contenido del aula.
     ItemNavegacion(
       icono: Icons.class_outlined,
       titulo: 'Mis aulas',
       categoria: 'Académico',
-      disponible: false,
     ),
     ItemNavegacion(
       icono: Icons.assignment_turned_in_outlined,
@@ -163,6 +200,17 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
 
       case 'Mis inscripciones':
         return PanelMisInscripciones(repositorio: _inscripciones);
+
+      case 'Mis aulas':
+        // Aula Virtual (M6): el listado de secciones viene de `/mi-horario`
+        // —ruta congelada desde M3, una fila por sección— y cada tarjeta abre
+        // el tablón y el trabajo de clase de esa sección, con el gestor
+        // documental incrustado para subir las entregas. El contenido del aula
+        // todavía no tiene servicio HTTP, así que sólo se inyecta en pruebas.
+        return PanelMisAulas(
+          gateway: _aulasPropias,
+          aulaGateway: widget.aulaGateway,
+        );
 
       case 'Mis entregas':
         return ContenidoSeccion(
