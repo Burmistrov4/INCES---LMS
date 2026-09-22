@@ -1,12 +1,18 @@
 # HANDOVER — INCES LMS
 
 > **⚠️ El titular que sigue está desactualizado, y se conserva por trazabilidad.**
-> El estado vigente es **M5 cerrado en local** —Capa 7, bandera encendida y
-> guardia `exigirModulo()`— **más el barrido expuesto como ruta de
-> administración** (2026-09-19); M6–M8 son sólo diseño. Las cifras de las suites y
-> el detalle de las deudas abiertas están en las entradas fechadas de más abajo y
-> en `ESTADO_DEL_SISTEMA.md` §1, que es la fuente de verdad. **Ante cualquier
-> discrepancia, gana el código.**
+> El estado vigente (2026-09-22) es **M6 Aula Virtual cerrado en local**: esquema,
+> las 10 rutas del backend, el aula del alumno y el **Centro de Mando del
+> Docente** (crear anuncio/tarea, publicar, libro de calificaciones), con el
+> módulo **`m6_aula_virtual` ENCENDIDO**. M6 Asistencia, M7 y M8 siguen siendo
+> sólo diseño. Las cifras de las suites y el detalle de las deudas abiertas están
+> en las entradas fechadas de más abajo y en `ESTADO_DEL_SISTEMA.md` §1, que es la
+> fuente de verdad. **Ante cualquier discrepancia, gana el código.**
+>
+> **⚠️ La nube va 4 migraciones por detrás del repositorio** (20 en el repo,
+> 16 aplicadas). Hasta aplicarlas, `verificar-esquema.mjs` y `test-humo.mjs`
+> darán fallos **que no son regresiones**: son las comprobaciones funcionando.
+> Ver §"Acción pendiente" más abajo.
 
 > **Módulo 4 (Inscripciones y Cupos) — Fases 1 y 2 CERRADAS.**
 > **Fase 1 (esquema):** `202609190001_mod4_inscripciones.sql` aplicada, más
@@ -1336,6 +1342,62 @@ Trampas que ya mordieron una vez:
    abajo hacia arriba**, porque cada escritura desplaza todo lo posterior.
 4. `doc_replace_text` usa `ranges: [{begin, end}]`. Para borrar una viñeta,
    `doc_delete_paragraph` con el `idx` de cualquier punto de ella.
+
+---
+
+## 2026-09-22 — M6 Aula Virtual CERRADO en local (Sprint 2)
+
+**Estado:** backend **540/540** (21 archivos) · Flutter **456/456** · PGlite
+**402/402** · `flutter analyze` sin avisos. Módulo **`m6_aula_virtual`
+ENCENDIDO**.
+
+**Lo que se cerró, en cinco fases:**
+
+1. **Parche caliente de la nube** (`202609220002`). El default de
+   `p_puntos_maximos` era `20`, y eso hacía que un MATERIAL —que no se califica—
+   se rechazara con `23514`. Se corrigió en local editando `202609220001`, pero
+   **esa migración ya estaba aplicada en producción y una migración aplicada no se
+   edita**: se creó `202609220002` con `CREATE OR REPLACE FUNCTION m6_crear_tarea`
+   y la firma buena (`default null`). `CREATE OR REPLACE` conserva el
+   `GRANT EXECUTE`, así que no hay que re-concederlo.
+2. **El cableado en producción.** El servicio de contenido de M6 existía, pero
+   los dashboards pasaban `aulaGateway: widget.aulaGateway`, que en producción es
+   `null`: el aula **no se podía abrir**. Se añadió `resolverPuertaDeContenido`,
+   cuya regla sutil es la que un `?? BackendAulaGateway()` ingenuo rompería — si
+   sólo se inyectó el listado (las pruebas de widget), devuelve `null` para no
+   sacar la prueba a la red; si no se inyectó nada (producción), devuelve el real.
+3. **El Centro de Mando del Docente.** `crear_anuncio_panel`,
+   `crear_tarea_panel` (diferencia TAREA de MATERIAL: para MATERIAL no se envían
+   puntos, se envía `null`) y `libro_calificaciones_panel` (rejilla con doble
+   scroll, patrón de `cuadrante_grid.dart`). **10 pruebas de widget nuevas.**
+4. **Se encendió el módulo** (`202609220003`) y las tres aserciones se invirtieron.
+5. **Documentación auditada** con `supabase/tests/medir-conteos.mjs`.
+
+**Trampas que mordieron en este sprint:**
+
+- **Un panel que se abre como ruta necesita su propio `Scaffold`.**
+  `ContenidoSeccion` no trae `Material`, así que el `TextFormField` reventaba con
+  *«No Material widget found»* —en pruebas **y** en producción—.
+- **`ContenidoSeccion` no desplaza.** Un formulario más alto que el viewport
+  desborda (`RenderFlex overflowed`) y deja el botón fuera de pantalla, así que en
+  las pruebas hay que `ensureVisible()` antes de `tap()`, o el toque no acierta.
+- **`DropdownButtonFormField` guarda su propio estado** y no relee el valor desde
+  fuera; para un selector controlado usar `DropdownButton` (ya documentado en
+  `cpanel_cuadrante_panel.dart`).
+- **`AppException.from` traduce el error**: un `Exception('sin red')` se muestra
+  como *«Ocurrió un error inesperado»*. Si una prueba busca el texto crudo del
+  error, no lo va a encontrar —y está bien que sea así.
+- **`Result.when` no espera callbacks `async`**: encadenar dos llamadas dentro de
+  `success:` deja la segunda sin esperar. Usar `isFailure` / `valueOrNull`.
+
+**Verificado por mutación, no sólo por paso:** con `habilitado = false` en
+`202609220003`, la suite PGlite da **400 pasadas / 2 fallidas** —exactamente las
+dos aserciones nuevas—. Sostienen peso.
+
+**PENDIENTE DE UNA PERSONA: aplicar 4 migraciones a la nube**, en orden:
+`202609210002`, `202609220001`, `202609220002`, `202609220003`. Hasta entonces
+`verificar-esquema.mjs` y `backend/test-humo.mjs` (**23/25**) darán fallos que
+**no son regresiones**. No bajar las aserciones.
 
 ---
 

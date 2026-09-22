@@ -99,25 +99,35 @@
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
 | **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) + el barrido de abandonadas como ruta de administración (2026-09-19) | ✅ **Completo** |
 | **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ✅ **Construido y probado** (2026-09-19): el `GestorDocumentalPanel` orquesta los tres pasos —firmar, `PUT` directo a R2, confirmar— y está montado en el panel del docente (`teacherGuide`) y en el del aspirante (`taskSubmission`), con **19 pruebas de widget** propias. D16 (CORS) está resuelta, así que el navegador ya puede hablar con R2; **falta recorrer el ciclo una vez en un navegador real**, que es lo único que las pruebas de widget no pueden demostrar |
-| **Fase 6+** | M6 Asistencia … M8 Pasantías | ⏳ Pendiente |
+| **Módulo 6 Aula Virtual (esquema)** | `m6_anuncios`, `m6_tareas`, `m6_entregas` + 8 RPC + RLS por columna | ✅ **Aplicado y verificado en local** (2026-09-22). ⚠️ `202609220001` y `202609220002` pendientes de aplicar a la nube |
+| **Módulo 6 Aula Virtual (backend)** | Las 10 rutas del aula (tablón, trabajo, entregas, calificar, devolver, libro) con `exigirAula` | ✅ **Completo** |
+| **Módulo 6 Aula Virtual (frontend)** | Aula del alumno + **Centro de Mando del Docente**: `crear_anuncio_panel`, `crear_tarea_panel`, `libro_calificaciones_panel` | ✅ **Construido y probado** (2026-09-22): **10 pruebas de widget** nuevas, con dobles estrictos. El bucle docente→alumno es demostrable: publicar → sembrar entregas → entregar → calificar → devolver |
+| **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. ⚠️ Pendiente de aplicar a la nube |
+| **Fase 7+** | M6 Asistencia, M7 Calificaciones, M8 Pasantías | ⏳ Pendiente |
 
-**Verificación al cierre de esta iteración** — suites del **2026-09-19**
-(backend **478**, Flutter **387**, SQL 271, esquema 99/99); migraciones de M3
-aplicadas y verificadas el **2026-09-17**, las dos de M4 y `202609210001` el
-**2026-09-18**. `202609210002` está creada y verificada **en local**, pendiente de
-aplicar a la nube (ver el aviso de arriba)
+**Verificación al cierre de esta iteración** — suites del **2026-09-22**
+(backend **540**, Flutter **456**, SQL **402**, esquema no re-ejecutable aquí);
+migraciones de M3 aplicadas y verificadas el **2026-09-17**, las dos de M4 y
+`202609210001` el **2026-09-18**. ⚠️ **Cuatro migraciones siguen sin aplicar a la
+nube** (`202609210002`, `202609220001`, `202609220002`, `202609220003`): hasta
+entonces los verificadores de nube darán un fallo (ver el aviso de abajo).
+
+> **Cómo se midieron estas cifras:** con `node supabase/tests/medir-conteos.mjs`
+> (migraciones, OpenAPI y módulos sembrados) y con los corredores
+> (`npm run verify`, `flutter test`, `npm test` en `supabase/tests`). Los totales
+> de pruebas no los adivina nadie: salen de ejecutarlos.
 
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas |
-| `flutter test` | **387 / 387** en verde — **medido el 2026-09-19**, con la Capa 7 incluida. Exige la receta de dos piezas de §"Verificación" (ver aviso) |
-| `npm test` (backend) | **478 / 478** en verde (20 archivos) |
+| `flutter test` | **456 / 456** en verde — **medido el 2026-09-22**, con el Centro de Mando del Docente incluido (+10). Exige la receta de dos piezas de §"Verificación" (ver aviso) |
+| `npm run verify` (backend) | **540 / 540** en verde (**21** archivos) — **medido el 2026-09-22** |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **271 / 271** aserciones en verde, en 18 secciones: **51** de la base y M1 + **51** de M2 + **64** de M3 + **57** de M4 + **48** de M5 |
-| **Migraciones en el repositorio** | **17** archivos en `supabase/migrations/` (16 + `202609210002_mod5_habilitar_modulo.sql`) |
-| **Migraciones en la nube** | **16 / 16** registradas en `schema_migrations`. ⚠️ **Falta aplicar `202609210002`**: hasta entonces la nube tiene `m5_archivos` apagado y **dos verificadores darán un fallo** (ver la nota de abajo) |
+| Validador SQL contra PostgreSQL real (pglite) | **402 / 402** aserciones en verde — **medido el 2026-09-22**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6 |
+| **Migraciones en el repositorio** | **20** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609220003_mod6_habilitar_modulo.sql` |
+| **Migraciones en la nube** | **16** registradas en `schema_migrations` (última medición fiable). ⚠️ **Faltan 4 por aplicar**: `202609210002`, `202609220001`, `202609220002` y `202609220003`. Hasta entonces la nube tiene `m5_archivos` y `m6_aula_virtual` apagados y **los verificadores de nube darán un fallo** (ver la nota de abajo) |
 | **Verificación independiente del esquema en la nube** | **99 / 99** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-18, antes de `202609210002`** |
 | **Libro mayor de migraciones (D10)** | 16 versiones aplicadas con checksum SHA-256 válido |
 | **Migraciones de M2, M3, M4 y M5 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18) — **18 tablas** + **5 vistas**, con RLS activo en las 18 (ver §3) |
@@ -131,26 +141,38 @@ aplicar a la nube (ver el aviso de arriba)
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
-| **Humo de extremo a extremo de la API contra la nube** | **24 / 24** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — incluida la aserción de que **`m5_archivos` está encendido** (⚠️ dará **23/24** hasta aplicar `202609210002`) |
-| Documento OpenAPI | OpenAPI 3.1.0 · **56 rutas · 86 esquemas** (las 14 de M3, las 14 de M4 y las **6** de M5 incluidas) — la tabla decía 47/84 y estaba desviada: el contrato comprometido en `db5eef2` ya tenía **55/84** |
+| **Humo de extremo a extremo de la API contra la nube** | **25 / 25** (`backend/test-humo.mjs`) con la API real hablando con Supabase real. ⚠️ **No re-ejecutable en este entorno** (exige backend desplegado y credenciales). Incluye las aserciones de que **`m5_archivos` y `m6_aula_virtual` están encendidos** (⚠️ dará **23/25** hasta aplicar las 4 migraciones pendientes) |
+| Documento OpenAPI | OpenAPI 3.1.0 · **60 rutas · 68 operaciones · 108 esquemas** — **medido el 2026-09-22** con `medir-conteos.mjs`. Este documento decía 56/86 y estaba desviado: una versión anterior ya advertía de ese desfase y no se corrigió, que es exactamente la deriva que este script evita |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
-> **⚠️ Acción pendiente de una persona: aplicar `202609210002` a la nube.** El
-> código de este ciclo está completo y verificado en local, pero la bandera vive
-> en PostgreSQL, así que **hasta que la migración se aplique a Supabase la nube
-> sigue con `m5_archivos` apagado**. Y eso, ahora, tiene una consecuencia visible:
-> dos verificadores que antes pasaban van a reportar **un fallo cada uno**,
-> porque su aserción ya exige el módulo encendido.
+> **⚠️ Acción pendiente de una persona: aplicar 4 migraciones a la nube.**
+> El código está completo y verificado en local, pero las banderas viven en
+> PostgreSQL, así que **hasta que se apliquen a Supabase la nube sigue con
+> `m5_archivos` y `m6_aula_virtual` apagados**. Pendientes, en orden:
+>
+> | # | Migración | Qué hace |
+> | --- | --- | --- |
+> | 1 | `202609210002_mod5_habilitar_modulo.sql` | Enciende `m5_archivos` |
+> | 2 | `202609220001_mod6_aula_virtual.sql` | 3 tablas + 8 RPC + políticas (deja el módulo apagado) |
+> | 3 | `202609220002_mod6_fix_material_default.sql` | `CREATE OR REPLACE` de `m6_crear_tarea`: `p_puntos_maximos` por defecto `null` |
+> | 4 | `202609220003_mod6_habilitar_modulo.sql` | Enciende `m6_aula_virtual` |
+>
+> Consecuencia visible mientras tanto: los verificadores que miden la nube
+> reportarán fallos, porque sus aserciones ya exigen los módulos encendidos.
 >
 > | Verificador | Qué fallará | Por qué no es un error del cambio |
 > | --- | --- | --- |
-> | `supabase/verificar-esquema.mjs` | «m0…m5 habilitados y m6…m8 apagados» → **98/99** | La aserción es correcta; lo que falta es la migración |
-> | `backend/test-humo.mjs` | «m5_archivos existe y está ENCENDIDO» → **23/24** | Igual: mide la nube, y la nube aún no la tiene |
+> | `supabase/verificar-esquema.mjs` | «m0…m6 habilitados y m7…m8 apagados» | La aserción es correcta; lo que falta es la migración |
+> | `backend/test-humo.mjs` | «`m5_archivos` existe y está ENCENDIDO» y «`m6_aula_virtual` existe y está ENCENDIDO» → **23/25** | Igual: mide la nube, y la nube aún no las tiene |
 >
 > Se deja escrito porque un fallo rojo sin explicación se lee como una regresión, y
-> esto es lo contrario: es la comprobación funcionando. Aplicada la migración, los
-> dos vuelven a verde sin tocar nada. **No los «arregles» bajando la aserción.**
+> esto es lo contrario: es la comprobación funcionando. Aplicadas las migraciones,
+> los dos vuelven a verde sin tocar nada. **No los «arregles» bajando la aserción.**
+>
+> Los dos verificadores además **no son ejecutables en este entorno**: exigen
+> `SUPABASE_ACCESS_TOKEN` y un backend desplegado. Quien los corra tiene que hacerlo
+> con credenciales reales.
 
 > **✅ CORRECCIÓN (2026-09-18, medida posterior el mismo día): `flutter test` SÍ se
 > puede ejecutar en este entorno.** El aviso anterior daba por imposible lo que sólo
@@ -696,19 +718,28 @@ administrador real: ni el admin puede insertar una traza a mano.
 | `m3_cuadrante` | Cuadrante y Horarios | 🟢 activo | todos |
 | `m4_inscripciones` | Inscripciones y Cupos | 🟢 activo | todos |
 | `m5_archivos` | Almacenamiento (R2) | 🟢 activo | todos |
+| `m6_aula_virtual` | Aula Virtual (tablón, tareas, entregas, notas) | 🟢 activo | todos |
 | `m6_asistencia` | Asistencia | ⚪ inactivo | todos |
 | `m7_calificaciones` | Calificaciones | ⚪ inactivo | todos |
 | `m8_pasantias` | Pasantías | ⚪ inactivo | todos |
 
 **`m9` (Certificados/QR) no se siembra:** quedó descartado del alcance.
 
-Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`, `m2_curriculo`,
-`m3_cuadrante`, `m4_inscripciones` y `m5_archivos`. M5 llegó el último: tenía el
-esquema, el puerto, el adaptador, las rutas de firmas (Capa 4) y la UI (Capa 7), y
-su bandera se mantuvo **apagada a propósito** hasta que hubo pantalla, porque un
-módulo encendido sin UI es un botón que no lleva a ninguna parte. **En local ya
-está encendido** (`202609210002`); en la nube lo estará cuando esa migración se
-aplique. `m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
+Están encendidos los módulos ya construidos: `m0_cpanel`, `m1_onboarding`,
+`m2_curriculo`, `m3_cuadrante`, `m4_inscripciones`, `m5_archivos` y
+**`m6_aula_virtual`**. M6 se encendió con la misma disciplina que M5: su bandera se
+mantuvo **apagada a propósito** (`202609220001`) hasta que existió el circuito
+completo, porque un módulo encendido sin UI es un botón que no lleva a ninguna
+parte. Con el Centro de Mando del Docente construido y el servicio de contenido
+cableado en producción, `202609220003` lo enciende. Lo que cierra el bucle no es
+«hay pantallas», sino que el recorrido es demostrable: el docente publica → se
+siembran las entregas → el alumno entrega → el docente califica y devuelve.
+
+Ojo con el nombre: la clave es **`m6_aula_virtual`** y no `m6_asistencia`, porque
+el número 6 estaba tomado por Asistencia desde la semilla original y las claves
+**nunca se renombran**. Va en el orden 55, entre M5 (50) y Asistencia (60).
+
+`m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
 
 **`m5_archivos` es el primer módulo cuyo apagado tiene efecto en la API.** Las
 seis rutas de `rutas/archivos.ts` llevan `exigirModulo('m5_archivos')`, así que
