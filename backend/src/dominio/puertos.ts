@@ -613,6 +613,45 @@ export interface PuertaArchivos {
   ): Promise<number>;
 
   /**
+   * Los archivos vivos que cuelgan de una entidad concreta.
+   *
+   * Es la lectura que le faltaba al módulo: sin ella la pantalla puede subir y
+   * borrar, pero **no puede mostrar lo que ya está guardado**, así que cada vez
+   * que alguien entra ve un panel vacío y vuelve a subir lo mismo. No es una
+   * comodidad, es la diferencia entre un gestor documental y un formulario de
+   * subida.
+   *
+   * **No pagina, y no es un olvido.** El número de archivos por entidad está
+   * acotado por `m5_max_archivos_por_entidad` (10 por defecto), así que la lista
+   * de una entidad cabe entera por construcción. Paginar aquí sería construir
+   * una máquina para un caso que el propio módulo hace imposible; el día que ese
+   * tope suba a un orden de magnitud, esta decisión hay que revisarla —y por eso
+   * queda escrita—.
+   *
+   * **Se excluyen los `DELETED` pero se incluyen los `PENDING`.** Un archivo ya
+   * borrado no es material de nadie; uno sin confirmar sí, y ocultarlo sería
+   * peor: quien acaba de subir y falló la confirmación vería desaparecer su
+   * archivo sin explicación. Se devuelve el `estado` para que la pantalla pueda
+   * etiquetarlo en vez de mentir sobre él.
+   *
+   * `entidadId` es obligatorio —al contrario que en `contarPorEntidad`, que
+   * acepta `null` porque el tope también aplica a las subidas sin entidad—:
+   * aquí se pregunta por el contenido de una tarea o una guía concreta, y «los
+   * archivos sin entidad» no es una pantalla que nadie abra.
+   *
+   * Quién ve qué lo decide la RLS, no esta firma: el propietario ve lo suyo y el
+   * administrador lo ve todo. La visibilidad cruzada —que un docente vea las
+   * entregas de sus alumnos— necesita saber a qué sección pertenece la entidad, y
+   * eso no existe en M5: `entidad_id` es un UUID sin tabla que lo respalde hasta
+   * que M6 cree las tareas. Se resuelve allí, con la política que lo haga
+   * expresable, no aquí con un filtro que no puede saberlo.
+   */
+  listarPorEntidad(
+    entityType: TipoEntidadArchivo,
+    entidadId: string,
+  ): Promise<ArchivoMetadata[]>;
+
+  /**
    * Las subidas `PENDING` más antiguas que un instante, hasta un tope.
    *
    * Existe para el barrido de abandonados (deuda D9). La fila nace `PENDING`

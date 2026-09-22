@@ -78,15 +78,16 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       categoria: 'Académico',
       disponible: true,
     ),
-    // Sigue apagada, y NO por falta de interfaz: descargar el material que sube
-    // el docente exige LISTAR los archivos de una entidad, y esa ruta no existe
-    // —las cinco de M5 firman, confirman, leen y borran, pero no listan—. El
-    // panel de subida no la sustituye: un estudiante no sube guías.
+    // Se enciende al llegar la ruta de listado (D17). Lo que todavía **no**
+    // puede mostrar es contenido: un estudiante no sabe qué `entidadId`
+    // corresponde a las guías de su módulo hasta que el Aula Virtual (M6) ate
+    // cada guía a una sección. El panel lo dice en pantalla, en vez de fingir una
+    // lista vacía por no haber archivos.
     ItemNavegacion(
       icono: Icons.folder_open_outlined,
       titulo: 'Material de apoyo',
       categoria: 'Académico',
-      disponible: false,
+      disponible: true,
     ),
   ];
 
@@ -169,6 +170,20 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
           child: const GestorDocumentalPanel(
             entityType: TipoEntidadArchivo.taskSubmission,
             subtitulo: 'Sube aquí los trabajos que te pida el docente.',
+          ),
+        );
+
+      case 'Material de apoyo':
+        // Sin `entidadId`: todavía no hay una guía concreta que pedir, porque
+        // M6 no ha creado la tabla que las sostiene. El panel funciona en modo
+        // sólo-subida y lo explica en pantalla. Se monta igualmente para que el
+        // día que M6 exista sólo haya que pasarle el id.
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const GestorDocumentalPanel(
+            entityType: TipoEntidadArchivo.teacherGuide,
+            titulo: 'Material de apoyo',
+            subtitulo: 'Las guías y el material que publique tu docente.',
           ),
         );
 

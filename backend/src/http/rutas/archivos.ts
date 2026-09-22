@@ -17,6 +17,7 @@ import {
   esquemaBarrido,
   esquemaFirmarSubida,
   esquemaIdArchivo,
+  esquemaRutaEntidad,
 } from '../esquemas.js';
 import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js';
 import { exigirModulo } from '../plugins/modulos.js';
@@ -44,7 +45,7 @@ import { exigirModulo } from '../plugins/modulos.js';
  * **La guardia de módulo es la excepción, y no contradice lo anterior.** Que el
  * módulo esté encendido no lo sabe la base: no hay política RLS ni RPC que
  * consulte `system_modules`. Es una regla que sólo existe aquí, así que
- * comprobarla aquí no duplica nada. Las seis rutas llevan `exigirModulo()`, y
+ * comprobarla aquí no duplica nada. Las siete rutas llevan `exigirModulo()`, y
  * por eso apagar `m5_archivos` desde el cPanel surte efecto de verdad y no sólo
  * esconde el ítem del menú.
  */
@@ -113,7 +114,7 @@ export function rutasArchivos(
    * `preHandler`. Se construye aquí arriba, y no dentro de cada ruta, para que la
    * clave `m5_archivos` aparezca una sola vez en el archivo: si el módulo se
    * renombrara, hay un único sitio que corregir. El hook devuelto es una función
-   * sin estado, así que compartirlo entre seis rutas es seguro.
+   * sin estado, así que compartirlo entre siete rutas es seguro.
    *
    * **Va siempre en segundo lugar, después de `exigirSesion()`.** El orden no es
    * cosmético: sin sesión, `request.usuario` es `null` y la guardia no puede
@@ -456,6 +457,69 @@ export function rutasArchivos(
   );
 
   // --- Lectura ---------------------------------------------------------------
+
+  /**
+   * Los archivos vivos de una tarea o una guía.
+   *
+   * Es la lectura que le faltaba al módulo (deuda D17). Sin ella el gestor
+   * documental podía subir y borrar pero **no recordaba nada**: cada vez que
+   * alguien abría el panel lo veía vacío y volvía a subir lo mismo. Un gestor
+   * documental que no lista no es un gestor, es un formulario de subida.
+   *
+   * ── Quién ve qué ────────────────────────────────────────────────────────────
+   * Lo decide la **RLS**, no esta ruta: `files_metadata_read_own` deja al
+   * propietario ver lo suyo y `files_metadata_admin_read` deja al administrador
+   * verlo todo. Aquí no hay ningún filtro por propietario, y es deliberado: sería
+   * una segunda copia de una regla que ya vive en la base, y la copia se
+   * desviaría en cuanto la política cambiara.
+   *
+   * **La visibilidad cruzada del docente todavía no es expresable, y conviene
+   * que quede escrito.** El requisito pide que un docente vea las entregas de sus
+   * alumnos. Hoy no se puede: `files_metadata.entidad_id` es un UUID **sin tabla
+   * que lo respalde** —las tareas no existen hasta M6—, así que no hay forma de
+   * saber a qué sección pertenece una entrega ni, por tanto, qué docente la
+   * dicta. Un filtro aquí no podría calcularlo, y una política RLS tampoco,
+   * porque no hay nada que unir. Se resuelve en M6, cuando exista la tabla de
+   * tareas y la política pueda decir «las entregas de las tareas de mis
+   * secciones». Hasta entonces esta ruta es honesta: devuelve lo que la RLS deja
+   * ver, que hoy es lo propio —y todo, si quien pregunta es administrador—.
+   *
+   * ── Por qué no pagina ───────────────────────────────────────────────────────
+   * Porque `m5_max_archivos_por_entidad` (10 por defecto) acota la lista por
+   * construcción: la respuesta cabe entera. El día que ese tope suba a un orden
+   * de magnitud, esta decisión hay que revisarla —y por eso queda escrita—.
+   *
+   * Se excluyen los `DELETED` y se incluyen los `PENDING`. Un archivo borrado no
+   * es material de nadie; uno sin confirmar sí, y esconderlo sería peor: quien
+   * acaba de subir y no llegó a confirmar vería desaparecer su archivo sin
+   * explicación. El `estado` viaja en la respuesta para que la pantalla pueda
+   * etiquetarlo en vez de mentir sobre él.
+   */
+  app.get<{ Params: { entityType: string; entidadId: string } }>(
+    '/api/v1/archivos/entidad/:entityType/:entidadId',
+    { preHandler: [exigirSesion(), exigirArchivos] },
+    async (request) => {
+      // El listado **exige** que el almacenamiento esté configurado, aunque no
+      // firme nada. No es un formalismo: sin R2 cada archivo listado sería un
+      // enlace que nadie puede abrir, así que un panel que lista es un panel
+      // roto. Se prefiere el 503 que dice la verdad —«el módulo no está
+      // disponible»— a un 200 que promete archivos inaccesibles. Además mantiene
+      // la invariante de que las siete rutas se comportan igual cuando falta R2.
+      almacenamiento();
+
+      const { entityType, entidadId } = esquemaRutaEntidad.parse(request.params);
+
+      const archivos = await reposDe(request).archivos.listarPorEntidad(
+        entityType,
+        entidadId,
+      );
+
+      // `total` repite lo que ya dice la longitud del arreglo, y aun así se
+      // manda: la pantalla lo usa para decidir si el tope de la entidad está
+      // cerca, y calcularlo allí obligaría al cliente a conocer el parámetro.
+      return { archivos, total: archivos.length };
+    },
+  );
 
   /**
    * Devuelve una URL de descarga temporal.

@@ -60,6 +60,28 @@ abstract interface class ArchivosGateway {
   /// Borra cualquier archivo como administrador.
   Future<Archivo> borrarComoAdmin(String archivoId);
 
+  /// Los archivos vivos de una tarea o una guía.
+  ///
+  /// Es la lectura que le faltaba al módulo (deuda D17). Sin ella el panel podía
+  /// subir y borrar pero **no recordaba nada**: cada vez que se abría mostraba una
+  /// lista vacía y se volvía a subir lo mismo.
+  ///
+  /// **Qué devuelve lo decide el servidor, no este contrato.** La RLS deja al
+  /// propietario ver lo suyo y al administrador verlo todo; aquí no hay ningún
+  /// filtro por propietario a propósito, porque sería una segunda copia de una
+  /// regla que ya vive en la base.
+  ///
+  /// [entidadId] es obligatorio: se pregunta por el contenido de una tarea o una
+  /// guía concreta, no por «mis archivos». El servidor responde 400 si el id no
+  /// es un UUID o si [entityType] no está en la lista.
+  ///
+  /// Los archivos `DELETED` no llegan; los `PENDING` sí, con su estado, para que
+  /// la pantalla pueda etiquetar una subida sin confirmar en vez de ocultarla.
+  Future<List<Archivo>> listarPorEntidad({
+    required TipoEntidadArchivo entityType,
+    required String entidadId,
+  });
+
   /// Los tres pasos, en orden, devolviendo el archivo ya confirmado.
   ///
   /// Es el camino que usa la UI. Se ofrece además de los pasos sueltos porque

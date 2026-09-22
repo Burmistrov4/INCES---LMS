@@ -2947,6 +2947,45 @@ class ArchivosSupabase implements PuertaArchivos {
   }
 
   /**
+   * Los archivos vivos de una entidad, del más reciente al más antiguo.
+   *
+   * Va por PostgREST y **no** por RPC, como todas las lecturas de M5: aquí la RLS
+   * sí actúa, y son `files_metadata_read_own` y `files_metadata_admin_read` las
+   * que deciden qué filas salen. Por eso esta consulta **no lleva ningún filtro
+   * por propietario**: añadirlo sería una segunda copia de una regla que ya vive
+   * en la base, y la copia se desviaría en cuanto la política cambiara —dejando,
+   * por ejemplo, de mostrar al administrador lo que sí puede ver—.
+   *
+   * Se descartan los `DELETED` **en la base** y no en Node: el índice
+   * `files_metadata_entidad_idx` cubre `(entity_type, entidad_id)`, así que el
+   * filtro se resuelve sin recorrer la tabla, y traerse las filas borradas para
+   * descartarlas después sería leer de más justo lo que ya no se usa.
+   *
+   * El orden es **descendente** —lo último primero—, al revés que en
+   * `pendientesAntiguos`. No es una incoherencia: aquél busca el fondo de una
+   * cola de trabajo y éste alimenta una pantalla, donde lo recién subido es lo
+   * que la persona espera encontrar arriba.
+   */
+  async listarPorEntidad(
+    entityType: TipoEntidadArchivo,
+    entidadId: string,
+  ): Promise<ArchivoMetadata[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_ARCHIVOS)
+      .select(COLUMNAS_ARCHIVO)
+      .eq('entity_type', entityType)
+      .eq('entidad_id', entidadId)
+      .neq('estado', 'DELETED')
+      .order('created_at', { ascending: false });
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'listar los archivos de una entidad');
+    }
+
+    return (respuesta.data ?? []).map((fila) => aArchivo(fila as Fila));
+  }
+
+  /**
    * Las subidas `PENDING` abandonadas, de la más vieja a la más nueva.
    *
    * Va por PostgREST y **no** por RPC, al revés que las escrituras: aquí la RLS

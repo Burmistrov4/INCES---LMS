@@ -159,7 +159,7 @@ Future<({FakeArchivosGateway gateway, FakeSelectorDeArchivos selector})> subir(
 
 void main() {
   group('GestorDocumentalPanel · estado inicial', () {
-    testWidgets('sin archivos avisa de que la lista sólo cubre esta sesión',
+    testWidgets('sin entidad lo explica en vez de fingir una lista vacía',
         (tester) async {
       await montar(
         tester,
@@ -173,13 +173,11 @@ void main() {
       expect(texto('Todavía no has subido archivos'), findsOneWidget);
       expect(find.text('Elegir archivo'), findsOneWidget);
 
-      // El aviso no es decoración: M5 no tiene ruta de listado, así que una
-      // lista vacía **no** significa «no hay archivos». Decirlo es la diferencia
+      // Sin `entidadId` no hay pregunta que hacer —la ruta pide los archivos de
+      // una tarea concreta, y un id nulo daría 400—. Decirlo es la diferencia
       // entre una limitación y una mentira.
       expect(
-        find.textContaining(
-          'todavía no existe una ruta que devuelva los archivos ya guardados',
-        ),
+        find.textContaining('no está atada a una tarea o una guía'),
         findsOneWidget,
       );
     });
@@ -194,6 +192,91 @@ void main() {
       );
 
       expect(texto('Material de apoyo'), findsOneWidget);
+    });
+  });
+
+  group('GestorDocumentalPanel · hidratación de la lista (D17)', () {
+    testWidgets('pinta lo ya guardado y pide la entidad correcta',
+        (tester) async {
+      final gateway = FakeArchivosGateway()
+        ..archivosListados = [
+          archivoEjemplo(
+            id: 'a1b2c3d4-0000-4000-8000-0000000000b1',
+            nombreOriginal: 'informe-final.pdf',
+            estado: EstadoArchivo.confirmed,
+            tamanoBytes: 4096,
+            entidadId: 'ent-1',
+          ),
+          archivoEjemplo(
+            id: 'a1b2c3d4-0000-4000-8000-0000000000b2',
+            nombreOriginal: 'anexos.pdf',
+            entidadId: 'ent-1',
+          ),
+        ];
+
+      await montar(
+        tester,
+        repo: ArchivosRepository(gateway: gateway),
+        selector: FakeSelectorDeArchivos(),
+        entidadId: 'ent-1',
+      );
+      await asentar(tester);
+
+      // Lo guardado aparece **sin haber subido nada**: es la diferencia entre un
+      // gestor documental y un formulario de subida, y era justo lo que M5 no
+      // podía hacer antes de esta ruta.
+      expect(texto('informe-final.pdf'), findsOneWidget);
+      expect(texto('anexos.pdf'), findsOneWidget);
+      expect(texto('Archivos guardados'), findsOneWidget);
+
+      // Y se pidió lo que se debía: el tipo del widget y la entidad recibida.
+      expect(gateway.llamadas, contains('listarPorEntidad:TASK_SUBMISSION:ent-1'));
+
+      // El aviso de «no está atada» no sale cuando sí lo está.
+      expect(
+        find.textContaining('no está atada a una tarea o una guía'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('sin entidad no se llama a la ruta', (tester) async {
+      final gateway = FakeArchivosGateway();
+
+      await montar(
+        tester,
+        repo: ArchivosRepository(gateway: gateway),
+        selector: FakeSelectorDeArchivos(),
+      );
+      await asentar(tester);
+
+      // No se gasta un viaje en un 400 anunciado.
+      expect(gateway.llamadas, isEmpty);
+    });
+
+    testWidgets('un fallo al listar no impide subir', (tester) async {
+      final gateway = FakeArchivosGateway()
+        ..errorAlListar = const AppException(
+          type: AppErrorType.red,
+          message: 'No hay conexión con el servidor.',
+          code: 'SIN_RED',
+        );
+
+      await montar(
+        tester,
+        repo: ArchivosRepository(gateway: gateway),
+        selector: FakeSelectorDeArchivos(),
+        entidadId: 'ent-1',
+      );
+      await asentar(tester);
+
+      // El fallo se cuenta **y la pantalla sigue usable**: perder la lista es una
+      // molestia, impedir subir sería convertir un fallo de lectura en una
+      // pantalla muerta.
+      expect(
+        find.textContaining('No pudimos cargar los archivos'),
+        findsOneWidget,
+      );
+      expect(find.text('Elegir archivo'), findsOneWidget);
     });
   });
 

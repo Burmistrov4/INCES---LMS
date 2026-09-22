@@ -150,6 +150,31 @@ class BackendArchivosGateway implements ArchivosGateway {
   }
 
   @override
+  Future<List<Archivo>> listarPorEntidad({
+    required TipoEntidadArchivo entityType,
+    required String entidadId,
+  }) async {
+    // El tipo de entidad viaja como **segmento de ruta** y no como parámetro de
+    // consulta: es parte de la identidad del recurso que se pide, no un filtro
+    // sobre una colección. `valorRemoto` es el literal que acepta el enum del
+    // backend; mandar el nombre del enum de Dart daría un 400.
+    final respuesta = await _api.get(
+      '$_base/entidad/${entityType.valorRemoto}/$entidadId',
+      token: _tokenSesion(),
+    );
+
+    // El contrato promete `archivos`. Se lee sin valor por defecto a propósito:
+    // si faltara, sería una respuesta que no es la nuestra, y devolver una lista
+    // vacía la disfrazaría de «esta tarea no tiene archivos» — que es justo el
+    // fallo silencioso que la validación del servidor existe para evitar.
+    final lista = respuesta['archivos'] as List<dynamic>;
+
+    return lista
+        .map((crudo) => Archivo.fromJson(crudo as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  @override
   Future<Archivo> subir({
     required String nombreOriginal,
     required TipoEntidadArchivo entityType,

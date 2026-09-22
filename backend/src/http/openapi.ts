@@ -28,7 +28,12 @@ import {
   extendZodWithOpenApi,
 } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
-import { esquemaBarrido, esquemaFirmarSubida, rolSchema } from '../http/esquemas.js';
+import {
+  esquemaBarrido,
+  esquemaFirmarSubida,
+  rolSchema,
+  tipoEntidadArchivoSchema,
+} from '../http/esquemas.js';
 
 /**
  * Añade `.openapi()` a las instancias de Zod.
@@ -1342,6 +1347,57 @@ const RespuestaBarrido = z
   })
   .openapi('RespuestaBarrido');
 
+/**
+ * Los dos parámetros de la ruta de listado por entidad.
+ *
+ * El enum de `entityType` se toma del **esquema real** en vez de escribirse otra
+ * vez: si mañana M6 añadiera un tercer tipo de entidad, una copia literal aquí
+ * seguiría ofreciendo dos y el contrato mentiría sobre lo que la API acepta. La
+ * deuda D6 sólo compara rutas, no parámetros, así que esta copia no la cazaría
+ * nadie.
+ *
+ * Se declaran los `param` de OpenAPI —nombre y ubicación— como en
+ * `parametroIdDeRecurso`: sin esa pista el documento no puede atar cada campo a
+ * su hueco de la ruta, y el cliente que genera código a partir del contrato
+ * tendría dos parámetros sueltos en lugar de una URL.
+ */
+const ParametroEntidadArchivo = z
+  .object({
+    entityType: tipoEntidadArchivoSchema.openapi({
+      param: { name: 'entityType', in: 'path' },
+      description:
+        'Qué clase de entidad se lista: `TASK_SUBMISSION` (entregas) o `TEACHER_GUIDE` (material de apoyo).',
+    }),
+    entidadId: z.string().uuid().openapi({
+      param: { name: 'entidadId', in: 'path' },
+      example: '46342064-c05a-4341-8638-f35c2541718c',
+      description:
+        'UUID de la tarea o la guía. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.',
+    }),
+  })
+  .openapi('ParametroEntidadArchivo');
+
+/**
+ * El listado de archivos de una entidad.
+ *
+ * **No lleva paginación, y es una consecuencia del modelo, no una omisión**:
+ * `m5_max_archivos_por_entidad` acota los archivos de una entidad a 10 por
+ * defecto, así que la lista cabe entera. Un `limite`/`desplazamiento` aquí
+ * sugeriría que la respuesta puede ser parcial, y hoy no puede serlo.
+ *
+ * `total` acompaña al arreglo porque la pantalla lo necesita para saber si está
+ * cerca del tope de la entidad sin tener que conocer el parámetro.
+ */
+const RespuestaListadoArchivos = z
+  .object({
+    archivos: z.array(Archivo),
+    total: z.number().int().openapi({
+      description:
+        'Cuántos archivos vivos cuelgan de la entidad. Los `DELETED` no cuentan; los `PENDING` sí.',
+    }),
+  })
+  .openapi('RespuestaListadoArchivos');
+
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
   return {
@@ -2607,7 +2663,7 @@ export function construirRegistro(): OpenAPIRegistry {
    *
    * Es el único 403 de este grupo que **no** habla de propiedad: `ARCHIVO_AJENO`
    * dice «el archivo no es tuyo», y éste dice «el módulo está apagado». Se
-   * nombra una vez en lugar de repetir el texto en las cinco rutas, donde cuatro
+   * nombra una vez en lugar de repetir el texto en las siete rutas, donde seis
    * acabarían desviándose de la primera.
    */
   const moduloApagado = error(
@@ -2663,6 +2719,29 @@ export function construirRegistro(): OpenAPIRegistry {
       ),
       409: error('El archivo no está `PENDING` (ESTADO_DE_ARCHIVO).'),
       413: RESPUESTAS_ERROR[413],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...archivosTag,
+    method: 'get',
+    path: '/api/v1/archivos/entidad/{entityType}/{entidadId}',
+    summary: 'Los archivos de una tarea o una guía',
+    description:
+      'Es la lectura que le faltaba al módulo: sin ella el gestor documental podía subir y borrar pero no recordaba nada, así que cada visita al panel mostraba una lista vacía y se volvía a subir lo mismo. **Quién ve qué lo decide la RLS**, no esta ruta: el propietario ve lo suyo y el administrador lo ve todo. La visibilidad cruzada del docente —que vea las entregas de sus alumnos— **todavía no es expresable**: `files_metadata.entidad_id` es un UUID sin tabla que lo respalde hasta que M6 cree las tareas, así que no hay forma de saber a qué sección pertenece una entrega ni qué docente la dicta. Se resolverá en M6, con la política que sí pueda calcularlo. Los archivos `DELETED` no aparecen; los `PENDING` sí, con su estado, para que la pantalla pueda etiquetar una subida sin confirmar en vez de ocultarla. **No pagina**: el tope por entidad acota la lista por construcción.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroEntidadArchivo },
+    responses: {
+      200: {
+        description: 'Los archivos vivos de esa entidad, del más reciente al más antiguo.',
+        content: { 'application/json': { schema: RespuestaListadoArchivos } },
+      },
+      400: error(
+        'El tipo de entidad no es `TASK_SUBMISSION` ni `TEACHER_GUIDE`, o el id no es un UUID.',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: moduloApagado,
       503: RESPUESTAS_ERROR[503],
     },
   });

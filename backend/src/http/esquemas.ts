@@ -860,6 +860,28 @@ export const esquemaBarrido = z
   })
   .strict();
 
+/**
+ * Los dos parámetros de la ruta de listado por entidad.
+ *
+ * `entityType` va como **enum** y no como texto libre, y la diferencia importa:
+ * un tipo inventado —`TAREA`, `task_submission` en minúsculas— rechazado aquí da
+ * un 400 que nombra el campo. Si se aceptara como cadena y se pasara a la
+ * consulta, Postgres devolvería **cero filas sin error**, y el cliente recibiría
+ * una lista vacía que es indistinguible de «esta tarea todavía no tiene
+ * archivos». Eso manda a buscar el problema al sitio equivocado, que es
+ * exactamente el fallo que el `check` de `entity_type` evita en la tabla.
+ *
+ * `entidadId` se valida como UUID por la razón de siempre en este proyecto: sin
+ * esto, un id mal escrito viaja hasta Postgres, revienta con `22P02` y sale como
+ * un `500` genérico por lo que en realidad es una URL mal formada.
+ */
+export const esquemaRutaEntidad = z.object({
+  entityType: tipoEntidadArchivoSchema,
+  entidadId: z.string().uuid({
+    message: 'El identificador de la entidad debe ser un UUID válido.',
+  }),
+});
+
 export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
 export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
 export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
@@ -880,6 +902,7 @@ export type SolicitarInscripcionEntrada = z.infer<typeof esquemaSolicitarInscrip
 export type ReincorporarEntrada = z.infer<typeof esquemaReincorporar>;
 export type FirmarSubidaEntrada = z.infer<typeof esquemaFirmarSubida>;
 export type BarridoEntrada = z.infer<typeof esquemaBarrido>;
+export type RutaEntidadEntrada = z.infer<typeof esquemaRutaEntidad>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.

@@ -47,6 +47,13 @@ class FakeArchivosGateway implements ArchivosGateway {
 
   int expiraSubidaDevuelta = 900;
 
+  /// Lo que devuelve el listado por entidad.
+  ///
+  /// Es una lista **asignable** y no una constante: lo que se prueba es que el
+  /// panel pinte lo que recibe y en qué orden, y para eso la prueba tiene que
+  /// poder decidir qué recibe.
+  List<Archivo> archivosListados = const [];
+
   // --- Fallos forzados ------------------------------------------------------
 
   Object? errorAlFirmar;
@@ -56,6 +63,7 @@ class FakeArchivosGateway implements ArchivosGateway {
   Object? errorAlBorrar;
   Object? errorAlBorrarComoAdmin;
   Object? errorAlSubir;
+  Object? errorAlListar;
 
   // --- Registro de llamadas -------------------------------------------------
 
@@ -139,6 +147,18 @@ class FakeArchivosGateway implements ArchivosGateway {
     ultimoArchivoId = archivoId;
     _lanzarSi(errorAlBorrarComoAdmin);
     return archivoBorradoDevuelto;
+  }
+
+  @override
+  Future<List<Archivo>> listarPorEntidad({
+    required TipoEntidadArchivo entityType,
+    required String entidadId,
+  }) async {
+    llamadas.add('listarPorEntidad:${entityType.valorRemoto}:$entidadId');
+    ultimoEntityType = entityType;
+    ultimaEntidadId = entidadId;
+    _lanzarSi(errorAlListar);
+    return archivosListados;
   }
 
   @override

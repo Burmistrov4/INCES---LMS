@@ -2673,6 +2673,37 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       ).length;
     },
 
+    async listarPorEntidad(
+      entityType: TipoEntidadArchivo,
+      entidadId: string,
+    ): Promise<ArchivoMetadata[]> {
+      revisar('archivos.listarPorEntidad');
+
+      // Se lee sobre lo **visible**, como `contarPorEntidad` y
+      // `pendientesAntiguos`: el repositorio real va por PostgREST bajo RLS. Usar
+      // `estado.archivos` aquí haría que el doble fuese más permisivo que la base
+      // y una prueba daría por bueno que un alumno ve el archivo de otro —que es
+      // justo lo que estas pruebas existen para impedir.
+      //
+      // El orden reproduce el `order('created_at', { ascending: false })` real, y
+      // compara con `Date` y no con `<` entre cadenas: la base compara
+      // `timestamptz`, y dos cadenas ISO equivalentes pero escritas distinto
+      // —`Z` contra `+00:00`— ordenan distinto como texto.
+      return archivosVisibles()
+        .filter(
+          (archivo) =>
+            (archivo.entityType ?? 'TASK_SUBMISSION') === entityType &&
+            (archivo.entidadId ?? null) === entidadId &&
+            (archivo.estado ?? 'PENDING') !== 'DELETED',
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.creadoEn ?? CREADO_EN_FALSO).getTime() -
+            new Date(a.creadoEn ?? CREADO_EN_FALSO).getTime(),
+        )
+        .map(aArchivoFalso);
+    },
+
     async pendientesAntiguos(
       antesDe: string,
       limite: number,

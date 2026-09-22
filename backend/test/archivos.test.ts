@@ -66,7 +66,7 @@ const ARCHIVO_DEL_ADMIN: ArchivoFalso = {
   entityType: 'TEACHER_GUIDE',
 };
 
-/** Las seis rutas, con un id válido, para las pruebas de acceso. */
+/** Las siete rutas, con un id válido, para las pruebas de acceso. */
 const RUTAS = [
   { method: 'POST' as const, url: '/api/v1/archivos/firmar-subida' },
   { method: 'POST' as const, url: `/api/v1/archivos/${ID_ARCHIVO_CONFIRMADO}/confirmar` },
@@ -76,6 +76,9 @@ const RUTAS = [
   // El barrido va sin cuerpo a propósito: es como lo llama un programador de
   // tareas, y comprueba de paso que el cuerpo opcional de verdad lo es.
   { method: 'POST' as const, url: '/api/v1/admin/archivos/limpiar' },
+  // El listado por entidad es la única lectura del módulo que no pide un id de
+  // archivo: se pregunta por el contenido de una tarea o una guía.
+  { method: 'GET' as const, url: `/api/v1/archivos/entidad/TASK_SUBMISSION/${ID_TAREA}` },
 ];
 
 /** Un archivo de tarea, para sembrar el arnés en las pruebas del tope. */
@@ -140,7 +143,7 @@ function borrar(arnes: Arnés, id: string, token: string = TOKEN_ALUMNO) {
 }
 
 describe('control de acceso a los archivos', () => {
-  it('exige sesión en las seis rutas', async () => {
+  it('exige sesión en las siete rutas', async () => {
     const arnes = crearArnés();
     app = arnes.app;
 
@@ -187,7 +190,7 @@ describe('control de acceso a los archivos', () => {
 });
 
 describe('despliegue sin almacenamiento configurado', () => {
-  it('las seis rutas responden 503 y no revientan', async () => {
+  it('las siete rutas responden 503 y no revientan', async () => {
     const arnes = crearArnés({ sinAlmacenamiento: true });
     app = arnes.app;
 
@@ -233,7 +236,7 @@ describe('la guardia del módulo (m5_archivos)', () => {
     });
   }
 
-  it('con el módulo apagado, las seis rutas responden 403 y no llegan a tocar nada', async () => {
+  it('con el módulo apagado, las siete rutas responden 403 y no llegan a tocar nada', async () => {
     // Ésta es la prueba que da sentido a la bandera, y sin ella la guardia sería
     // fe. El módulo arranca **encendido**, así que una guardia cableada a la
     // clave equivocada —`m5_archivo`, sin la ese final— nunca se notaría: todas
@@ -1050,5 +1053,250 @@ describe('barrido de subidas abandonadas', () => {
       'PENDING',
     );
     expect(arnes.almacenamiento.borrados).toEqual([]);
+  });
+});
+
+describe('listado de archivos por entidad', () => {
+  /**
+   * Pide los archivos de una entidad.
+   *
+   * `entityType` se recibe como `string` a propósito y no como
+   * `TipoEntidadArchivo`: una de las pruebas manda un tipo **inventado**, y con
+   * el tipo del dominio el compilador impediría escribir justamente el caso que
+   * hay que comprobar.
+   */
+  function listar(
+    arnes: Arnés,
+    entityType: string = 'TASK_SUBMISSION',
+    entidadId: string = ID_TAREA,
+    token: string | null = TOKEN_ALUMNO,
+  ) {
+    return arnes.app.inject({
+      method: 'GET',
+      url: `/api/v1/archivos/entidad/${entityType}/${entidadId}`,
+      headers: conToken(token),
+    });
+  }
+
+  const ID_ENTREGA_1 = '11111111-0000-4000-8000-000000000001';
+  const ID_ENTREGA_2 = '11111111-0000-4000-8000-000000000002';
+  const ID_ENTREGA_3 = '11111111-0000-4000-8000-000000000003';
+
+  /** Otra tarea, para comprobar que el listado no mezcla entidades. */
+  const OTRA_TAREA = 'ffffffff-0000-4000-8000-000000000002';
+
+  /**
+   * Un archivo del alumno colgado de la tarea, con la fecha que se le diga.
+   *
+   * La fecha entra por parámetro porque **el orden es parte de lo que se
+   * prueba**: con `CREADO_EN_FALSO` todas las filas empatarían y la prueba de
+   * orden no distinguiría una implementación correcta de otra que devuelve las
+   * filas en el orden que le apetece.
+   */
+  function enLaTarea(
+    id: string,
+    creadoEn: string,
+    estado: EstadoArchivo = 'CONFIRMED',
+  ): ArchivoFalso {
+    return {
+      id,
+      propietarioId: ID_ALUMNO,
+      r2Key: `m5_archivos/${ID_ALUMNO}/2026/09/${id}.pdf`,
+      nombreOriginal: 'entrega.pdf',
+      tamanoBytes: estado === 'CONFIRMED' ? 1024 : null,
+      estado,
+      entityType: 'TASK_SUBMISSION',
+      entidadId: ID_TAREA,
+      creadoEn,
+    };
+  }
+
+  it('el propietario ve los suyos, del más reciente al más antiguo', async () => {
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        enLaTarea(ID_ENTREGA_3, '2026-09-03T10:00:00.000Z'),
+        enLaTarea(ID_ENTREGA_2, '2026-09-02T10:00:00.000Z'),
+      ],
+    });
+    app = arnes.app;
+
+    const respuesta = await listar(arnes);
+
+    expect(respuesta.statusCode).toBe(200);
+    const cuerpo = respuesta.json();
+    expect(cuerpo.total).toBe(3);
+    expect(cuerpo.archivos.map((a: { id: string }) => a.id)).toEqual([
+      ID_ENTREGA_3,
+      ID_ENTREGA_2,
+      ID_ENTREGA_1,
+    ]);
+  });
+
+  it('no mezcla los archivos de otra entidad', async () => {
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        {
+          ...enLaTarea(ID_ENTREGA_2, '2026-09-02T10:00:00.000Z'),
+          entidadId: OTRA_TAREA,
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const cuerpo = (await listar(arnes)).json();
+
+    expect(cuerpo.total).toBe(1);
+    expect(cuerpo.archivos[0].id).toBe(ID_ENTREGA_1);
+  });
+
+  it('un alumno no ve el archivo de otro aunque cuelgue de la misma entidad', async () => {
+    // Esta prueba es la que justifica que la ruta **no** filtre por propietario:
+    // quien lo hace es la RLS. El doble la reproduce para que la ruta tenga algo
+    // coherente que devolver, pero la política de verdad sólo se comprueba
+    // contra la nube — así lo declara la cabecera de este archivo.
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        {
+          id: ID_ARCHIVO_DEL_ADMIN,
+          propietarioId: ID_ADMIN,
+          r2Key: CLAVE_ARCHIVO_DEL_ADMIN,
+          nombreOriginal: 'acta.pdf',
+          tamanoBytes: 2048,
+          estado: 'CONFIRMED',
+          entityType: 'TASK_SUBMISSION',
+          entidadId: ID_TAREA,
+          creadoEn: '2026-09-09T10:00:00.000Z',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const cuerpo = (await listar(arnes)).json();
+
+    expect(cuerpo.total).toBe(1);
+    expect(cuerpo.archivos.map((a: { id: string }) => a.id)).toEqual([
+      ID_ENTREGA_1,
+    ]);
+  });
+
+  it('el administrador sí ve los de todos', async () => {
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        {
+          id: ID_ARCHIVO_DEL_ADMIN,
+          propietarioId: ID_ADMIN,
+          r2Key: CLAVE_ARCHIVO_DEL_ADMIN,
+          nombreOriginal: 'acta.pdf',
+          tamanoBytes: 2048,
+          estado: 'CONFIRMED',
+          entityType: 'TASK_SUBMISSION',
+          entidadId: ID_TAREA,
+          creadoEn: '2026-09-09T10:00:00.000Z',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const cuerpo = (
+      await listar(arnes, 'TASK_SUBMISSION', ID_TAREA, TOKEN_ADMIN)
+    ).json();
+
+    expect(cuerpo.total).toBe(2);
+  });
+
+  it('los DELETED no aparecen y los PENDING sí, con su estado', async () => {
+    // Las dos mitades de la misma decisión. Un archivo borrado no es material de
+    // nadie; uno sin confirmar sí, y ocultarlo sería peor: quien subió y no llegó
+    // a confirmar vería desaparecer su archivo sin ninguna explicación.
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        enLaTarea(ID_ENTREGA_2, '2026-09-02T10:00:00.000Z', 'PENDING'),
+        enLaTarea(ID_ENTREGA_3, '2026-09-03T10:00:00.000Z', 'DELETED'),
+      ],
+    });
+    app = arnes.app;
+
+    const cuerpo = (await listar(arnes)).json();
+
+    expect(cuerpo.total).toBe(2);
+    expect(cuerpo.archivos.map((a: { id: string }) => a.id)).toEqual([
+      ID_ENTREGA_2,
+      ID_ENTREGA_1,
+    ]);
+    expect(cuerpo.archivos[0].estado).toBe('PENDING');
+    expect(cuerpo.archivos[0].tamanoBytes).toBeNull();
+  });
+
+  it('una entidad sin archivos devuelve 200 con la lista vacía, no 404', async () => {
+    // Una lista vacía es un estado normal, no un fallo: la tarea existe y
+    // todavía no tiene entregas. Un 404 obligaría a la pantalla a tratar «no hay
+    // nada» como si fuera un error.
+    const arnes = crearArnés({ archivos: [] });
+    app = arnes.app;
+
+    const respuesta = await listar(arnes);
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toEqual({ archivos: [], total: 0 });
+  });
+
+  it('un tipo de entidad inventado da 400, y no una lista vacía', async () => {
+    // Ésta es la razón de que `entityType` sea un enum y no una cadena. Como
+    // cadena, `TAREA` viajaría hasta la consulta y Postgres devolvería **cero
+    // filas sin error**: la pantalla diría «esta tarea no tiene archivos» y nadie
+    // sabría que el problema era el nombre del tipo. Es el mismo fallo que el
+    // `check` de `entity_type` evita en la tabla.
+    const arnes = crearArnés({
+      archivos: [enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z')],
+    });
+    app = arnes.app;
+
+    const respuesta = await listar(arnes, 'TAREA');
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.codigo).toBe('PETICION_INVALIDA');
+  });
+
+  it('un id de entidad que no es UUID se rechaza con 400 antes de tocar la base', async () => {
+    const arnes = crearArnés({ archivos: [] });
+    app = arnes.app;
+
+    const respuesta = await listar(arnes, 'TASK_SUBMISSION', 'no-es-un-uuid');
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.codigo).toBe('PETICION_INVALIDA');
+  });
+
+  it('el tipo TEACHER_GUIDE lista guías y no entregas', async () => {
+    // El otro lado del enum. Sin esta prueba, una implementación que ignorara
+    // `entityType` y devolviera todo pasaría el resto de la suite.
+    const ID_GUIA = '22222222-0000-4000-8000-000000000001';
+    const arnes = crearArnés({
+      archivos: [
+        enLaTarea(ID_ENTREGA_1, '2026-09-01T10:00:00.000Z'),
+        {
+          id: ID_GUIA,
+          propietarioId: ID_ALUMNO,
+          r2Key: `m5_archivos/${ID_ALUMNO}/2026/09/${ID_GUIA}.pdf`,
+          nombreOriginal: 'guia.pdf',
+          tamanoBytes: 512,
+          estado: 'CONFIRMED',
+          entityType: 'TEACHER_GUIDE',
+          entidadId: ID_TAREA,
+          creadoEn: '2026-09-05T10:00:00.000Z',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const cuerpo = (await listar(arnes, 'TEACHER_GUIDE')).json();
+
+    expect(cuerpo.total).toBe(1);
+    expect(cuerpo.archivos[0].id).toBe(ID_GUIA);
   });
 });

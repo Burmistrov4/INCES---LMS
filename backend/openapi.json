@@ -2334,6 +2334,25 @@
           "archivo"
         ]
       },
+      "RespuestaListadoArchivos": {
+        "type": "object",
+        "properties": {
+          "archivos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Archivo"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Cuántos archivos vivos cuelgan de la entidad. Los `DELETED` no cuentan; los `PENDING` sí."
+          }
+        },
+        "required": [
+          "archivos",
+          "total"
+        ]
+      },
       "RespuestaUrlLectura": {
         "type": "object",
         "properties": {
@@ -6977,6 +6996,98 @@
           },
           "413": {
             "description": "El contenido supera el tamaño máximo permitido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/archivos/entidad/{entityType}/{entidadId}": {
+      "get": {
+        "tags": [
+          "Archivos"
+        ],
+        "summary": "Los archivos de una tarea o una guía",
+        "description": "Es la lectura que le faltaba al módulo: sin ella el gestor documental podía subir y borrar pero no recordaba nada, así que cada visita al panel mostraba una lista vacía y se volvía a subir lo mismo. **Quién ve qué lo decide la RLS**, no esta ruta: el propietario ve lo suyo y el administrador lo ve todo. La visibilidad cruzada del docente —que vea las entregas de sus alumnos— **todavía no es expresable**: `files_metadata.entidad_id` es un UUID sin tabla que lo respalde hasta que M6 cree las tareas, así que no hay forma de saber a qué sección pertenece una entrega ni qué docente la dicta. Se resolverá en M6, con la política que sí pueda calcularlo. Los archivos `DELETED` no aparecen; los `PENDING` sí, con su estado, para que la pantalla pueda etiquetar una subida sin confirmar en vez de ocultarla. **No pagina**: el tope por entidad acota la lista por construcción.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TASK_SUBMISSION",
+                "TEACHER_GUIDE"
+              ],
+              "description": "Qué clase de entidad se lista: `TASK_SUBMISSION` (entregas) o `TEACHER_GUIDE` (material de apoyo)."
+            },
+            "required": true,
+            "name": "entityType",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la tarea o la guía. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "entidadId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Los archivos vivos de esa entidad, del más reciente al más antiguo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaListadoArchivos"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El tipo de entidad no es `TASK_SUBMISSION` ni `TEACHER_GUIDE`, o el id no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de archivos está deshabilitado por el administrador (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {

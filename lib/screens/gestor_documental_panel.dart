@@ -38,13 +38,17 @@ const String _formatosAdmitidos = 'PDF, JPG, PNG, WEBP, DOCX, XLSX o PPTX';
 ///    2 en vez de crear **otra** reserva y dejar la primera abandonada — que es
 ///    justo la basura que el barrido de `PENDING` existe para recoger.
 ///
-/// **Lo que esta pantalla todavía no puede hacer, y se dice en voz alta.** No
-/// existe ninguna ruta que **liste** los archivos de una entidad: las cinco
-/// rutas de M5 firman, confirman, dan URL de lectura y borran, pero no listan.
-/// Por eso la lista de abajo es **de sesión**: muestra lo que se ha subido desde
-/// que se abrió la pantalla. Los archivos no se pierden —siguen en R2 y en la
-/// base—, pero al recargar desaparecen de la vista. Se avisa en la propia UI en
-/// lugar de dejar creer que la lista está vacía porque no hay nada.
+/// **La lista se hidrata del servidor.** Al montarse, el panel pide los archivos
+/// de la entidad y pinta los que ya estaban guardados; lo que se sube después se
+/// añade arriba. Antes esto no se podía: M5 firmaba, confirmaba, daba URL de
+/// lectura y borraba, pero **no listaba**, así que la lista era de sesión y al
+/// recargar la página parecía que no había nada guardado.
+///
+/// **Cuando no hay entidad no se pide nada, y se dice por qué.** Con `entidadId`
+/// nulo no existe la pregunta que esa ruta responde —«los archivos de esta
+/// tarea»—, así que pedirla daría un 400. En ese caso el panel funciona en modo
+/// sólo-subida y lo explica, en lugar de fingir que la lista está vacía porque no
+/// hay archivos.
 class GestorDocumentalPanel extends StatefulWidget {
   const GestorDocumentalPanel({
     super.key,
@@ -125,9 +129,23 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
   /// honesto es pedir otro archivo, que es justo lo que dice la sugerencia.
   String? _codigoFallo;
 
-  /// Los archivos subidos **en esta sesión**. Ver la nota de la clase sobre por
-  /// qué no es la lista completa.
+  /// Los archivos de la entidad: lo que ya estaba guardado, más lo subido en esta
+  /// visita. El orden es del más reciente al más antiguo, que es el que devuelve
+  /// la ruta y el que espera quien acaba de subir algo.
   final List<Archivo> _archivos = [];
+
+  /// Si la carga inicial sigue en curso.
+  ///
+  /// Es una bandera **distinta** de `_paso`: aquélla describe la subida y ésta la
+  /// lectura. Mezclarlas haría que una carga lenta pareciera una subida en curso.
+  bool _cargandoLista = false;
+
+  /// El fallo de la carga inicial, si lo hubo.
+  ///
+  /// Se guarda aparte de `_error` a propósito: un fallo de lectura **no** invalida
+  /// la tarjeta de subida, y volcarlo en `_error` dejaría la pantalla diciendo que
+  /// algo se rompió cuando subir sigue funcionando perfectamente.
+  String? _errorLista;
 
   /// Ids con una descarga o un borrado en curso. Es un conjunto y no una bandera
   /// única: dos filas pueden estar ocupadas a la vez y cada botón debe reflejar
@@ -153,6 +171,55 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
   String get _etiquetaAccion {
     if (!_reintentoUtil) return 'Elegir otro archivo';
     return _firmada == null ? 'Subir' : 'Reintentar subida';
+  }
+
+  /// ¿Esta vista puede listar lo ya guardado?
+  ///
+  /// Sin entidad, no: la ruta pregunta por los archivos de una tarea o una guía
+  /// concreta, y un id nulo no es una pregunta válida. Se comprueba aquí en vez
+  /// de intentar la petición, para no gastar un viaje en un 400 anunciado.
+  bool get _puedeListar => widget.entidadId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    // La bandera se pone **sin `setState`**: en `initState` el widget todavía no
+    // se ha construido, así que no hay nada que reconstruir. Llamar a `setState`
+    // aquí funcionaría por accidente hoy y empezaría a avisar de «setState
+    // durante la construcción» en cuanto alguien moviera un `await` por delante.
+    _cargandoLista = _puedeListar;
+    _cargarLista();
+  }
+
+  /// Trae los archivos que ya estaban guardados.
+  ///
+  /// **No bloquea la pantalla si falla.** Perder la lista es una molestia;
+  /// impedir subir sería convertir un fallo de lectura en una pantalla muerta.
+  Future<void> _cargarLista() async {
+    final entidadId = widget.entidadId;
+    if (entidadId == null) return;
+
+    final resultado = await _repo.listarPorEntidad(
+      entityType: widget.entityType,
+      entidadId: entidadId,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _cargandoLista = false;
+      resultado.when(
+        success: (archivos) {
+          // Se reemplaza la lista entera en vez de añadir: lo que hubiera venía de
+          // esta misma fuente, y concatenar duplicaría cada archivo en la segunda
+          // carga.
+          _archivos
+            ..clear()
+            ..addAll(archivos);
+        },
+        failure: (fallo) => _errorLista = fallo.message,
+      );
+    });
   }
 
   @override
@@ -447,14 +514,19 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
                   'centro.',
         ),
         const SizedBox(height: 16),
-        const AvisoEnLinea(
-          tono: TonoAviso.advertencia,
-          icono: Icons.info_outline,
-          texto: 'La lista de abajo sólo muestra lo que subas en esta sesión: '
-              'todavía no existe una ruta que devuelva los archivos ya '
-              'guardados. Al recargar la página la lista se vacía, pero los '
-              'archivos siguen almacenados.',
-        ),
+        // El aviso de «la lista es de sesión» se retiró al llegar la ruta de
+        // listado: la lista ya no es de sesión. Sólo queda el caso en que de
+        // verdad no se puede listar —una vista sin entidad—, y ahí sigue siendo
+        // cierto y necesario.
+        if (!_puedeListar)
+          const AvisoEnLinea(
+            tono: TonoAviso.advertencia,
+            icono: Icons.info_outline,
+            texto: 'Esta vista todavía no está atada a una tarea o una guía '
+                'concreta, así que sólo muestra lo que subas ahora. Cuando el '
+                'Aula Virtual publique la entidad, aparecerá aquí todo lo '
+                'guardado.',
+          ),
         const SizedBox(height: 20),
         _tarjetaDeSubida(theme),
         if (_error != null) ...[
@@ -651,9 +723,32 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
   }
 
   Widget _listaDeArchivos(ThemeData theme) {
+    // La carga va primero: mientras no se sepa qué hay guardado, decir «todavía
+    // no has subido archivos» sería afirmar algo que aún no se comprobó.
+    if (_cargandoLista) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Un fallo de lectura se muestra **sin** sustituir la pantalla: la tarjeta de
+    // subida sigue ahí y sigue funcionando. Por eso es un aviso y no un
+    // `PanelVacio`: el panel no está vacío, está incompleto.
+    if (_errorLista != null) {
+      return AvisoEnLinea(
+        tono: TonoAviso.peligro,
+        icono: Icons.cloud_off_outlined,
+        texto: 'No pudimos cargar los archivos ya guardados: $_errorLista '
+            'Puedes seguir subiendo; la lista se completará al recargar.',
+      );
+    }
+
     if (_archivos.isEmpty) {
-      return const PanelVacio(
-        titulo: 'Todavía no has subido archivos',
+      return PanelVacio(
+        titulo: _puedeListar
+            ? 'Todavía no hay archivos aquí'
+            : 'Todavía no has subido archivos',
         mensaje: 'Los archivos que subas aparecerán aquí con su tamaño y su '
             'estado, listos para descargar o borrar.',
         icono: Icons.folder_open_outlined,
@@ -664,7 +759,7 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         TituloSeccion(
-          'Archivos de esta sesión',
+          'Archivos guardados',
           subtitulo: '${_archivos.length} archivo(s).',
         ),
         const SizedBox(height: 4),

@@ -78,6 +78,22 @@ class ArchivosRepository {
   Future<Result<UrlDeLectura>> urlDeLectura(String archivoId) =>
       Result.guard(() => _gateway.urlDeLectura(archivoId));
 
+  /// Los archivos vivos de una tarea o una guía.
+  ///
+  /// Es la lectura que permite **hidratar** el panel al abrirlo: sin ella la
+  /// pantalla sólo podía mostrar lo subido durante la sesión actual, y al
+  /// recargar parecía que no había nada guardado.
+  Future<Result<List<Archivo>>> listarPorEntidad({
+    required TipoEntidadArchivo entityType,
+    required String entidadId,
+  }) =>
+      Result.guard(
+        () => _gateway.listarPorEntidad(
+          entityType: entityType,
+          entidadId: entidadId,
+        ),
+      );
+
   /// Borra un archivo propio.
   Future<Result<Archivo>> borrar(String archivoId) =>
       Result.guard(() => _gateway.borrar(archivoId));
