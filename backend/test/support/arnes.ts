@@ -3199,16 +3199,22 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
 
       // La RPC comprueba la coherencia MATERIAL/sin nota antes que el `CHECK`,
       // para dar un mensaje que se entienda. El doble reproduce ese 23514.
-      if (
-        entrada.tipo === 'MATERIAL' &&
-        (entrada.puntosMaximos !== 0 || entrada.fechaLimite !== null)
-      ) {
-        throw new ErrorApi(
-          400,
-          'RESTRICCION_VIOLADA',
-          'Un MATERIAL es de lectura: no lleva puntos ni fecha límite.',
-          { contexto: 'crear una tarea' },
-        );
+      //
+      // `null` es «no me lo dijeron», no «le puse puntos»: el RPC lo acepta
+      // (`p_puntos_maximos is not null and <> 0`) y guarda 0 para el MATERIAL.
+      // Exigir aquí `!== 0` haría que omitir los puntos —lo natural en un
+      // material— fallara, que es justo el fallo que el default `null` evita.
+      if (entrada.tipo === 'MATERIAL') {
+        const conPuntos = entrada.puntosMaximos != null && entrada.puntosMaximos !== 0;
+
+        if (conPuntos || entrada.fechaLimite !== null) {
+          throw new ErrorApi(
+            400,
+            'RESTRICCION_VIOLADA',
+            'Un MATERIAL es de lectura: no lleva puntos ni fecha límite.',
+            { contexto: 'crear una tarea' },
+          );
+        }
       }
 
       const fila: TareaFalsa = {
@@ -3217,7 +3223,9 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
         titulo: entrada.titulo,
         descripcion: entrada.descripcion,
         tipo: entrada.tipo,
-        puntosMaximos: entrada.puntosMaximos,
+        // Igual que el `insert` de la RPC: un MATERIAL guarda 0, y lo calificable
+        // sin puntos explícitos cae al 20 de negocio (`coalesce(..., 20)`).
+        puntosMaximos: entrada.tipo === 'MATERIAL' ? 0 : entrada.puntosMaximos ?? 20,
         fechaLimite: entrada.fechaLimite,
         permitirEntregaTardia: entrada.permitirEntregaTardia,
         tema: entrada.tema,

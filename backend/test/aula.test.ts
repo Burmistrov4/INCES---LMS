@@ -384,8 +384,28 @@ describe('crear trabajo de clase', () => {
     const arnes = crearArnés();
     app = arnes.app;
 
-    // Sin `puntosMaximos`, el valor por defecto es 20, y un MATERIAL no lleva
-    // puntos: la RPC lo dice con un mensaje que se entiende.
+    // Aquí los puntos se pasan **explícitamente**: es la coherencia
+    // MATERIAL/sin-nota la que se prueba, no el valor por defecto.
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/secciones/${ID_SECCION_SA}/tareas`,
+      headers: conToken(TOKEN_DOCENTE),
+      payload: { titulo: 'Lectura', tipo: 'MATERIAL', puntosMaximos: 10 },
+    });
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.codigo).toBe('RESTRICCION_VIOLADA');
+    expect(respuesta.json().error.mensaje).toContain('MATERIAL');
+  });
+
+  it('un MATERIAL sin puntos se crea con 201: el default es `null`, no 20', async () => {
+    // Regresión: con el default Zod en 20, la ruta enviaba «20 puntos» al RPC
+    // para un MATERIAL y éste lo rechazaba con 23514. El 20 es una decisión de
+    // la base, y sólo para lo calificable; omitirlo debe significar «sin
+    // puntos», que para un material es lo correcto.
+    const arnes = crearArnés();
+    app = arnes.app;
+
     const respuesta = await app.inject({
       method: 'POST',
       url: `/api/v1/aula/secciones/${ID_SECCION_SA}/tareas`,
@@ -393,9 +413,25 @@ describe('crear trabajo de clase', () => {
       payload: { titulo: 'Lectura', tipo: 'MATERIAL' },
     });
 
-    expect(respuesta.statusCode).toBe(400);
-    expect(respuesta.json().error.codigo).toBe('RESTRICCION_VIOLADA');
-    expect(respuesta.json().error.mensaje).toContain('MATERIAL');
+    expect(respuesta.statusCode).toBe(201);
+    expect(respuesta.json().tarea.tipo).toBe('MATERIAL');
+    expect(respuesta.json().tarea.puntosMaximos).toBe(0);
+  });
+
+  it('una TAREA sin puntos sigue valiendo 20: lo aplica el RPC', async () => {
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/secciones/${ID_SECCION_SA}/tareas`,
+      headers: conToken(TOKEN_DOCENTE),
+      payload: { titulo: 'Práctica 4' },
+    });
+
+    expect(respuesta.statusCode).toBe(201);
+    expect(respuesta.json().tarea.tipo).toBe('TAREA');
+    expect(respuesta.json().tarea.puntosMaximos).toBe(20);
   });
 
   it('un MATERIAL con cero puntos sí se crea: es de lectura', async () => {

@@ -2663,10 +2663,13 @@
             "default": "TAREA"
           },
           "puntosMaximos": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 20,
-            "default": 20
+            "default": null
           },
           "fechaLimite": {
             "type": [

@@ -951,8 +951,12 @@ export interface EntradaCrearTarea {
   titulo: string;
   descripcion: string;
   tipo: TipoTarea;
-  /** Puntos sobre 20. Debe ser 0 para un `MATERIAL`. */
-  puntosMaximos: number;
+  /**
+   * Puntos sobre 20, o `null` si no se dijeron. `null` **no** es «cero»: el RPC
+   * aplica 20 a lo calificable y 0 a un `MATERIAL`, así que la política de
+   * verdad vive en la base y aquí no se adivina. Debe ser 0 para un `MATERIAL`.
+   */
+  puntosMaximos: number | null;
   fechaLimite: string | null;
   permitirEntregaTardia: boolean;
   tema: string | null;

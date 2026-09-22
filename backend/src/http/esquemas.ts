@@ -957,11 +957,19 @@ export const esquemaCrearTarea = z
     tipo: tipoTareaSchema.default('TAREA'),
     // Escala 0–20, la venezolana. El rango va también en un `CHECK`; aquí se
     // adelanta el 400 para no abrir una transacción por un dato mal formado.
+    //
+    // El default es `null`, **no 20**, y la diferencia importa. El 20 de negocio
+    // ya lo aplica el RPC —`coalesce(p_puntos_maximos, 20)`— y **sólo para lo
+    // calificable**: un `MATERIAL` guarda 0. Si aquí se rellenara con 20 antes de
+    // salir, el RPC recibiría «20 puntos» para un `MATERIAL` —que es de lectura—
+    // y lo rechazaría con 23514. `null` significa «no me lo dijeron», que es justo
+    // lo que el RPC sabe interpretar según el `tipo`.
     puntosMaximos: z
       .number({ invalid_type_error: 'Los puntos deben ser un número.' })
       .min(0, 'Los puntos no pueden ser negativos.')
       .max(20, 'Los puntos no pueden pasar de 20.')
-      .default(20),
+      .nullable()
+      .default(null),
     fechaLimite: fechaHoraISO.nullable().default(null),
     permitirEntregaTardia: z.boolean().default(true),
     tema: z.string().trim().min(1).max(120).nullable().default(null),
