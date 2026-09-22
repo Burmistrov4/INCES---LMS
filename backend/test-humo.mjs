@@ -201,6 +201,14 @@ console.log('\n  5. Lectura de system_modules en la nube\n');
     'm5_archivos existe y está ENCENDIDO (202609210002)',
     todos.some((m) => m.clave === 'm5_archivos' && m.habilitado === true),
   );
+  // M6 cerró el bucle docente→alumno: el Centro de Mando del Docente está
+  // construido y verificado y el servicio de contenido cableado en producción, así
+  // que `202609220003` enciende `m6_aula_virtual`. Exigirlo ENCENDIDO es lo que
+  // impide que una migración posterior lo apague por descuido (R-22).
+  comprobar(
+    'm6_aula_virtual existe y está ENCENDIDO (202609220003)',
+    todos.some((m) => m.clave === 'm6_aula_virtual' && m.habilitado === true),
+  );
 }
 
 // --- 6. La barrera del último admin está viva también en la nube ------------

@@ -211,11 +211,12 @@ comprobar(
 );
 // La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero las
 // migraciones posteriores encienden `m2_curriculo`, `m3_cuadrante`,
-// `m4_inscripciones` (202609200002) y `m5_archivos` (202609210002) a propósito:
-// están construidos y verificados de extremo a extremo. Exigir «sólo dos»
-// quedaría obsoleto y marcaría como fallo un estado correcto. Se fija el estado
-// real: m0…m5 encendidos y m6…m8 apagados hasta que se construyan (cada uno lo
-// encenderá su propia migración cuando el dueño lo decida).
+// `m4_inscripciones` (202609200002), `m5_archivos` (202609210002) y
+// `m6_aula_virtual` (202609220003) a propósito: están construidos y verificados
+// de extremo a extremo. Exigir «sólo dos» quedaría obsoleto y marcaría como fallo
+// un estado correcto. Se fija el estado real: m0…m6 encendidos y m7…m8 apagados
+// hasta que se construyan (cada uno lo encenderá su propia migración cuando el
+// dueño lo decida).
 //
 // Ojo al leer el reparto, porque es fácil atribuirlo mal:
 // `202609210001_mod5_archivos.sql` **no** enciende esta bandera —crea la tabla,
@@ -229,7 +230,7 @@ const habilitados = modulos
   .map((m) => m.clave)
   .sort();
 comprobar(
-  'm0…m5 habilitados y m6…m8 apagados',
+  'm0…m6 habilitados y m7…m8 apagados',
   JSON.stringify(habilitados) ===
     JSON.stringify([
       'm0_cpanel',
@@ -238,8 +239,9 @@ comprobar(
       'm3_cuadrante',
       'm4_inscripciones',
       'm5_archivos',
+      'm6_aula_virtual',
     ]) &&
-    modulos.filter((m) => !m.habilitado).every((m) => /^m[6-8]_/.test(m.clave)),
+    modulos.filter((m) => !m.habilitado).every((m) => /^m[7-8]_/.test(m.clave)),
   `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');

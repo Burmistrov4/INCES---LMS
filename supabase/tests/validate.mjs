@@ -127,9 +127,9 @@ async function main() {
   );
   check('m9 (certificados/QR) NO se siembra', !modulos.some((m) => m.clave.startsWith('m9')));
   check(
-    'arrancan encendidos los módulos construidos y verificados (m0, m1, m2, m3, m4, m5)',
+    'arrancan encendidos los módulos construidos y verificados (m0…m6)',
     modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
-      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones,m5_archivos',
+      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones,m5_archivos,m6_aula_virtual',
   );
   // `m5_archivos` estuvo APAGADO a propósito hasta que existiera la Capa 7 (la
   // UI). Se encendía antes y habría quedado un ítem de menú sin circuito detrás
@@ -145,14 +145,15 @@ async function main() {
     'm5_archivos arranca encendido: lo enciende 202609210002',
     modulos.find((m) => m.clave === 'm5_archivos').habilitado === true,
   );
-  // `m6_aula_virtual` es el caso espejo y por eso se fija en `false`: la
-  // bandera se enciende cuando ya existen las rutas Y la UI que las sostiene
-  // (patrón de R-22). Al cerrar la fase 3 existen las rutas, pero no el aula en
-  // Flutter, así que sigue apagada a propósito. La aserción está aquí para que
-  // encenderla sea una decisión y no un descuido.
+  // `m6_aula_virtual` arrancaba APAGADO a propósito mientras no existiera el
+  // lado del docente (R-22: un ítem de menú sin circuito detrás). Al cerrar la
+  // Fase 4 el Centro de Mando del Docente está construido y verificado y el
+  // servicio de contenido cableado en producción, así que `202609220003` lo
+  // enciende. La aserción se invierte para que apagarlo sea una decisión y no un
+  // descuido.
   check(
-    'm6_aula_virtual arranca APAGADO a propósito (la UI todavía no existe)',
-    modulos.find((m) => m.clave === 'm6_aula_virtual').habilitado === false,
+    'm6_aula_virtual arranca ENCENDIDO (202609220003, bucle docente→alumno completo)',
+    modulos.find((m) => m.clave === 'm6_aula_virtual').habilitado === true,
   );
   check(
     'm6_aula_virtual va en el orden 55, entre M5 (50) y Asistencia (60)',
