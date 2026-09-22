@@ -29,10 +29,19 @@ import {
 } from '@asteasolutions/zod-to-openapi';
 import { z } from 'zod';
 import {
+  ESTADOS_ANUNCIO,
+  ESTADOS_ENTREGA,
+  ESTADOS_TAREA,
+} from '../dominio/tipos.js';
+import {
   esquemaBarrido,
+  esquemaCalificar,
+  esquemaCrearAnuncio,
+  esquemaCrearTarea,
   esquemaFirmarSubida,
   rolSchema,
   tipoEntidadArchivoSchema,
+  tipoTareaSchema,
 } from '../http/esquemas.js';
 
 /**
@@ -1397,6 +1406,185 @@ const RespuestaListadoArchivos = z
     }),
   })
   .openapi('RespuestaListadoArchivos');
+
+// --- Módulo 6: aula virtual --------------------------------------------------
+
+/**
+ * Los estados del aula, tomados de los arreglos del dominio.
+ *
+ * Se derivan en vez de escribirse otra vez por la misma razón que
+ * `ParametroEntidadArchivo`: si una migración añadiera un estado, una copia
+ * literal aquí seguiría ofreciendo los viejos y el contrato mentiría sobre lo
+ * que la API devuelve. La deuda D6 sólo compara rutas, no esquemas, así que una
+ * copia desviada no la cazaría nadie.
+ */
+const EstadoAnuncio = z.enum(ESTADOS_ANUNCIO).openapi('EstadoAnuncio');
+const EstadoTarea = z.enum(ESTADOS_TAREA).openapi('EstadoTarea');
+const EstadoEntrega = z.enum(ESTADOS_ENTREGA).openapi('EstadoEntrega');
+
+const Anuncio = z
+  .object({
+    id: z.string().uuid(),
+    seccionId: z.string().uuid(),
+    autorId: z.string().uuid(),
+    titulo: z.string(),
+    cuerpo: z.string(),
+    estado: EstadoAnuncio,
+    programadoPara: z.string().nullable().openapi({
+      description: 'Publicación diferida. `null` si no se programó.',
+    }),
+    publicadoEn: z.string().nullable().openapi({
+      description: 'Cuándo se publicó de verdad. `null` mientras es borrador.',
+    }),
+  })
+  .openapi('Anuncio');
+
+const Tarea = z
+  .object({
+    id: z.string().uuid(),
+    seccionId: z.string().uuid(),
+    titulo: z.string(),
+    descripcion: z.string(),
+    tipo: tipoTareaSchema,
+    puntosMaximos: z.number().openapi({
+      description: 'Sobre 20 (escala venezolana). `0` sólo para un `MATERIAL`.',
+    }),
+    fechaLimite: z.string().nullable().openapi({
+      description: '`null` = sin plazo. Es la referencia de «tardía» y de «faltante».',
+    }),
+    permitirEntregaTardia: z.boolean(),
+    tema: z.string().nullable(),
+    orden: z.number().int(),
+    estado: EstadoTarea,
+    publicadoEn: z.string().nullable(),
+  })
+  .openapi('Tarea');
+
+/**
+ * La entrega vista por el alumno.
+ *
+ * **No lleva `notaBorrador`.** La columna está protegida por un `GRANT` por
+ * columna —`authenticated` no tiene `SELECT` sobre ella—, así que no puede
+ * viajar aquí ni por descuido. `notaAsignada` es la que el alumno ya puede ver.
+ */
+const Entrega = z
+  .object({
+    id: z.string().uuid(),
+    tareaId: z.string().uuid(),
+    estado: EstadoEntrega,
+    esTardia: z.boolean().openapi({
+      description: 'Se fija al entregar comparando con la fecha límite. Es un hecho histórico.',
+    }),
+    notaAsignada: z.number().nullable().openapi({
+      description: 'Nota ya devuelta al alumno. `null` mientras el ciclo no se cierra.',
+    }),
+    entregadaEn: z.string().nullable(),
+  })
+  .openapi('Entrega');
+
+const LibroEntrega = z
+  .object({
+    id: z.string().uuid(),
+    estudianteId: z.string().uuid(),
+    estado: EstadoEntrega,
+    esTardia: z.boolean(),
+    notaBorrador: z.number().nullable().openapi({
+      description: 'Nota del docente antes de devolver. Sólo la ve el docente.',
+    }),
+    notaAsignada: z.number().nullable(),
+    entregadaEn: z.string().nullable(),
+    devueltaEn: z.string().nullable(),
+    faltante: z.boolean().openapi({
+      description:
+        '**Derivada al leer**: `ASIGNADA` con la fecha límite ya vencida. No es una columna, y no se escribe un 0 automático que quedaría congelado.',
+    }),
+  })
+  .openapi('LibroEntrega');
+
+const TareaPublicada = z
+  .object({
+    id: z.string().uuid(),
+    seccionId: z.string().uuid(),
+    titulo: z.string(),
+    estado: EstadoTarea,
+    publicadoEn: z.string().nullable(),
+  })
+  .openapi('TareaPublicada');
+
+const RespuestaPublicacion = z
+  .object({
+    tarea: TareaPublicada,
+    entregasCreadas: z.number().int().openapi({
+      description:
+        'Placeholders creados en esta llamada. Republicar devuelve 0: es idempotente.',
+    }),
+  })
+  .openapi('RespuestaPublicacion');
+
+const EntregaCalificada = z
+  .object({
+    id: z.string().uuid(),
+    tareaId: z.string().uuid(),
+    estudianteId: z.string().uuid(),
+    estado: EstadoEntrega,
+    esTardia: z.boolean(),
+    notaBorrador: z.number().nullable(),
+    notaAsignada: z.number().nullable(),
+    devueltaEn: z.string().nullable().optional().openapi({
+      description: 'Sólo lo trae la devolución; la calificación no toca la columna.',
+    }),
+  })
+  .openapi('EntregaCalificada');
+
+const RespuestaAnuncios = z.object({ anuncios: z.array(Anuncio) }).openapi('RespuestaAnuncios');
+const RespuestaAnuncio = z.object({ anuncio: Anuncio }).openapi('RespuestaAnuncio');
+const RespuestaTareas = z.object({ tareas: z.array(Tarea) }).openapi('RespuestaTareas');
+const RespuestaTarea = z.object({ tarea: Tarea }).openapi('RespuestaTarea');
+const RespuestaLibro = z.object({ entregas: z.array(LibroEntrega) }).openapi('RespuestaLibro');
+const RespuestaMisEntregas = z
+  .object({ entregas: z.array(Entrega) })
+  .openapi('RespuestaMisEntregas');
+const RespuestaEntrega = z.object({ entrega: Entrega }).openapi('RespuestaEntrega');
+const RespuestaEntregaCalificada = z
+  .object({ entrega: EntregaCalificada })
+  .openapi('RespuestaEntregaCalificada');
+
+/** Los cuerpos se proyectan desde el esquema real, como `CuerpoFirmarSubida`. */
+const CuerpoCrearAnuncio = esquemaCrearAnuncio.openapi('CuerpoCrearAnuncio');
+const CuerpoCrearTarea = esquemaCrearTarea.openapi('CuerpoCrearTarea');
+const CuerpoCalificar = esquemaCalificar.openapi('CuerpoCalificar');
+
+/**
+ * Los parámetros de ruta del aula.
+ *
+ * No se reutiliza `parametroIdDeRecurso` porque ése fuerza el nombre `id`: aquí
+ * la ruta los nombra `seccionId`, `tareaId` y `entregaId`, y el documento tiene
+ * que atar cada campo a su hueco con `param`. Sin esa pista, el cliente generado
+ * tendría un parámetro suelto en lugar de una URL.
+ */
+const ParametroSeccionAula = z.object({
+  seccionId: z.string().uuid().openapi({
+    param: { name: 'seccionId', in: 'path' },
+    example: '46342064-c05a-4341-8638-f35c2541718c',
+    description: 'UUID de la sección. Un valor que no sea UUID se rechaza con 400.',
+  }),
+});
+
+const ParametroTareaAula = z.object({
+  tareaId: z.string().uuid().openapi({
+    param: { name: 'tareaId', in: 'path' },
+    example: '46342064-c05a-4341-8638-f35c2541718c',
+    description: 'UUID de la tarea. Un valor que no sea UUID se rechaza con 400.',
+  }),
+});
+
+const ParametroEntregaAula = z.object({
+  entregaId: z.string().uuid().openapi({
+    param: { name: 'entregaId', in: 'path' },
+    example: '46342064-c05a-4341-8638-f35c2541718c',
+    description: 'UUID de la entrega. Un valor que no sea UUID se rechaza con 400.',
+  }),
+});
 
 /** Respuestas de error reutilizables. Se documentan los códigos, no un texto. */
 function error(descripcion: string) {
@@ -2852,6 +3040,268 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // --------------------------------------------------------- aula virtual ---
+  const aulaTag = { tags: ['Aula Virtual'] };
+
+  /**
+   * El 403 de la guardia de módulo cuando el administrador lo apaga.
+   *
+   * Es el único 403 de este grupo que no habla de permisos sobre una fila: dice
+   * «el módulo está apagado». Se nombra una vez en lugar de repetirlo en las
+   * diez rutas, donde nueve acabarían desviándose de la primera.
+   */
+  const aulaApagada = error(
+    'El módulo de aula virtual está deshabilitado por el administrador (MODULO_DESHABILITADO).',
+  );
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'get',
+    path: '/api/v1/aula/secciones/{seccionId}/tablon',
+    summary: 'El tablón de anuncios de una sección',
+    description:
+      'El feed de anuncios, del más nuevo al más viejo. **Quién ve qué lo decide la RLS**: un docente de la sección ve también sus borradores, y un alumno ve los publicados **y** los programados cuya hora ya llegó. La publicación diferida se resuelve en la política de lectura —`programado_para <= now()`—, sin ningún proceso que la ejecute: el INCES tiene cortes eléctricos y arquitectura dual, así que no se puede depender de un planificador.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroSeccionAula },
+    responses: {
+      200: {
+        description: 'Los anuncios visibles de la sección.',
+        content: { 'application/json': { schema: RespuestaAnuncios } },
+      },
+      400: error('El identificador de la sección no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      403: aulaApagada,
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/secciones/{seccionId}/anuncios',
+    summary: 'Publica un anuncio en el tablón',
+    description:
+      'El anuncio nace `BORRADOR`. La RPC exige que el llamante **dicte** la sección —o sea administrador— y responde 403 con su mensaje si no: la autorización la hace la base, no la ruta. Con `programadoPara`, el anuncio será visible para los alumnos cuando esa hora llegue, sin que ningún proceso lo publique.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: ParametroSeccionAula,
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCrearAnuncio } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Anuncio creado, en estado `BORRADOR`.',
+        content: { 'application/json': { schema: RespuestaAnuncio } },
+      },
+      400: error('El título está vacío, o la fecha programada no es una marca ISO 8601.'),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'No dictas la sección (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'get',
+    path: '/api/v1/aula/secciones/{seccionId}/trabajo',
+    summary: 'El trabajo de clase de una sección',
+    description:
+      'Tareas y materiales, ordenados por tema y por el orden manual del docente. Un alumno ve sólo lo publicado —o lo programado ya vencido—; el docente de la sección ve también sus borradores. La lista de columnas es explícita, así que la forma de la respuesta no cambia porque una migración añada una columna.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroSeccionAula },
+    responses: {
+      200: {
+        description: 'El trabajo de clase visible de la sección.',
+        content: { 'application/json': { schema: RespuestaTareas } },
+      },
+      400: error('El identificador de la sección no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      403: aulaApagada,
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/secciones/{seccionId}/tareas',
+    summary: 'Crea trabajo de clase',
+    description:
+      'Nace `BORRADOR` y **sin entregas**: publicar es lo que crea los placeholders, uno por matrícula `ENROLLED`. Un `MATERIAL` es de lectura y no puede llevar puntos ni fecha límite; la RPC lo rechaza con un mensaje que se entiende, y el `CHECK` de la tabla es la invariante. La coherencia por tipo no se repite en Zod a propósito: sería una segunda copia que se desviaría.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: ParametroSeccionAula,
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCrearTarea } },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Trabajo creado, en estado `BORRADOR` y sin entregas.',
+        content: { 'application/json': { schema: RespuestaTarea } },
+      },
+      400: error(
+        'El título está vacío, el tipo no es `TAREA`/`MATERIAL`/`PREGUNTA`, los puntos no están entre 0 y 20, o un `MATERIAL` lleva puntos o fecha límite (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'No dictas la sección (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/tareas/{tareaId}/publicar',
+    summary: 'Publica una tarea y crea los placeholders de entrega',
+    description:
+      '**Idempotente**: publicar dos veces no duplica entregas. Lo garantiza el `unique (tarea_id, estudiante_id)` con `on conflict do nothing` en la base, no la ruta —un botón que se puede pulsar dos veces no puede crear dos entregas por alumno—. `entregasCreadas` es 0 en la segunda llamada, y eso es un 200 con la verdad. La respuesta trae la **cabecera** de la tarea, que es lo que la RPC devuelve: completar los demás campos aquí sería inventarlos.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroTareaAula },
+    responses: {
+      200: {
+        description: 'Tarea publicada. `entregasCreadas` puede ser 0 si ya estaba publicada.',
+        content: { 'application/json': { schema: RespuestaPublicacion } },
+      },
+      400: error(
+        'El identificador no es un UUID, o la tarea está eliminada (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'No dictas la sección de la tarea (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'get',
+    path: '/api/v1/aula/tareas/{tareaId}/entregas',
+    summary: 'El libro de calificaciones de una tarea (docente)',
+    description:
+      'Va por **RPC** y no por lectura directa por un motivo que conviene tener escrito: `m6_entregas` protege `nota_borrador` con un `GRANT` por columna, y `authenticated` no tiene privilegio de `SELECT` sobre ella. Una lectura normal habría devuelto la columna en blanco **sin dar error**, y el docente habría calificado a ciegas. La RPC es `security definer` y la lee como dueña. `faltante` se **deriva** al leer —`ASIGNADA` con la fecha límite vencida—, no se escribe un 0 automático que quedaría congelado. Si el llamante no dicta la sección, la RPC **filtra** y devuelve una lista vacía, no un 403.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroTareaAula },
+    responses: {
+      200: {
+        description: 'Las entregas de la tarea, ordenadas por estudiante.',
+        content: { 'application/json': { schema: RespuestaLibro } },
+      },
+      400: error('El identificador de la tarea no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      403: aulaApagada,
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'get',
+    path: '/api/v1/aula/mis-entregas',
+    summary: 'Las entregas del alumno',
+    description:
+      '**No se filtra por usuario en la ruta, y es deliberado**: lo decide la RLS. Para un alumno son las suyas; añadir un filtro por `estudiante_id` sería una segunda copia de la política, y la copia se desviaría en cuanto la política cambiara. La respuesta **excluye `nota_borrador`**, así que la nota sin devolver no puede viajar al alumno ni por descuido.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Las entregas visibles para el llamante.',
+        content: { 'application/json': { schema: RespuestaMisEntregas } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: aulaApagada,
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/entregas/{entregaId}/entregar',
+    summary: 'Entrega una tarea (alumno dueño)',
+    description:
+      'La RPC comprueba tres cosas en la misma transacción: que la entrega sea **del alumno** (403 si no), que la tarea esté publicada, y si llega tarde respecto a la fecha límite. El retraso se **escribe ahí** (`es_tardia`), no lo calcula ningún proceso después: la fecha límite puede cambiar más adelante y la entrega ya ocurrió. Si la tarea cerró y no admite tardías, el 400 trae el mensaje de la base con la fecha.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroEntregaAula },
+    responses: {
+      200: {
+        description: 'La entrega quedó `ENTREGADA`.',
+        content: { 'application/json': { schema: RespuestaEntrega } },
+      },
+      400: error(
+        'El identificador no es un UUID, la tarea no está publicada, ya estaba entregada, o cerró sin admitir tardías (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'La entrega no es tuya (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/entregas/{entregaId}/calificar',
+    summary: 'Escribe la nota borrador (docente)',
+    description:
+      'La nota **borrador**: el alumno todavía no la ve. Sólo el docente de la sección, sólo sobre una entrega ya entregada o reclamada, y nunca por encima de los puntos de la tarea —las tres las comprueba la RPC y llegan como 403 o 400 con su mensaje—. El rango 0–20 lo valida además Zod, que da el 400 antes de abrir una transacción. `notaBorrador` viaja en la respuesta a propósito: quien llama es el docente y la RPC ya lo autorizó.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: ParametroEntregaAula,
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCalificar } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'La nota quedó escrita como borrador.',
+        content: { 'application/json': { schema: RespuestaEntregaCalificada } },
+      },
+      400: error(
+        'La nota no está entre 0 y 20, supera el máximo de la tarea, o no hay nada que calificar todavía (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'No dictas la sección de la entrega (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
+    path: '/api/v1/aula/entregas/{entregaId}/devolver',
+    summary: 'Devuelve la entrega y cierra el ciclo (docente)',
+    description:
+      'Copia la nota borrador a la asignada, marca `DEVUELTA` y sella la fecha. Es el **único** momento en que el alumno ve una nota. Devolver **sin** nota es legítimo —es el «devuelta sin calificar» de Google—: lo que la tabla impide, con un `CHECK`, es una nota asignada sin borrador. Una entrega ya devuelta no se reabre.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroEntregaAula },
+    responses: {
+      200: {
+        description: 'La entrega quedó `DEVUELTA`, con la nota ya visible para el alumno.',
+        content: { 'application/json': { schema: RespuestaEntregaCalificada } },
+      },
+      400: error(
+        'El identificador no es un UUID, o no hay una entrega que devolver (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'No dictas la sección de la entrega (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   return registro;
 }
 
@@ -2912,6 +3362,11 @@ export function construirDocumentoOpenApi() {
         name: 'Archivos',
         description:
           'Módulo 5: archivos en Cloudflare R2. El backend no mueve bytes —firma URLs y R2 hace el transporte—, así que el ciclo es de dos pasos: reservar la fila, subir, y confirmar midiendo el objeto. Toda escritura pasa por RPC `security definer`; la lectura va por PostgREST bajo RLS. Las seis rutas del módulo comprueban la bandera `m5_archivos` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador lo apaga; las dos de administración exigen además rol admin.',
+      },
+      {
+        name: 'Aula Virtual',
+        description:
+          'Módulo 6: tablón de anuncios, trabajo de clase, entregas y calificaciones por sección. **El curso es la sección**: no hay una entidad «curso» aparte. Toda escritura pasa por RPC `security definer`; las lecturas van por PostgREST bajo RLS. Las diez rutas comprueban la bandera `m6_aula_virtual` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador la apaga. La nota en borrador **nunca** viaja en una respuesta al alumno: `m6_entregas` la protege con un `GRANT` por columna y sólo el libro del docente la lee, por una RPC.',
       },
     ],
   });

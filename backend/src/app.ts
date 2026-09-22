@@ -10,6 +10,7 @@ import { registrarManejadorDeErrores } from './http/plugins/errores.js';
 import { comprobarMantenimiento } from './http/plugins/modulos.js';
 import { rutasAdmin } from './http/rutas/admin.js';
 import { rutasArchivos } from './http/rutas/archivos.js';
+import { rutasAula } from './http/rutas/aula.js';
 import { rutasAuth } from './http/rutas/auth.js';
 import { rutasCuadrante } from './http/rutas/cuadrante.js';
 import { rutasCurriculo } from './http/rutas/curriculo.js';
@@ -174,6 +175,9 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   // M5 necesita el almacenamiento inyectado, así que recibe `depsRutas` — a
   // diferencia de M3 y M4, que no dependen de ningún servicio externo.
   rutasArchivos(app, depsRutas);
+  // M6 reutiliza los archivos de M5 (las guías y las entregas cuelgan de sus
+  // tablas) y necesita la caché de módulos para su propia guardia.
+  rutasAula(app, depsRutas);
   rutasAuth(app, depsRutas);
 
   return app;

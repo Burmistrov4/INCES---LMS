@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ErrorApi } from '../dominio/errores.js';
+import { TIPOS_TAREA } from '../dominio/tipos.js';
 import { materiaRepetida } from '../dominio/reglas-curriculo.js';
 import {
   BLOQUE_MAXIMO,
@@ -882,6 +883,119 @@ export const esquemaRutaEntidad = z.object({
   }),
 });
 
+// --- Módulo 6: aula virtual -------------------------------------------------
+
+export const esquemaIdTarea = idDeRecurso('tarea');
+export const esquemaIdEntrega = idDeRecurso('entrega');
+
+/**
+ * El tipo de trabajo de clase.
+ *
+ * Se construye desde `TIPOS_TAREA`, el arreglo del dominio del que también sale
+ * el tipo `TipoTarea`: **una sola fuente**. Si alguien añadiera un tipo en
+ * `tipos.ts`, este `z.enum` lo recoge solo y el contrato de la OpenAPI no puede
+ * mentir sobre lo que la API acepta. Un valor inventado se rechaza aquí con un
+ * 400 que nombra el campo, en vez de viajar a Postgres y volver como el `23514`
+ * de un `check`.
+ */
+export const tipoTareaSchema = z.enum(TIPOS_TAREA);
+
+/**
+ * Una marca de tiempo ISO 8601 con zona horaria.
+ *
+ * `offset: true` acepta tanto `...Z` como `...+00:00`, que es lo que mandan los
+ * clientes reales. Sin esto, una fecha con desplazamiento explícito llegaría a
+ * Postgres, que la aceptaría igual: la validación no cierra un agujero de
+ * seguridad, da un 400 que nombra el campo en vez de un error de base.
+ */
+const fechaHoraISO = z.string().datetime({
+  offset: true,
+  message: 'La fecha debe ser una marca de tiempo ISO 8601 con zona horaria.',
+});
+
+/**
+ * Publicación de un anuncio en el tablón.
+ *
+ * `programadoPara` es la **publicación diferida**: la política RLS hace visible
+ * un `BORRADOR` con esta fecha ya vencida, sin que ningún proceso lo publique
+ * —el INCES tiene cortes eléctricos y arquitectura dual, así que no se puede
+ * depender de un planificador—. `null` = sin programar.
+ */
+export const esquemaCrearAnuncio = z
+  .object({
+    titulo: z
+      .string()
+      .trim()
+      .min(1, 'El título del anuncio no puede estar vacío.')
+      .max(200, 'El título del anuncio no puede pasar de 200 caracteres.'),
+    cuerpo: z.string().max(20000, 'El anuncio no puede pasar de 20000 caracteres.').default(''),
+    programadoPara: fechaHoraISO.nullable().default(null),
+  })
+  .strict();
+
+/**
+ * Creación de trabajo de clase.
+ *
+ * **La coherencia MATERIAL/sin nota NO se valida aquí**, y es deliberado: es un
+ * `CHECK` de la tabla, y la RPC `m6_crear_tarea` ya lo comprueba antes para dar
+ * un mensaje que se entienda —«Un MATERIAL es de lectura: no lleva puntos ni
+ * fecha límite»— en vez de un `violates check constraint m6_tareas_material_sin_nota`
+ * a secas. Repetir la regla en Zod sería una segunda copia que se desviaría.
+ *
+ * `tipo` va como **enum** por la razón de siempre: un tipo inventado rechazado
+ * aquí da un 400 que nombra el campo, mientras que como cadena libre llegaría a
+ * la base y volvería como un error de `check` sin contexto.
+ */
+export const esquemaCrearTarea = z
+  .object({
+    titulo: z
+      .string()
+      .trim()
+      .min(1, 'El título de la tarea no puede estar vacío.')
+      .max(200, 'El título de la tarea no puede pasar de 200 caracteres.'),
+    descripcion: z.string().max(20000, 'La descripción no puede pasar de 20000 caracteres.').default(''),
+    tipo: tipoTareaSchema.default('TAREA'),
+    // Escala 0–20, la venezolana. El rango va también en un `CHECK`; aquí se
+    // adelanta el 400 para no abrir una transacción por un dato mal formado.
+    puntosMaximos: z
+      .number({ invalid_type_error: 'Los puntos deben ser un número.' })
+      .min(0, 'Los puntos no pueden ser negativos.')
+      .max(20, 'Los puntos no pueden pasar de 20.')
+      .default(20),
+    fechaLimite: fechaHoraISO.nullable().default(null),
+    permitirEntregaTardia: z.boolean().default(true),
+    tema: z.string().trim().min(1).max(120).nullable().default(null),
+    orden: z.number().int().min(0).max(9999).default(0),
+  })
+  .strict();
+
+/**
+ * La nota de una entrega.
+ *
+ * La escala 0–20 es la del centro y la que usan las actas. El rango va aquí y en
+ * el `CHECK` de `m6_entregas`: Zod da el 400 antes de abrir una transacción y
+ * nombra el campo; el `CHECK` sigue siendo la invariante.
+ */
+export const esquemaCalificar = z
+  .object({
+    nota: z
+      .number({ invalid_type_error: 'La nota debe ser un número.' })
+      .min(0, 'La nota no puede ser negativa.')
+      .max(20, 'La nota no puede pasar de 20.'),
+  })
+  .strict();
+
+/**
+ * Los parámetros de ruta del aula, cada uno con su recurso nombrado.
+ *
+ * Un id que no sea UUID se rechaza con 400 antes de tocar la base: sin esto,
+ * viajaría a Postgres, reventaría con `22P02` y saldría como un 500 genérico por
+ * lo que en realidad es una URL mal escrita.
+ */
+export const esquemaRutaSeccion = z.object({ seccionId: esquemaIdSeccion });
+export const esquemaRutaTarea = z.object({ tareaId: esquemaIdTarea });
+export const esquemaRutaEntrega = z.object({ entregaId: esquemaIdEntrega });
+
 export type ListadoAulasEntrada = z.infer<typeof esquemaListadoAulas>;
 export type CrearAulaEntrada = z.infer<typeof esquemaCrearAula>;
 export type ActualizarAulaEntrada = z.infer<typeof esquemaActualizarAula>;
@@ -903,6 +1017,9 @@ export type ReincorporarEntrada = z.infer<typeof esquemaReincorporar>;
 export type FirmarSubidaEntrada = z.infer<typeof esquemaFirmarSubida>;
 export type BarridoEntrada = z.infer<typeof esquemaBarrido>;
 export type RutaEntidadEntrada = z.infer<typeof esquemaRutaEntidad>;
+export type CrearAnuncioEntrada = z.infer<typeof esquemaCrearAnuncio>;
+export type CrearTareaEntrada = z.infer<typeof esquemaCrearTarea>;
+export type CalificarEntrada = z.infer<typeof esquemaCalificar>;
 
 /**
  * Comprueba que el valor encaje con el `tipo` declarado del parámetro.

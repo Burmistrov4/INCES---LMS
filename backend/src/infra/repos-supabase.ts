@@ -6,6 +6,7 @@ import type {
   CambiosPeriodo,
   CambiosPrograma,
   CambiosSeccion,
+  EntradaCrearAnuncio,
   EntradaCrearAula,
   EntradaCrearClase,
   EntradaCrearGuardia,
@@ -13,6 +14,7 @@ import type {
   EntradaCrearPeriodo,
   EntradaCrearPrograma,
   EntradaCrearSeccion,
+  EntradaCrearTarea,
   EntradaRegistrarArchivo,
   OpcionesListadoAcceso,
   OpcionesListadoAulas,
@@ -32,6 +34,7 @@ import type {
   PaginaSecciones,
   PaginaUsuarios,
   PuertaArchivos,
+  PuertaAula,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
@@ -70,10 +73,15 @@ import {
 } from '../dominio/reglas-inscripciones.js';
 import {
   esEstadoArchivo,
+  esEstadoAnuncio,
+  esEstadoEntrega,
+  esEstadoTarea,
   esRol,
   esTipoEntidadArchivo,
   esTipoPrograma,
+  esTipoTarea,
   esTurno,
+  type Anuncio,
   type ArchivoMetadata,
   type Aula,
   type CambiosModulo,
@@ -83,13 +91,19 @@ import {
   type EntradaAcceso,
   type EntradaAuditoria,
   type EntradaPensum,
+  type Entrega,
+  type EntregaCalificada,
   type EstadoAcceso,
   type EstadoArchivo,
+  type EstadoAnuncio,
+  type EstadoEntrega,
   type EstadoInscripcion,
+  type EstadoTarea,
   type Guardia,
   type Inscripcion,
   type InscripcionDetallada,
   type InvitacionDocente,
+  type LibroEntrega,
   type Materia,
   type MateriaEnPensum,
   type MiHorario,
@@ -100,17 +114,21 @@ import {
   type Periodo,
   type Programa,
   type ProgramaConTotales,
+  type PublicacionTarea,
   type RejillaCuadrante,
   type Rol,
   type RolDeHorario,
   type Seccion,
+  type Tarea,
   type TipoEntidadArchivo,
   type TipoParametro,
+  type TipoTarea,
 } from '../dominio/tipos.js';
 import {
   desenvolver,
   esRangoNoSatisfacible,
   mensajeDe,
+  pareceErrorPostgres,
   traducirError,
 } from './traducir-error.js';
 
@@ -137,6 +155,29 @@ function textoObligatorio(valor: unknown, porDefecto = ''): string {
 
 function entero(valor: unknown, porDefecto = 0): number {
   return typeof valor === 'number' && Number.isFinite(valor) ? valor : porDefecto;
+}
+
+/**
+ * Un `numeric` de la base, con decimales.
+ *
+ * `entero` haría el trabajo —sólo comprueba que sea un número finito—, pero su
+ * nombre miente sobre lo que aquí se espera: los puntos y las notas del aula son
+ * `numeric(4,2)`, así que un `17,5` es un valor legítimo. Se separa para que el
+ * lector no tenga que dudar de si el decimal es un descuido.
+ */
+function numero(valor: unknown, porDefecto = 0): number {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : porDefecto;
+}
+
+/**
+ * Un `numeric` que puede ser `null`.
+ *
+ * `nota_borrador` y `nota_asignada` son nulas mientras el ciclo no avanza, y esa
+ * ausencia **es** información: `0` sería un cero de verdad —un alumno que sacó
+ * cero— y confundirlos inventaría una calificación.
+ */
+function numeroOpcional(valor: unknown): number | null {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : null;
 }
 
 function booleano(valor: unknown, porDefecto = false): boolean {
@@ -567,6 +608,153 @@ function aArchivo(fila: Fila): ArchivoMetadata {
   };
 }
 
+// --- mapeadores de M6 -------------------------------------------------------
+
+/**
+ * Los cuatro estados del aula leídos de la base.
+ *
+ * **No se degradan**, a diferencia de `estadoSeguro` en M4: las columnas tienen
+ * un `check`, así que un valor fuera de la unión significa que hay una migración
+ * aplicada que este backend todavía no conoce. Degradar aquí escondería
+ * exactamente el desfase que conviene ver —y en una entrega, degradar hacia
+ * arriba concedería un estado que la base no dio—.
+ */
+function estadoAnuncioSeguro(valor: unknown): EstadoAnuncio {
+  if (!esEstadoAnuncio(valor)) {
+    throw ErrorApi.interno(
+      `La base devolvió un estado de anuncio desconocido (${String(valor)}). ` +
+        'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+    );
+  }
+  return valor;
+}
+
+function estadoTareaSeguro(valor: unknown): EstadoTarea {
+  if (!esEstadoTarea(valor)) {
+    throw ErrorApi.interno(
+      `La base devolvió un estado de tarea desconocido (${String(valor)}). ` +
+        'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+    );
+  }
+  return valor;
+}
+
+function tipoTareaSeguro(valor: unknown): TipoTarea {
+  if (!esTipoTarea(valor)) {
+    throw ErrorApi.interno(
+      `La base devolvió un tipo de tarea desconocido (${String(valor)}). ` +
+        'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+    );
+  }
+  return valor;
+}
+
+function estadoEntregaSeguro(valor: unknown): EstadoEntrega {
+  if (!esEstadoEntrega(valor)) {
+    throw ErrorApi.interno(
+      `La base devolvió un estado de entrega desconocido (${String(valor)}). ` +
+        'Probablemente hay una migración aplicada que el backend todavía no conoce.',
+    );
+  }
+  return valor;
+}
+
+/** Un anuncio del tablón, tal como lo devuelven la tabla y la RPC de creación. */
+function aAnuncio(fila: Fila): Anuncio {
+  return {
+    id: textoObligatorio(fila.id),
+    seccionId: textoObligatorio(fila.seccion_id),
+    autorId: textoObligatorio(fila.autor_id),
+    titulo: textoObligatorio(fila.titulo),
+    cuerpo: textoObligatorio(fila.cuerpo),
+    estado: estadoAnuncioSeguro(fila.estado),
+    programadoPara: texto(fila.programado_para),
+    publicadoEn: texto(fila.publicado_en),
+  };
+}
+
+/** Trabajo de clase, tal como lo devuelven la tabla y la RPC de creación. */
+function aTarea(fila: Fila): Tarea {
+  return {
+    id: textoObligatorio(fila.id),
+    seccionId: textoObligatorio(fila.seccion_id),
+    titulo: textoObligatorio(fila.titulo),
+    descripcion: textoObligatorio(fila.descripcion),
+    tipo: tipoTareaSeguro(fila.tipo),
+    // `numeric(4,2)`: un 17,5 es válido, así que se normaliza como decimal y no
+    // como entero.
+    puntosMaximos: numero(fila.puntos_maximos, 0),
+    fechaLimite: texto(fila.fecha_limite),
+    permitirEntregaTardia: booleano(fila.permitir_entrega_tardia, true),
+    tema: texto(fila.tema),
+    orden: entero(fila.orden, 0),
+    estado: estadoTareaSeguro(fila.estado),
+    publicadoEn: texto(fila.publicado_en),
+  };
+}
+
+/**
+ * La entrega vista por el alumno.
+ *
+ * **No lee `nota_borrador` y no puede hacerlo**: la columna no está concedida a
+ * `authenticated`. La forma de este objeto es, a la vez, el contrato de la
+ * respuesta y la garantía de que la nota en borrador no viaja al alumno.
+ */
+function aEntrega(fila: Fila): Entrega {
+  return {
+    id: textoObligatorio(fila.id),
+    tareaId: textoObligatorio(fila.tarea_id),
+    estado: estadoEntregaSeguro(fila.estado),
+    esTardia: booleano(fila.es_tardia, false),
+    notaAsignada: numeroOpcional(fila.nota_asignada),
+    entregadaEn: texto(fila.entregada_en),
+  };
+}
+
+/**
+ * Una fila del libro de calificaciones.
+ *
+ * Sólo llega desde `m6_entregas_de_tarea`, que es `security definer`: por eso
+ * `nota_borrador` sí se puede leer aquí. `faltante` se recibe ya derivada por la
+ * RPC —`ASIGNADA` con la fecha límite vencida— y no se recalcula en Node, donde
+ * el reloj del servidor podría no coincidir con el de la base.
+ */
+function aLibroEntrega(fila: Fila): LibroEntrega {
+  return {
+    id: textoObligatorio(fila.id),
+    estudianteId: textoObligatorio(fila.estudiante_id),
+    estado: estadoEntregaSeguro(fila.estado),
+    esTardia: booleano(fila.es_tardia, false),
+    notaBorrador: numeroOpcional(fila.nota_borrador),
+    notaAsignada: numeroOpcional(fila.nota_asignada),
+    entregadaEn: texto(fila.entregada_en),
+    devueltaEn: texto(fila.devuelta_en),
+    // Si faltara, `false` es lo prudente: no marcar a nadie como faltante es
+    // mejor que acusarlo sin dato.
+    faltante: booleano(fila.faltante, false),
+  };
+}
+
+/**
+ * La entrega que devuelven `calificar` y `devolver`.
+ *
+ * `devuelta_en` llega **ausente** al calificar —esa RPC no toca la columna—, así
+ * que se conserva la diferencia entre «no vino» y «vino nula»: inventar un `null`
+ * haría parecer que la devolución ocurrió sin fecha.
+ */
+function aEntregaCalificada(fila: Fila): EntregaCalificada {
+  return {
+    id: textoObligatorio(fila.id),
+    tareaId: textoObligatorio(fila.tarea_id),
+    estudianteId: textoObligatorio(fila.estudiante_id),
+    estado: estadoEntregaSeguro(fila.estado),
+    esTardia: booleano(fila.es_tardia, false),
+    notaBorrador: numeroOpcional(fila.nota_borrador),
+    notaAsignada: numeroOpcional(fila.nota_asignada),
+    devueltaEn: fila.devuelta_en === undefined ? undefined : texto(fila.devuelta_en),
+  };
+}
+
 // --- repositorios -----------------------------------------------------------
 
 const TABLA_PERFILES = 'profiles';
@@ -626,6 +814,41 @@ const COLUMNAS_ARCHIVO =
 
 /** Clave del parámetro que dice cuál es el período académico vigente. */
 const CLAVE_PERIODO_ACTIVO = 'periodo_activo';
+
+// --- M6: aula virtual -------------------------------------------------------
+
+const TABLA_ANUNCIOS = 'm6_anuncios';
+const TABLA_TAREAS = 'm6_tareas';
+const TABLA_ENTREGAS = 'm6_entregas';
+
+/**
+ * Columnas de `m6_anuncios`.
+ *
+ * Lista explícita y nunca `*`: una columna añadida por una migración futura no
+ * debe cambiar la forma de lo que devuelve el backend sin que nadie lo decida.
+ */
+const COLUMNAS_ANUNCIO =
+  'id,seccion_id,autor_id,titulo,cuerpo,estado,programado_para,publicado_en';
+
+/** Columnas de `m6_tareas`. Misma razón que `COLUMNAS_ANUNCIO`. */
+const COLUMNAS_TAREA =
+  'id,seccion_id,titulo,descripcion,tipo,puntos_maximos,fecha_limite,permitir_entrega_tardia,tema,orden,estado,publicado_en';
+
+/**
+ * Las columnas de `m6_entregas` que `authenticated` **sí** puede leer.
+ *
+ * `nota_borrador` **no está en la lista, y no puede estarlo.** La tabla usa
+ * `GRANT` por columna: `authenticated` tiene `SELECT` sobre éstas y sobre
+ * ninguna más. Un `select('*')` aquí no devolvería la columna en blanco —
+ * PostgREST genera el SQL como `authenticated` y recibiría `42501`, así que
+ * hasta la pantalla del alumno se rompería—. Las RPC `security definer` sí la
+ * leen, porque dentro de ellas el privilegio es el del dueño.
+ *
+ * Va en **una sola cadena literal** y sin concatenar, como `COLUMNAS_ARCHIVO`:
+ * partirla en dos con `+` ensancha el tipo a `string` y el SDK de Supabase deja
+ * de reconocer las columnas.
+ */
+const COLUMNAS_ENTREGA = 'id,tarea_id,estado,es_tardia,nota_asignada,entregada_en';
 
 /**
  * Columnas de cada tabla de M3 que necesita su mapeador.
@@ -3083,6 +3306,260 @@ class ArchivosSupabase implements PuertaArchivos {
   }
 }
 
+/**
+ * El aula virtual sobre Supabase.
+ *
+ * **Las lecturas van por PostgREST y las filtra la RLS; las escrituras y el
+ * libro de calificaciones van por RPC `security definer`.** Es el reparto de M5,
+ * y aquí tiene una razón extra que conviene tener escrita:
+ *
+ *   · `m6_entregas` tiene privilegios **por columna**. `nota_borrador` no está
+ *     concedida a `authenticated`, así que un `select('*')` daría `42501`; de ahí
+ *     que haya una constante con la lista explícita y **jamás** un `*`.
+ *   · La nota borrador sólo la devuelve `m6_entregas_de_tarea`: al ser
+ *     `definer`, la lee con el privilegio del dueño. Sin esa RPC, la ruta del
+ *     libro habría nacido con la columna en blanco —un fallo que no da error— y
+ *     el docente habría calificado a ciegas.
+ *
+ * **No se añade ningún filtro por propietario «por si acaso»**: la frontera es
+ * la RLS (ADR-003), y una segunda copia de la regla se desvía en cuanto la
+ * política cambia.
+ */
+class AulaSupabase implements PuertaAula {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  // --- Tablón ---------------------------------------------------------------
+
+  async tablon(seccionId: string): Promise<Anuncio[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_ANUNCIOS)
+      .select(COLUMNAS_ANUNCIO)
+      .eq('seccion_id', seccionId)
+      // El feed, del más nuevo al más viejo. `nullsFirst: false` reproduce el
+      // `nulls last` del índice `m6_anuncios_seccion_idx`: un borrador
+      // programado —sin `publicado_en`— no encabeza el tablón.
+      .order('publicado_en', { ascending: false, nullsFirst: false });
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'leer el tablón');
+    }
+
+    return (respuesta.data ?? []).map((fila) => aAnuncio(fila as Fila));
+  }
+
+  async crearAnuncio(entrada: EntradaCrearAnuncio): Promise<Anuncio> {
+    const respuesta = await this.cliente.rpc('m6_crear_anuncio', {
+      p_seccion_id: entrada.seccionId,
+      p_titulo: entrada.titulo,
+      p_cuerpo: entrada.cuerpo,
+      p_programado_para: entrada.programadoPara,
+    });
+
+    return this.filaDeTabla(respuesta, 'publicar un anuncio', aAnuncio);
+  }
+
+  // --- Trabajo de clase -----------------------------------------------------
+
+  async trabajoDeClase(seccionId: string): Promise<Tarea[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_TAREAS)
+      .select(COLUMNAS_TAREA)
+      .eq('seccion_id', seccionId)
+      // El orden del índice `m6_tareas_seccion_orden_idx`: por tema y, dentro,
+      // por el orden manual que puso el docente.
+      .order('tema', { ascending: true, nullsFirst: true })
+      .order('orden', { ascending: true });
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'leer el trabajo de clase');
+    }
+
+    return (respuesta.data ?? []).map((fila) => aTarea(fila as Fila));
+  }
+
+  async crearTarea(entrada: EntradaCrearTarea): Promise<Tarea> {
+    const respuesta = await this.cliente.rpc('m6_crear_tarea', {
+      p_seccion_id: entrada.seccionId,
+      p_titulo: entrada.titulo,
+      p_descripcion: entrada.descripcion,
+      p_tipo: entrada.tipo,
+      p_puntos_maximos: entrada.puntosMaximos,
+      p_fecha_limite: entrada.fechaLimite,
+      p_permitir_entrega_tardia: entrada.permitirEntregaTardia,
+      p_tema: entrada.tema,
+      p_orden: entrada.orden,
+    });
+
+    return this.filaDeTabla(respuesta, 'crear una tarea', aTarea);
+  }
+
+  async publicarTarea(tareaId: string): Promise<PublicacionTarea> {
+    const respuesta = await this.cliente.rpc('m6_publicar_tarea', {
+      p_tarea_id: tareaId,
+    });
+
+    // La RPC devuelve la cabecera y el recuento, no la tarea entera. Se mapea
+    // exactamente eso: completar los campos que faltan sería inventarlos.
+    return this.filaDeTabla(respuesta, 'publicar una tarea', (fila) => ({
+      tarea: {
+        id: textoObligatorio(fila.id),
+        seccionId: textoObligatorio(fila.seccion_id),
+        titulo: textoObligatorio(fila.titulo),
+        estado: estadoTareaSeguro(fila.estado),
+        publicadoEn: texto(fila.publicado_en),
+      },
+      entregasCreadas: entero(fila.entregas, 0),
+    }));
+  }
+
+  // --- Entregas -------------------------------------------------------------
+
+  async entregasDeTarea(tareaId: string): Promise<LibroEntrega[]> {
+    const respuesta = await this.cliente.rpc('m6_entregas_de_tarea', {
+      p_tarea_id: tareaId,
+    });
+
+    return this.filasDeTabla(respuesta, 'leer el libro de calificaciones', aLibroEntrega);
+  }
+
+  /**
+   * Las entregas que la RLS deja ver.
+   *
+   * **No se filtra por `estudiante_id` aquí, y es deliberado**: la política ya
+   * dice que un alumno ve lo suyo, y repetir la regla en Node sería una segunda
+   * copia que se desvía. La lista de columnas excluye `nota_borrador`, que el
+   * `GRANT` por columna esconde de todos modos.
+   */
+  async misEntregas(): Promise<Entrega[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_ENTREGAS)
+      .select(COLUMNAS_ENTREGA)
+      // Lo último entregado primero; las `ASIGNADA` —sin fecha— al final.
+      .order('entregada_en', { ascending: false, nullsFirst: false });
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'leer mis entregas');
+    }
+
+    return (respuesta.data ?? []).map((fila) => aEntrega(fila as Fila));
+  }
+
+  async entregar(entregaId: string): Promise<Entrega> {
+    const respuesta = await this.cliente.rpc('m6_entregar_tarea', {
+      p_entrega_id: entregaId,
+    });
+
+    return this.filaDeTabla(respuesta, 'entregar una tarea', aEntrega);
+  }
+
+  async reclamar(entregaId: string): Promise<Entrega> {
+    const respuesta = await this.cliente.rpc('m6_reclamar_entrega', {
+      p_entrega_id: entregaId,
+    });
+
+    return this.filaDeTabla(respuesta, 'reclamar una entrega', aEntrega);
+  }
+
+  async calificar(entregaId: string, nota: number): Promise<EntregaCalificada> {
+    const respuesta = await this.cliente.rpc('m6_calificar_entrega', {
+      p_entrega_id: entregaId,
+      p_nota: nota,
+    });
+
+    return this.filaDeTabla(respuesta, 'calificar una entrega', aEntregaCalificada);
+  }
+
+  async devolver(entregaId: string): Promise<EntregaCalificada> {
+    const respuesta = await this.cliente.rpc('m6_devolver_entrega', {
+      p_entrega_id: entregaId,
+    });
+
+    return this.filaDeTabla(respuesta, 'devolver una entrega', aEntregaCalificada);
+  }
+
+  // --- Ayudantes ------------------------------------------------------------
+
+  /**
+   * La única fila que devuelve una RPC `returns table (...)`.
+   *
+   * PostgREST devuelve un **arreglo** para una función que devuelve una tabla,
+   * aunque la función emita una sola fila. Que llegue vacío es un **error**, no
+   * un `null`: significa que la RPC no insertó ni actualizó nada, que es un fallo
+   * de contrato. Devolver `null` aquí convertiría ese fallo en «no hay nada», la
+   * clase de silencio que el proyecto prohíbe.
+   */
+  private filaDeTabla<T>(
+    respuesta: { data: unknown; error: unknown },
+    contexto: string,
+    mapear: (fila: Fila) => T,
+  ): T {
+    if (respuesta.error) throw this.traducirAula(respuesta.error, contexto);
+
+    const datos = respuesta.data;
+    const primera = Array.isArray(datos) ? (datos[0] as Fila | undefined) : undefined;
+
+    if (!primera) {
+      throw ErrorApi.interno(`La base no devolvió la fila al ${contexto}.`);
+    }
+
+    return mapear(primera);
+  }
+
+  /** Todas las filas que devuelve una RPC `returns table (...)`. */
+  private filasDeTabla<T>(
+    respuesta: { data: unknown; error: unknown },
+    contexto: string,
+    mapear: (fila: Fila) => T,
+  ): T[] {
+    if (respuesta.error) throw this.traducirAula(respuesta.error, contexto);
+
+    const datos = respuesta.data;
+
+    if (!Array.isArray(datos)) {
+      throw ErrorApi.interno(`La base no devolvió la lista al ${contexto}.`);
+    }
+
+    return (datos as Fila[]).map(mapear);
+  }
+
+  /**
+   * Traduce los fallos de las RPC de M6.
+   *
+   * Las RPC lanzan `42501` para la autorización y `23514` para las reglas de
+   * negocio. Se distinguen por el `SQLSTATE` **y por el texto**, como en M4 y M5:
+   * el código solo no basta —`42501` es tanto «no es tuya» como «falta un
+   * `GRANT`»—, y la migración ya está aplicada y no se edita, así que el
+   * `errcode` no se puede afinar sin una migración nueva.
+   *
+   * **El mensaje de la RPC se conserva.** «La tarea cerró el 2026-09-30 y no
+   * admite entregas tardías» le dice al alumno qué pasó; «los datos no cumplen
+   * una regla del sistema» no le dice nada. Y el mensaje lo escribió la propia
+   * base: no revela nada que el llamante no pudiera deducir de su propia
+   * petición.
+   */
+  private traducirAula(error: unknown, contexto: string): ErrorApi {
+    if (pareceErrorPostgres(error)) {
+      const mensaje = mensajeDe(error);
+
+      if (error.code === '42501') {
+        // La ausencia de sesión va a 401 y no a 403: la RPC lo dice con su
+        // propio texto («Se requiere una sesión...»), y confundirlos mandaría al
+        // usuario a revisar permisos cuando lo que le falta es entrar.
+        if (mensaje.toLowerCase().includes('sesión')) {
+          return ErrorApi.noAutorizado(mensaje);
+        }
+        return ErrorApi.prohibido('SIN_PERMISO_EN_EL_AULA', mensaje, { contexto });
+      }
+
+      if (error.code === '23514') {
+        return new ErrorApi(400, 'RESTRICCION_VIOLADA', mensaje, { contexto });
+      }
+    }
+
+    return traducirError(error, contexto);
+  }
+}
+
 /** Construye el juego completo de repositorios sobre un cliente dado. */
 export function crearRepositorios(cliente: SupabaseClient): Repositorios {
   return {
@@ -3097,6 +3574,7 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     secciones: new SeccionesSupabase(cliente),
     inscripciones: new InscripcionesSupabase(cliente),
     archivos: new ArchivosSupabase(cliente),
+    aula: new AulaSupabase(cliente),
   };
 }
 

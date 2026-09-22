@@ -50,6 +50,10 @@
     {
       "name": "Archivos",
       "description": "Módulo 5: archivos en Cloudflare R2. El backend no mueve bytes —firma URLs y R2 hace el transporte—, así que el ciclo es de dos pasos: reservar la fila, subir, y confirmar midiendo el objeto. Toda escritura pasa por RPC `security definer`; la lectura va por PostgREST bajo RLS. Las seis rutas del módulo comprueban la bandera `m5_archivos` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador lo apaga; las dos de administración exigen además rol admin."
+    },
+    {
+      "name": "Aula Virtual",
+      "description": "Módulo 6: tablón de anuncios, trabajo de clase, entregas y calificaciones por sección. **El curso es la sección**: no hay una entidad «curso» aparte. Toda escritura pasa por RPC `security definer`; las lecturas van por PostgREST bajo RLS. Las diez rutas comprueban la bandera `m6_aula_virtual` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador la apaga. La nota en borrador **nunca** viaja en una respuesta al alumno: `m6_entregas` la protege con un `GRANT` por columna y sólo el libro del docente la lee, por una RPC."
     }
   ],
   "components": {
@@ -2418,6 +2422,555 @@
             "exclusiveMinimum": 0
           }
         },
+        "additionalProperties": false
+      },
+      "EstadoAnuncio": {
+        "type": "string",
+        "enum": [
+          "BORRADOR",
+          "PUBLICADO",
+          "ELIMINADO"
+        ]
+      },
+      "Anuncio": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "autorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "cuerpo": {
+            "type": "string"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoAnuncio"
+          },
+          "programadoPara": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Publicación diferida. `null` si no se programó."
+          },
+          "publicadoEn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cuándo se publicó de verdad. `null` mientras es borrador."
+          }
+        },
+        "required": [
+          "id",
+          "seccionId",
+          "autorId",
+          "titulo",
+          "cuerpo",
+          "estado",
+          "programadoPara",
+          "publicadoEn"
+        ]
+      },
+      "RespuestaAnuncios": {
+        "type": "object",
+        "properties": {
+          "anuncios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Anuncio"
+            }
+          }
+        },
+        "required": [
+          "anuncios"
+        ]
+      },
+      "RespuestaAnuncio": {
+        "type": "object",
+        "properties": {
+          "anuncio": {
+            "$ref": "#/components/schemas/Anuncio"
+          }
+        },
+        "required": [
+          "anuncio"
+        ]
+      },
+      "CuerpoCrearAnuncio": {
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cuerpo": {
+            "type": "string",
+            "maxLength": 20000,
+            "default": ""
+          },
+          "programadoPara": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "default": null
+          }
+        },
+        "required": [
+          "titulo"
+        ],
+        "additionalProperties": false
+      },
+      "EstadoTarea": {
+        "type": "string",
+        "enum": [
+          "BORRADOR",
+          "PUBLICADO",
+          "ELIMINADO"
+        ]
+      },
+      "Tarea": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "TAREA",
+              "MATERIAL",
+              "PREGUNTA"
+            ]
+          },
+          "puntosMaximos": {
+            "type": "number",
+            "description": "Sobre 20 (escala venezolana). `0` sólo para un `MATERIAL`."
+          },
+          "fechaLimite": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` = sin plazo. Es la referencia de «tardía» y de «faltante»."
+          },
+          "permitirEntregaTardia": {
+            "type": "boolean"
+          },
+          "tema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orden": {
+            "type": "integer"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoTarea"
+          },
+          "publicadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "seccionId",
+          "titulo",
+          "descripcion",
+          "tipo",
+          "puntosMaximos",
+          "fechaLimite",
+          "permitirEntregaTardia",
+          "tema",
+          "orden",
+          "estado",
+          "publicadoEn"
+        ]
+      },
+      "RespuestaTareas": {
+        "type": "object",
+        "properties": {
+          "tareas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Tarea"
+            }
+          }
+        },
+        "required": [
+          "tareas"
+        ]
+      },
+      "RespuestaTarea": {
+        "type": "object",
+        "properties": {
+          "tarea": {
+            "$ref": "#/components/schemas/Tarea"
+          }
+        },
+        "required": [
+          "tarea"
+        ]
+      },
+      "CuerpoCrearTarea": {
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "descripcion": {
+            "type": "string",
+            "maxLength": 20000,
+            "default": ""
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "TAREA",
+              "MATERIAL",
+              "PREGUNTA"
+            ],
+            "default": "TAREA"
+          },
+          "puntosMaximos": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 20,
+            "default": 20
+          },
+          "fechaLimite": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "default": null
+          },
+          "permitirEntregaTardia": {
+            "type": "boolean",
+            "default": true
+          },
+          "tema": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 120,
+            "default": null
+          },
+          "orden": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9999,
+            "default": 0
+          }
+        },
+        "required": [
+          "titulo"
+        ],
+        "additionalProperties": false
+      },
+      "TareaPublicada": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seccionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoTarea"
+          },
+          "publicadoEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "seccionId",
+          "titulo",
+          "estado",
+          "publicadoEn"
+        ]
+      },
+      "RespuestaPublicacion": {
+        "type": "object",
+        "properties": {
+          "tarea": {
+            "$ref": "#/components/schemas/TareaPublicada"
+          },
+          "entregasCreadas": {
+            "type": "integer",
+            "description": "Placeholders creados en esta llamada. Republicar devuelve 0: es idempotente."
+          }
+        },
+        "required": [
+          "tarea",
+          "entregasCreadas"
+        ]
+      },
+      "EstadoEntrega": {
+        "type": "string",
+        "enum": [
+          "ASIGNADA",
+          "ENTREGADA",
+          "DEVUELTA",
+          "RECLAMADA"
+        ]
+      },
+      "LibroEntrega": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estudianteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoEntrega"
+          },
+          "esTardia": {
+            "type": "boolean"
+          },
+          "notaBorrador": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Nota del docente antes de devolver. Sólo la ve el docente."
+          },
+          "notaAsignada": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "entregadaEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "devueltaEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "faltante": {
+            "type": "boolean",
+            "description": "**Derivada al leer**: `ASIGNADA` con la fecha límite ya vencida. No es una columna, y no se escribe un 0 automático que quedaría congelado."
+          }
+        },
+        "required": [
+          "id",
+          "estudianteId",
+          "estado",
+          "esTardia",
+          "notaBorrador",
+          "notaAsignada",
+          "entregadaEn",
+          "devueltaEn",
+          "faltante"
+        ]
+      },
+      "RespuestaLibro": {
+        "type": "object",
+        "properties": {
+          "entregas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibroEntrega"
+            }
+          }
+        },
+        "required": [
+          "entregas"
+        ]
+      },
+      "Entrega": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tareaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoEntrega"
+          },
+          "esTardia": {
+            "type": "boolean",
+            "description": "Se fija al entregar comparando con la fecha límite. Es un hecho histórico."
+          },
+          "notaAsignada": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Nota ya devuelta al alumno. `null` mientras el ciclo no se cierra."
+          },
+          "entregadaEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "tareaId",
+          "estado",
+          "esTardia",
+          "notaAsignada",
+          "entregadaEn"
+        ]
+      },
+      "RespuestaMisEntregas": {
+        "type": "object",
+        "properties": {
+          "entregas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Entrega"
+            }
+          }
+        },
+        "required": [
+          "entregas"
+        ]
+      },
+      "RespuestaEntrega": {
+        "type": "object",
+        "properties": {
+          "entrega": {
+            "$ref": "#/components/schemas/Entrega"
+          }
+        },
+        "required": [
+          "entrega"
+        ]
+      },
+      "EntregaCalificada": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tareaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estudianteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoEntrega"
+          },
+          "esTardia": {
+            "type": "boolean"
+          },
+          "notaBorrador": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "notaAsignada": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "devueltaEn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sólo lo trae la devolución; la calificación no toca la columna."
+          }
+        },
+        "required": [
+          "id",
+          "tareaId",
+          "estudianteId",
+          "estado",
+          "esTardia",
+          "notaBorrador",
+          "notaAsignada"
+        ]
+      },
+      "RespuestaEntregaCalificada": {
+        "type": "object",
+        "properties": {
+          "entrega": {
+            "$ref": "#/components/schemas/EntregaCalificada"
+          }
+        },
+        "required": [
+          "entrega"
+        ]
+      },
+      "CuerpoCalificar": {
+        "type": "object",
+        "properties": {
+          "nota": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "nota"
+        ],
         "additionalProperties": false
       }
     },
@@ -7431,6 +7984,803 @@
           },
           "403": {
             "description": "La sesión no es de administrador (SOLO_ADMIN), la cuenta está inactiva, o el módulo de archivos está deshabilitado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/secciones/{seccionId}/tablon": {
+      "get": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "El tablón de anuncios de una sección",
+        "description": "El feed de anuncios, del más nuevo al más viejo. **Quién ve qué lo decide la RLS**: un docente de la sección ve también sus borradores, y un alumno ve los publicados **y** los programados cuya hora ya llegó. La publicación diferida se resuelve en la política de lectura —`programado_para <= now()`—, sin ningún proceso que la ejecute: el INCES tiene cortes eléctricos y arquitectura dual, así que no se puede depender de un planificador.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Los anuncios visibles de la sección.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAnuncios"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador de la sección no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de aula virtual está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/secciones/{seccionId}/anuncios": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Publica un anuncio en el tablón",
+        "description": "El anuncio nace `BORRADOR`. La RPC exige que el llamante **dicte** la sección —o sea administrador— y responde 403 con su mensaje si no: la autorización la hace la base, no la ruta. Con `programadoPara`, el anuncio será visible para los alumnos cuando esa hora llegue, sin que ningún proceso lo publique.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearAnuncio"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Anuncio creado, en estado `BORRADOR`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaAnuncio"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El título está vacío, o la fecha programada no es una marca ISO 8601.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas la sección (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/secciones/{seccionId}/trabajo": {
+      "get": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "El trabajo de clase de una sección",
+        "description": "Tareas y materiales, ordenados por tema y por el orden manual del docente. Un alumno ve sólo lo publicado —o lo programado ya vencido—; el docente de la sección ve también sus borradores. La lista de columnas es explícita, así que la forma de la respuesta no cambia porque una migración añada una columna.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "El trabajo de clase visible de la sección.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaTareas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador de la sección no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de aula virtual está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/secciones/{seccionId}/tareas": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Crea trabajo de clase",
+        "description": "Nace `BORRADOR` y **sin entregas**: publicar es lo que crea los placeholders, uno por matrícula `ENROLLED`. Un `MATERIAL` es de lectura y no puede llevar puntos ni fecha límite; la RPC lo rechaza con un mensaje que se entiende, y el `CHECK` de la tabla es la invariante. La coherencia por tipo no se repite en Zod a propósito: sería una segunda copia que se desviaría.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCrearTarea"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Trabajo creado, en estado `BORRADOR` y sin entregas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaTarea"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El título está vacío, el tipo no es `TAREA`/`MATERIAL`/`PREGUNTA`, los puntos no están entre 0 y 20, o un `MATERIAL` lleva puntos o fecha límite (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas la sección (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/tareas/{tareaId}/publicar": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Publica una tarea y crea los placeholders de entrega",
+        "description": "**Idempotente**: publicar dos veces no duplica entregas. Lo garantiza el `unique (tarea_id, estudiante_id)` con `on conflict do nothing` en la base, no la ruta —un botón que se puede pulsar dos veces no puede crear dos entregas por alumno—. `entregasCreadas` es 0 en la segunda llamada, y eso es un 200 con la verdad. La respuesta trae la **cabecera** de la tarea, que es lo que la RPC devuelve: completar los demás campos aquí sería inventarlos.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la tarea. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "tareaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tarea publicada. `entregasCreadas` puede ser 0 si ya estaba publicada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPublicacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador no es un UUID, o la tarea está eliminada (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas la sección de la tarea (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/tareas/{tareaId}/entregas": {
+      "get": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "El libro de calificaciones de una tarea (docente)",
+        "description": "Va por **RPC** y no por lectura directa por un motivo que conviene tener escrito: `m6_entregas` protege `nota_borrador` con un `GRANT` por columna, y `authenticated` no tiene privilegio de `SELECT` sobre ella. Una lectura normal habría devuelto la columna en blanco **sin dar error**, y el docente habría calificado a ciegas. La RPC es `security definer` y la lee como dueña. `faltante` se **deriva** al leer —`ASIGNADA` con la fecha límite vencida—, no se escribe un 0 automático que quedaría congelado. Si el llamante no dicta la sección, la RPC **filtra** y devuelve una lista vacía, no un 403.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la tarea. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "tareaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Las entregas de la tarea, ordenadas por estudiante.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaLibro"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador de la tarea no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de aula virtual está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/mis-entregas": {
+      "get": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Las entregas del alumno",
+        "description": "**No se filtra por usuario en la ruta, y es deliberado**: lo decide la RLS. Para un alumno son las suyas; añadir un filtro por `estudiante_id` sería una segunda copia de la política, y la copia se desviaría en cuanto la política cambiara. La respuesta **excluye `nota_borrador`**, así que la nota sin devolver no puede viajar al alumno ni por descuido.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Las entregas visibles para el llamante.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaMisEntregas"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de aula virtual está deshabilitado por el administrador (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/entregas/{entregaId}/entregar": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Entrega una tarea (alumno dueño)",
+        "description": "La RPC comprueba tres cosas en la misma transacción: que la entrega sea **del alumno** (403 si no), que la tarea esté publicada, y si llega tarde respecto a la fecha límite. El retraso se **escribe ahí** (`es_tardia`), no lo calcula ningún proceso después: la fecha límite puede cambiar más adelante y la entrega ya ocurrió. Si la tarea cerró y no admite tardías, el 400 trae el mensaje de la base con la fecha.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la entrega. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "entregaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La entrega quedó `ENTREGADA`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaEntrega"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador no es un UUID, la tarea no está publicada, ya estaba entregada, o cerró sin admitir tardías (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La entrega no es tuya (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/entregas/{entregaId}/calificar": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Escribe la nota borrador (docente)",
+        "description": "La nota **borrador**: el alumno todavía no la ve. Sólo el docente de la sección, sólo sobre una entrega ya entregada o reclamada, y nunca por encima de los puntos de la tarea —las tres las comprueba la RPC y llegan como 403 o 400 con su mensaje—. El rango 0–20 lo valida además Zod, que da el 400 antes de abrir una transacción. `notaBorrador` viaja en la respuesta a propósito: quien llama es el docente y la RPC ya lo autorizó.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la entrega. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "entregaId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCalificar"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "La nota quedó escrita como borrador.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaEntregaCalificada"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La nota no está entre 0 y 20, supera el máximo de la tarea, o no hay nada que calificar todavía (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas la sección de la entrega (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/aula/entregas/{entregaId}/devolver": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Devuelve la entrega y cierra el ciclo (docente)",
+        "description": "Copia la nota borrador a la asignada, marca `DEVUELTA` y sella la fecha. Es el **único** momento en que el alumno ve una nota. Devolver **sin** nota es legítimo —es el «devuelta sin calificar» de Google—: lo que la tabla impide, con un `CHECK`, es una nota asignada sin borrador. Una entrega ya devuelta no se reabre.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la entrega. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "entregaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La entrega quedó `DEVUELTA`, con la nota ya visible para el alumno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaEntregaCalificada"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador no es un UUID, o no hay una entrega que devolver (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas la sección de la entrega (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {

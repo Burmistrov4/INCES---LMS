@@ -8,6 +8,7 @@
  * guardias de módulo, permisos, validación y traducción de errores.
  */
 import type {
+  Anuncio,
   ArchivoMetadata,
   Aula,
   CambiosModulo,
@@ -16,12 +17,15 @@ import type {
   EntradaAcceso,
   EntradaAuditoria,
   EntradaPensum,
+  Entrega,
+  EntregaCalificada,
   EstadoAcceso,
   EstadoInscripcion,
   Guardia,
   Inscripcion,
   InscripcionDetallada,
   InvitacionDocente,
+  LibroEntrega,
   Materia,
   MiHorario,
   ModuloSistema,
@@ -31,13 +35,16 @@ import type {
   Periodo,
   Programa,
   ProgramaConTotales,
+  PublicacionTarea,
   RejillaCuadrante,
   Rol,
   RolDeHorario,
   Seccion,
+  Tarea,
   TipoAula,
   TipoEntidadArchivo,
   TipoPrograma,
+  TipoTarea,
 } from './tipos.js';
 import type { PeticionUrlSubida, UrlFirmada } from './almacenamiento.js';
 
@@ -837,6 +844,121 @@ export interface PaginaOcupacion {
   total: number;
 }
 
+/**
+ * El aula virtual: tablón, trabajo de clase, entregas y calificaciones.
+ *
+ * **Quién ve qué y quién puede escribir lo decide la base, no la API.** Las
+ * lecturas van por PostgREST y las filtra la RLS; las escrituras van por RPC
+ * `security definer` que hacen su propia autorización con `auth.uid()`. Repetir
+ * esa comprobación aquí sería una segunda copia de la regla, y dos copias se
+ * desvían (ADR-003).
+ *
+ * De ahí que ningún método reciba un «actor» ni filtre por propietario «por si
+ * acaso»: la frontera es la RLS. La única excepción es la guardia de módulo, y
+ * no contradice nada —que el módulo esté encendido no lo sabe la base—.
+ *
+ * El **libro de calificaciones** va por RPC y no por lectura directa por un
+ * motivo concreto: `m6_entregas` tiene privilegios por columna, y
+ * `nota_borrador` **no** está concedida a `authenticated`. Un `select` normal la
+ * devolvería en blanco sin dar error, y el docente calificaría a ciegas. La RPC
+ * `m6_entregas_de_tarea` la lee como dueña de la función.
+ */
+export interface PuertaAula {
+  /** El feed de anuncios de una sección, del más nuevo al más viejo. */
+  tablon(seccionId: string): Promise<Anuncio[]>;
+
+  /** Publica un anuncio. Nace `BORRADOR`; el alumno lo verá cuando toque. */
+  crearAnuncio(entrada: EntradaCrearAnuncio): Promise<Anuncio>;
+
+  /** El trabajo de clase de una sección, en el orden que puso el docente. */
+  trabajoDeClase(seccionId: string): Promise<Tarea[]>;
+
+  /** Crea trabajo de clase. Nace `BORRADOR` y **sin entregas**. */
+  crearTarea(entrada: EntradaCrearTarea): Promise<Tarea>;
+
+  /**
+   * Publica una tarea y crea un placeholder de entrega por matrícula `ENROLLED`.
+   *
+   * **Idempotente**: republicar no duplica entregas. Lo garantiza el
+   * `unique (tarea_id, estudiante_id)` con `on conflict do nothing` en la base,
+   * no esta firma —un botón que se puede pulsar dos veces no puede crear dos
+   * entregas por alumno—.
+   */
+  publicarTarea(tareaId: string): Promise<PublicacionTarea>;
+
+  /** El libro de calificaciones de una tarea, con la nota borrador incluida. */
+  entregasDeTarea(tareaId: string): Promise<LibroEntrega[]>;
+
+  /**
+   * Las entregas que la RLS deja ver al llamante.
+   *
+   * Para un alumno es lo suyo; **no se filtra aquí por propietario** a propósito
+   * (ADR-003): añadir un `.eq('estudiante_id', ...)` sería una segunda copia de
+   * la política, y la copia se desviaría en cuanto la política cambiara. La
+   * selección de columnas es explícita y **no incluye `nota_borrador`**, que el
+   * `GRANT` por columna esconde de todos modos.
+   */
+  misEntregas(): Promise<Entrega[]>;
+
+  /** Marca la entrega como `ENTREGADA`. Sólo el alumno dueño. */
+  entregar(entregaId: string): Promise<Entrega>;
+
+  /**
+   * El «des-entregar»: vuelve la entrega a `RECLAMADA` para poder rehacerla.
+   *
+   * Sólo el alumno dueño y sólo desde `ENTREGADA`. Una entrega ya devuelta no se
+   * reabre: en ese momento la nota ya es del alumno y el ciclo está cerrado.
+   */
+  reclamar(entregaId: string): Promise<Entrega>;
+
+  /** Escribe la nota **borrador**: el alumno todavía no la ve. */
+  calificar(entregaId: string, nota: number): Promise<EntregaCalificada>;
+
+  /**
+   * Copia el borrador a `notaAsignada` y cierra el ciclo.
+   *
+   * Es el **único** momento en que el alumno ve una nota. Devolver sin nota es
+   * legítimo: es el «devuelta sin calificar» de Google.
+   */
+  devolver(entregaId: string): Promise<EntregaCalificada>;
+}
+
+/**
+ * Lo que hace falta para publicar un anuncio.
+ *
+ * `programadoPara` es la publicación diferida: un borrador con esta fecha ya
+ * vencida es visible para el alumno sin que ningún proceso lo publique. La
+ * coherencia —un programado sin fecha no significa nada— la impone un `CHECK` de
+ * la tabla, no esta firma.
+ */
+export interface EntradaCrearAnuncio {
+  seccionId: string;
+  titulo: string;
+  cuerpo: string;
+  /** `null` = sin programar: lo publica el docente cuando quiera. */
+  programadoPara: string | null;
+}
+
+/**
+ * Lo que hace falta para crear trabajo de clase.
+ *
+ * `tipo` decide las reglas: un `MATERIAL` no lleva puntos ni fecha límite, y la
+ * RPC lo rechaza con un mensaje legible si se los dan. La coherencia por tipo es
+ * un `CHECK` de la tabla, y este puerto no la repite.
+ */
+export interface EntradaCrearTarea {
+  seccionId: string;
+  titulo: string;
+  descripcion: string;
+  tipo: TipoTarea;
+  /** Puntos sobre 20. Debe ser 0 para un `MATERIAL`. */
+  puntosMaximos: number;
+  fechaLimite: string | null;
+  permitirEntregaTardia: boolean;
+  tema: string | null;
+  orden: number;
+}
+
 /** Conjunto de puertas de datos que la API necesita. */
 export interface Repositorios {
   perfiles: PuertaPerfiles;
@@ -850,4 +972,5 @@ export interface Repositorios {
   secciones: PuertaSecciones;
   inscripciones: PuertaInscripciones;
   archivos: PuertaArchivos;
+  aula: PuertaAula;
 }

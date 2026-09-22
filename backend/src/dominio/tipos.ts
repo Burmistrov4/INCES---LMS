@@ -619,3 +619,225 @@ export interface ArchivoMetadata {
   confirmadoEn: string | null;
   borradoEn: string | null;
 }
+
+// --- Módulo 6: aula virtual -------------------------------------------------
+
+/**
+ * Ciclo de vida de un anuncio del tablón.
+ *
+ * Se declara como unión de literales **derivada del arreglo**, y no al revés.
+ * El arreglo es la única fuente: de él salen el tipo, el guardián y el `z.enum`
+ * de `esquemas.ts`, así que el contrato de la API y el `check` de
+ * `m6_anuncios.estado` no pueden desviarse sin que el compilador lo diga. Es la
+ * misma decisión que en `EstadoArchivo`: la base guarda `text` con un `check`, y
+ * el literal de la unión es lo que `z.infer` devuelve tal cual.
+ *
+ * El borrado es **lógico**: `ELIMINADO` conserva la fila como historial.
+ */
+export const ESTADOS_ANUNCIO = ['BORRADOR', 'PUBLICADO', 'ELIMINADO'] as const;
+
+export type EstadoAnuncio = (typeof ESTADOS_ANUNCIO)[number];
+
+export function esEstadoAnuncio(valor: unknown): valor is EstadoAnuncio {
+  return (
+    typeof valor === 'string' &&
+    (ESTADOS_ANUNCIO as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * Ciclo de vida de una tarea o un material.
+ *
+ * Nace `BORRADOR` **sin entregas**: publicar es lo que crea los placeholders,
+ * uno por matrícula `ENROLLED`. Publicar dos veces no duplica nada.
+ */
+export const ESTADOS_TAREA = ['BORRADOR', 'PUBLICADO', 'ELIMINADO'] as const;
+
+export type EstadoTarea = (typeof ESTADOS_TAREA)[number];
+
+export function esEstadoTarea(valor: unknown): valor is EstadoTarea {
+  return (
+    typeof valor === 'string' &&
+    (ESTADOS_TAREA as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * Clase de trabajo de clase.
+ *
+ * `MATERIAL` es el `CourseWorkMaterial` de Google: lectura, sin nota ni fecha
+ * límite, y **sin entregas**. `PREGUNTA` queda como marcador —el motor de
+ * preguntas de opción múltiple es un ciclo propio— y por eso la unión lo incluye
+ * aunque hoy no se produzca. La coherencia por tipo la imponen los `CHECK` de la
+ * tabla, no esta unión.
+ */
+export const TIPOS_TAREA = ['TAREA', 'MATERIAL', 'PREGUNTA'] as const;
+
+export type TipoTarea = (typeof TIPOS_TAREA)[number];
+
+export function esTipoTarea(valor: unknown): valor is TipoTarea {
+  return typeof valor === 'string' && (TIPOS_TAREA as readonly string[]).includes(valor);
+}
+
+/**
+ * Estado de una entrega.
+ *
+ * `ASIGNADA` es el placeholder recién creado al publicar; `ENTREGADA` sella la
+ * fecha y el retraso; `DEVUELTA` cierra el ciclo con la nota ya visible; y
+ * `RECLAMADA` es el «des-entregar» de Google, que vuelve a habilitar la entrega.
+ */
+export const ESTADOS_ENTREGA = [
+  'ASIGNADA',
+  'ENTREGADA',
+  'DEVUELTA',
+  'RECLAMADA',
+] as const;
+
+export type EstadoEntrega = (typeof ESTADOS_ENTREGA)[number];
+
+export function esEstadoEntrega(valor: unknown): valor is EstadoEntrega {
+  return (
+    typeof valor === 'string' &&
+    (ESTADOS_ENTREGA as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * Un anuncio del tablón de una sección.
+ *
+ * Quién lo ve lo decide la **RLS**, no la API (ADR-003): un `BORRADOR` con
+ * `programadoPara` ya vencida es visible para el alumno sin que ningún proceso lo
+ * haya tocado —la publicación diferida se resuelve en la lectura, porque el
+ * INCES tiene cortes eléctricos y arquitectura dual—. `publicadoEn` ordena el
+ * feed y es distinto de la fecha de creación del borrador.
+ */
+export interface Anuncio {
+  id: string;
+  seccionId: string;
+  autorId: string;
+  titulo: string;
+  cuerpo: string;
+  estado: EstadoAnuncio;
+  /** Publicación diferida. `null` si no se programó. */
+  programadoPara: string | null;
+  /** Cuándo se publicó de verdad. `null` mientras es borrador. */
+  publicadoEn: string | null;
+}
+
+/**
+ * Trabajo de clase: una tarea, un material o (a futuro) una pregunta.
+ *
+ * Los adjuntos no se remodelan: se reutilizan los `files_metadata` de M5, donde
+ * `TEACHER_GUIDE` apunta a esta tabla y `TASK_SUBMISSION` a la entrega.
+ * `puntosMaximos` está en la escala 0–20 venezolana, y vale 0 sólo para
+ * `MATERIAL` —lo garantizan los `CHECK` de coherencia por tipo—.
+ */
+export interface Tarea {
+  id: string;
+  seccionId: string;
+  titulo: string;
+  descripcion: string;
+  tipo: TipoTarea;
+  /** Puntos sobre 20. `0` sólo para `MATERIAL`. */
+  puntosMaximos: number;
+  /** `null` = sin plazo. Es la referencia de «tardía» y de «faltante». */
+  fechaLimite: string | null;
+  permitirEntregaTardia: boolean;
+  /** Agrupación por texto. `null` = sin tema. */
+  tema: string | null;
+  orden: number;
+  estado: EstadoTarea;
+  publicadoEn: string | null;
+}
+
+/**
+ * La entrega vista por el **alumno**.
+ *
+ * **No lleva `notaBorrador`, y no es un olvido.** Esa columna está protegida por
+ * un `GRANT` por columna —`authenticated` no tiene privilegio de `SELECT` sobre
+ * ella—, así que ni siquiera puede leerse desde aquí: la nota en borrador sólo la
+ * ven las RPC `security definer` del docente. `notaAsignada` es la que el alumno
+ * ya puede ver, y es `null` hasta que el docente devuelve.
+ */
+export interface Entrega {
+  id: string;
+  tareaId: string;
+  estado: EstadoEntrega;
+  /** Se fija al entregar comparando con la fecha límite; es un hecho histórico. */
+  esTardia: boolean;
+  /** Nota ya devuelta al alumno. `null` mientras el ciclo no se cierra. */
+  notaAsignada: number | null;
+  entregadaEn: string | null;
+}
+
+/**
+ * La fila del libro de calificaciones del docente.
+ *
+ * Sale de la RPC `m6_entregas_de_tarea`, que es `security definer` y por eso sí
+ * lee `notaBorrador` —el `GRANT` por columna se lo esconde a `authenticated`—.
+ * Sin esa RPC, la ruta del libro habría nacido con la columna en blanco y el
+ * docente habría calificado a ciegas.
+ *
+ * `faltante` es **derivada al leer**, no una columna: `ASIGNADA` con la fecha
+ * límite ya vencida. Escribir un 0 automático congelaría una opinión —un alumno
+ * que entrega tarde seguiría con el 0 puesto— y es justo lo que la decisión 1
+ * descarta.
+ */
+export interface LibroEntrega {
+  id: string;
+  estudianteId: string;
+  estado: EstadoEntrega;
+  esTardia: boolean;
+  /** Nota del docente antes de devolver. Sólo la ve el docente. */
+  notaBorrador: number | null;
+  notaAsignada: number | null;
+  entregadaEn: string | null;
+  devueltaEn: string | null;
+  /** `estado = ASIGNADA` con la fecha límite vencida. Se deriva, no se guarda. */
+  faltante: boolean;
+}
+
+/**
+ * La cabecera de una tarea publicada.
+ *
+ * La RPC `m6_publicar_tarea` no devuelve la tarea entera —sólo su estado y el
+ * recuento de entregas creadas—, así que el puerto devuelve exactamente lo que la
+ * base devuelve. Completar aquí los campos que faltan sería inventarlos.
+ */
+export interface TareaPublicada {
+  id: string;
+  seccionId: string;
+  titulo: string;
+  estado: EstadoTarea;
+  publicadoEn: string | null;
+}
+
+/** Lo que devuelve publicar: la cabecera y cuántos placeholders se crearon. */
+export interface PublicacionTarea {
+  tarea: TareaPublicada;
+  /**
+   * Cuántas entregas se crearon en **esta** llamada. Republicar devuelve 0: el
+   * `unique (tarea_id, estudiante_id)` con `on conflict do nothing` lo garantiza
+   * en la base, no en la ruta.
+   */
+  entregasCreadas: number;
+}
+
+/**
+ * La entrega tal como la devuelven las RPC del docente.
+ *
+ * `notaBorrador` viaja aquí a propósito: quien llama es el docente de la sección
+ * y la RPC ya lo autorizó. `devueltaEn` sólo la sella la devolución; la
+ * calificación no toca esa columna, así que llega ausente.
+ */
+export interface EntregaCalificada {
+  id: string;
+  tareaId: string;
+  estudianteId: string;
+  estado: EstadoEntrega;
+  esTardia: boolean;
+  notaBorrador: number | null;
+  notaAsignada: number | null;
+  /** Sólo lo trae la devolución. */
+  devueltaEn?: string | null;
+}

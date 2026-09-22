@@ -5,6 +5,7 @@ import type {
   EntradaRegistrarArchivo,
   PuertaAlmacenamiento,
   PuertaArchivos,
+  PuertaAula,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
   PuertaCuadrante,
@@ -31,17 +32,24 @@ import type { EnvioCorreo } from '../../src/infra/correo.js';
 import type {
   Aula,
   ArchivoMetadata,
+  Anuncio,
   CambiosModulo,
   ClaseCuadrante,
   DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
   EntradaPensum,
+  Entrega,
+  EntregaCalificada,
   EstadoArchivo,
+  EstadoAnuncio,
+  EstadoEntrega,
   EstadoInscripcion,
+  EstadoTarea,
   Guardia,
   InscripcionDetallada,
   InvitacionDocente,
+  LibroEntrega,
   Materia,
   MateriaEnPensum,
   ModuloSistema,
@@ -50,9 +58,12 @@ import type {
   Perfil,
   Periodo,
   Programa,
+  PublicacionTarea,
   Rol,
   Seccion,
+  Tarea,
   TipoEntidadArchivo,
+  TipoTarea,
 } from '../../src/dominio/tipos.js';
 
 /**
@@ -682,6 +693,124 @@ export const ARCHIVOS_POR_DEFECTO: ArchivoFalso[] = [
   },
 ];
 
+// --- datos de ejemplo de M6 -------------------------------------------------
+
+/**
+ * Un anuncio del tablón, en memoria.
+ *
+ * `estado` y `publicadoEn` son opcionales y por defecto `BORRADOR` y `null`: así
+ * una prueba que sólo quiere un borrador no tiene que escribir los dos campos, y
+ * una que quiera el feed tiene que decir explícitamente que está publicado.
+ */
+export interface AnuncioFalso {
+  id?: string;
+  seccionId: string;
+  autorId: string;
+  titulo: string;
+  cuerpo?: string;
+  estado?: EstadoAnuncio;
+  programadoPara?: string | null;
+  publicadoEn?: string | null;
+}
+
+/** Una tarea o material de clase, en memoria. */
+export interface TareaFalsa {
+  id?: string;
+  seccionId: string;
+  titulo: string;
+  descripcion?: string;
+  tipo?: TipoTarea;
+  puntosMaximos?: number;
+  fechaLimite?: string | null;
+  permitirEntregaTardia?: boolean;
+  tema?: string | null;
+  orden?: number;
+  estado?: EstadoTarea;
+  /** Publicación diferida: un borrador con esta fecha vencida es visible al alumno. */
+  programadoPara?: string | null;
+  publicadoEn?: string | null;
+}
+
+/**
+ * Una entrega, en memoria.
+ *
+ * `notaBorrador` y `notaAsignada` son opcionales y por defecto `null`: la
+ * ausencia **es** información —un ciclo que no ha avanzado— y confundirla con un
+ * `0` inventaría una calificación.
+ */
+export interface EntregaFalso {
+  id?: string;
+  tareaId: string;
+  estudianteId: string;
+  estado?: EstadoEntrega;
+  esTardia?: boolean;
+  notaBorrador?: number | null;
+  notaAsignada?: number | null;
+  entregadaEn?: string | null;
+  devueltaEn?: string | null;
+}
+
+/** UUIDs válidos: viajan por el `.uuid()` de las rutas, así que llevan forma v4. */
+export const ID_ANUNCIO_SA = 'a6a6a6a6-0001-4001-8001-000000000001';
+export const ID_TAREA_SA = 'b7b7b7b7-0001-4001-8001-000000000001';
+export const ID_TAREA_BORRADOR = 'b7b7b7b7-0002-4002-8002-000000000002';
+export const ID_ENTREGA_SA = 'c8c8c8c8-0001-4001-8001-000000000001';
+
+/**
+ * Un anuncio ya publicado en la sección del alumno de ejemplo.
+ *
+ * Sin un anuncio publicado, la prueba del tablón sólo comprobaría que la lista
+ * viene vacía, y el camino que sí devuelve algo no se ejercitaría.
+ */
+export const ANUNCIOS_POR_DEFECTO: AnuncioFalso[] = [
+  {
+    id: ID_ANUNCIO_SA,
+    seccionId: ID_SECCION_SA,
+    autorId: ID_DOCENTE,
+    titulo: 'Bienvenidos al lapso',
+    cuerpo: 'El taller abre el lunes.',
+    estado: 'PUBLICADO',
+    publicadoEn: '2026-09-01T10:00:00.000Z',
+  },
+];
+
+/**
+ * Dos tareas en la sección del alumno: una publicada y una en borrador.
+ *
+ * La publicada trae un placeholder `ASIGNADA` para el alumno, que es lo que
+ * permite recorrer el ciclo entero —entregar, calificar, devolver— sin sembrar
+ * una entrega ya entregada. La de borrador existe para poder publicar algo de
+ * verdad: sobre una ya publicada, `entregasCreadas` sería 0 y la prueba del
+ * botón no probaría nada.
+ */
+export const TAREAS_POR_DEFECTO: TareaFalsa[] = [
+  {
+    id: ID_TAREA_SA,
+    seccionId: ID_SECCION_SA,
+    titulo: 'Práctica 1',
+    tipo: 'TAREA',
+    estado: 'PUBLICADO',
+    publicadoEn: '2026-09-02T10:00:00.000Z',
+  },
+  {
+    id: ID_TAREA_BORRADOR,
+    seccionId: ID_SECCION_SA,
+    titulo: 'Práctica 2',
+    tipo: 'TAREA',
+    estado: 'BORRADOR',
+  },
+];
+
+/** El placeholder de entrega del alumno para la tarea publicada. */
+export const ENTREGAS_POR_DEFECTO: EntregaFalso[] = [
+  {
+    id: ID_ENTREGA_SA,
+    tareaId: ID_TAREA_SA,
+    estudianteId: ID_ALUMNO,
+    estado: 'ASIGNADA',
+  },
+];
+
 // --- repositorios en memoria ------------------------------------------------
 
 export interface EstadoFalso {
@@ -724,6 +853,18 @@ export interface EstadoFalso {
    * base, donde el avance lo produce la RPC y no una convención del cliente.
    */
   archivos: ArchivoFalso[];
+
+  // --- M6 ---
+  /**
+   * Las filas del aula virtual.
+   *
+   * El doble **no** reproduce el ciclo de vida por sí solo: la entrega avanza de
+   * estado cuando la ruta llama a `entregar` o `calificar`, igual que en la base,
+   * donde el avance lo produce la RPC y no una convención del cliente.
+   */
+  anuncios: AnuncioFalso[];
+  tareas: TareaFalsa[];
+  entregas: EntregaFalso[];
 
   /**
    * Id del usuario de la petición en curso, o `null` si va anónima.
@@ -801,6 +942,13 @@ export interface OpcionesArnés {
   // --- M5 ---
   /** Filas de `files_metadata`. El bucket se siembra desde las `CONFIRMED`. */
   archivos?: ArchivoFalso[];
+  // --- M6 ---
+  /** Anuncios del tablón. Por defecto, uno publicado en la sección del alumno. */
+  anuncios?: AnuncioFalso[];
+  /** Trabajo de clase. Por defecto, una tarea publicada y una en borrador. */
+  tareas?: TareaFalsa[];
+  /** Entregas. Por defecto, el placeholder del alumno para la tarea publicada. */
+  entregas?: EntregaFalso[];
   /**
    * Arranca el arnés **sin** almacenamiento, como un despliegue sin R2.
    *
@@ -848,6 +996,14 @@ export const MODULOS_POR_DEFECTO: ModuloSistema[] = [
   // El `habilitado: true` se escribe explícito aunque `modulo()` ya lo ponga por
   // defecto: es la mitad del asunto de esta fila y conviene que se lea.
   modulo({ clave: 'm5_archivos', nombre: 'Almacenamiento de Archivos', orden: 50, habilitado: true }),
+  // M6 se siembra **encendido**, y es una decisión del arnés, no de la nube: la
+  // migración `202609220001` lo deja en `false` a propósito y lo encenderá
+  // `202609220002` cuando exista la UI. Aquí se enciende porque las rutas del
+  // aula llevan `exigirModulo('m6_aula_virtual')` y `comprobarModulo` distingue
+  // «no está registrado» (404) de «está apagado» (403): sin la fila, las diez
+  // pruebas fallarían por un motivo que no es el suyo. El camino «apagado» tiene
+  // su propia prueba, que pasa esta lista con la fila en `false`.
+  modulo({ clave: 'm6_aula_virtual', nombre: 'Aula Virtual', orden: 55, habilitado: true }),
 ];
 
 const PARAMETROS_POR_DEFECTO: ParametroSistema[] = [
@@ -973,6 +1129,9 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     secciones: (opciones.secciones ?? SECCIONES_POR_DEFECTO).map((seccion) => ({ ...seccion })),
     inscripciones: (opciones.inscripciones ?? INSCRIPCIONES_POR_DEFECTO).map((i) => ({ ...i })),
     archivos: (opciones.archivos ?? ARCHIVOS_POR_DEFECTO).map((a) => ({ ...a })),
+    anuncios: (opciones.anuncios ?? ANUNCIOS_POR_DEFECTO).map((a) => ({ ...a })),
+    tareas: (opciones.tareas ?? TAREAS_POR_DEFECTO).map((t) => ({ ...t })),
+    entregas: (opciones.entregas ?? ENTREGAS_POR_DEFECTO).map((e) => ({ ...e })),
     usuarioActual: null,
   };
 
@@ -2738,6 +2897,570 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
+  // --- M6: el aula virtual --------------------------------------------------
+
+  /**
+   * ¿El llamante dicta esta sección?
+   *
+   * Reproduce `m6_dicta_seccion`: cierto para el administrador —que supervisa
+   * todo— o para quien tiene una clase activa en la sección. Es la pregunta de
+   * la que cuelgan todas las escrituras del docente.
+   */
+  function dictaSeccion(seccionId: string): boolean {
+    if (esAdmin()) return true;
+    const actor = estado.usuarioActual;
+    if (actor === null) return false;
+    return estado.clases.some(
+      (clase) => clase.seccionId === seccionId && clase.docenteId === actor && clase.activa,
+    );
+  }
+
+  /** Reproduce `m6_matriculado_en`: ¿el llamante está `ENROLLED` en la sección? */
+  function matriculadoEn(seccionId: string): boolean {
+    const actor = estado.usuarioActual;
+    if (actor === null) return false;
+    return estado.inscripciones.some(
+      (i) =>
+        i.seccionId === seccionId &&
+        i.estudianteId === actor &&
+        (i.estado ?? 'ENROLLED') === 'ENROLLED',
+    );
+  }
+
+  /**
+   * Reproduce `m6_tarea_publicada_para_mi`.
+   *
+   * Cierto si la tarea está `PUBLICADO`, o si es un `BORRADOR` con
+   * `programadoPara` ya vencida —la publicación diferida sin planificador—. La
+   * comparación usa el reloj de verdad porque la política de la base también lo
+   * usa; una prueba que ejercite este camino debe sembrar una fecha pasada.
+   */
+  function tareaPublicadaParaMi(tarea: TareaFalsa): boolean {
+    if ((tarea.estado ?? 'BORRADOR') === 'ELIMINADO') return false;
+    if (!matriculadoEn(tarea.seccionId)) return false;
+    if ((tarea.estado ?? 'BORRADOR') === 'PUBLICADO') return true;
+    return (
+      !!tarea.programadoPara &&
+      new Date(tarea.programadoPara).getTime() <= Date.now()
+    );
+  }
+
+  /** Reproduce `m6_dicta_entrega`: el docente de la sección a la que cuelga. */
+  function dictaEntrega(entregaId: string): boolean {
+    const entrega = estado.entregas.find((e) => e.id === entregaId);
+    if (!entrega) return false;
+    const tarea = estado.tareas.find((t) => t.id === entrega.tareaId);
+    return tarea !== undefined && dictaSeccion(tarea.seccionId);
+  }
+
+  /**
+   * Las filas de `m6_anuncios` que el llamante puede ver.
+   *
+   * Reproduce `m6_anuncios_visible`. **No prueba la RLS** —la aplica Postgres y
+   * sólo se comprueba contra la nube (lección R-23)—; lo que prueba es que la
+   * ruta y el repositorio tratan bien lo que la política deja pasar.
+   */
+  function anunciosVisibles(): AnuncioFalso[] {
+    const actor = estado.usuarioActual;
+    if (actor === null) return [];
+
+    return estado.anuncios.filter((anuncio) => {
+      const est = anuncio.estado ?? 'BORRADOR';
+      if (est === 'ELIMINADO') return false;
+      if (dictaSeccion(anuncio.seccionId) || anuncio.autorId === actor) return true;
+      return (
+        matriculadoEn(anuncio.seccionId) &&
+        (est === 'PUBLICADO' ||
+          (!!anuncio.programadoPara &&
+            new Date(anuncio.programadoPara).getTime() <= Date.now()))
+      );
+    });
+  }
+
+  /** Las filas de `m6_tareas` que el llamante puede ver. */
+  function tareasVisibles(): TareaFalsa[] {
+    return estado.tareas.filter(
+      (tarea) =>
+        (tarea.estado ?? 'BORRADOR') !== 'ELIMINADO' &&
+        (dictaSeccion(tarea.seccionId) || tareaPublicadaParaMi(tarea)),
+    );
+  }
+
+  /** Las filas de `m6_entregas` que el llamante puede ver. */
+  function entregasVisibles(): EntregaFalso[] {
+    const actor = estado.usuarioActual;
+    if (actor === null) return [];
+    return estado.entregas.filter(
+      (e) => esAdmin() || e.estudianteId === actor || dictaEntrega(e.id ?? ''),
+    );
+  }
+
+  /** ¿La tarea tiene una fecha límite ya vencida? Mitad derivada de `faltante`. */
+  function plazoVencido(tareaId: string): boolean {
+    const limite = estado.tareas.find((t) => t.id === tareaId)?.fechaLimite ?? null;
+    return limite !== null && new Date(limite).getTime() < Date.now();
+  }
+
+  /** Un id obligatorio del arnés. Falla en alto en vez de devolver `undefined`. */
+  function idDeFila(id: string | undefined, recurso: string): string {
+    if (id === undefined) throw ErrorApi.interno(`El arnés tiene ${recurso} sin id.`);
+    return id;
+  }
+
+  let contadorAnuncios = 0;
+  let contadorTareas = 0;
+
+  function idDeAnuncioNuevo(): string {
+    contadorAnuncios += 1;
+    return `a6a6a6a6-1001-4001-8001-${String(contadorAnuncios).padStart(12, '0')}`;
+  }
+
+  function idDeTareaNueva(): string {
+    contadorTareas += 1;
+    return `b7b7b7b7-1001-4001-8001-${String(contadorTareas).padStart(12, '0')}`;
+  }
+
+  /** El 404 de una RPC sobre una fila que no existe. */
+  function aulaInexistente(recurso: string, id: string): ErrorApi {
+    return ErrorApi.noEncontrado('RECURSO_INEXISTENTE', `${recurso} ${id} no existe.`);
+  }
+
+  /** El 403 de una RPC cuando el llamante no dicta la sección. */
+  function noDictaSeccion(accion: string): ErrorApi {
+    return ErrorApi.prohibido(
+      'SIN_PERMISO_EN_EL_AULA',
+      `No dictas la sección: no puedes ${accion}.`,
+      { contexto: accion },
+    );
+  }
+
+  /** El 403 del alumno cuando la entrega no es suya. */
+  function entregaAjena(entregaId: string): ErrorApi {
+    return ErrorApi.prohibido(
+      'SIN_PERMISO_EN_EL_AULA',
+      `La entrega ${entregaId} no es tuya.`,
+      { contexto: 'entregar una entrega ajena' },
+    );
+  }
+
+  function aAnuncioFalso(fila: AnuncioFalso): Anuncio {
+    return {
+      id: idDeFila(fila.id, 'un anuncio'),
+      seccionId: fila.seccionId,
+      autorId: fila.autorId,
+      titulo: fila.titulo,
+      cuerpo: fila.cuerpo ?? '',
+      estado: fila.estado ?? 'BORRADOR',
+      programadoPara: fila.programadoPara ?? null,
+      publicadoEn: fila.publicadoEn ?? null,
+    };
+  }
+
+  function aTareaFalsa(fila: TareaFalsa): Tarea {
+    return {
+      id: idDeFila(fila.id, 'una tarea'),
+      seccionId: fila.seccionId,
+      titulo: fila.titulo,
+      descripcion: fila.descripcion ?? '',
+      tipo: fila.tipo ?? 'TAREA',
+      puntosMaximos: fila.puntosMaximos ?? 20,
+      fechaLimite: fila.fechaLimite ?? null,
+      permitirEntregaTardia: fila.permitirEntregaTardia ?? true,
+      tema: fila.tema ?? null,
+      orden: fila.orden ?? 0,
+      estado: fila.estado ?? 'BORRADOR',
+      publicadoEn: fila.publicadoEn ?? null,
+    };
+  }
+
+  /**
+   * La entrega vista por el alumno.
+   *
+   * **No tiene `notaBorrador`, igual que el repositorio real**: el doble devuelve
+   * la misma forma que el `select` de columnas concedidas, así que la prueba de
+   * la frontera del borrador comprueba lo mismo aquí que en producción.
+   */
+  function aEntregaFalsa(fila: EntregaFalso): Entrega {
+    return {
+      id: idDeFila(fila.id, 'una entrega'),
+      tareaId: fila.tareaId,
+      estado: fila.estado ?? 'ASIGNADA',
+      esTardia: fila.esTardia ?? false,
+      notaAsignada: fila.notaAsignada ?? null,
+      entregadaEn: fila.entregadaEn ?? null,
+    };
+  }
+
+  function aLibroEntregaFalso(fila: EntregaFalso): LibroEntrega {
+    const estadoEntrega = fila.estado ?? 'ASIGNADA';
+    return {
+      id: idDeFila(fila.id, 'una entrega'),
+      estudianteId: fila.estudianteId,
+      estado: estadoEntrega,
+      esTardia: fila.esTardia ?? false,
+      notaBorrador: fila.notaBorrador ?? null,
+      notaAsignada: fila.notaAsignada ?? null,
+      entregadaEn: fila.entregadaEn ?? null,
+      devueltaEn: fila.devueltaEn ?? null,
+      // Derivada como en la RPC: `ASIGNADA` con la fecha límite ya vencida.
+      faltante: estadoEntrega === 'ASIGNADA' && plazoVencido(fila.tareaId),
+    };
+  }
+
+  function aEntregaCalificadaFalsa(
+    fila: EntregaFalso,
+    conDevolucion: boolean,
+  ): EntregaCalificada {
+    const base: EntregaCalificada = {
+      id: idDeFila(fila.id, 'una entrega'),
+      tareaId: fila.tareaId,
+      estudianteId: fila.estudianteId,
+      estado: fila.estado ?? 'ASIGNADA',
+      esTardia: fila.esTardia ?? false,
+      notaBorrador: fila.notaBorrador ?? null,
+      notaAsignada: fila.notaAsignada ?? null,
+    };
+    // `calificar` no toca `devuelta_en`, así que la propiedad llega ausente; sólo
+    // `devolver` la sella. Es la misma distinción que hace el repositorio real.
+    return conDevolucion ? { ...base, devueltaEn: fila.devueltaEn ?? null } : base;
+  }
+
+  /**
+   * El aula virtual, en memoria.
+   *
+   * Reproduce el reparto real: las lecturas filtran por la política —vía
+   * `anunciosVisibles`, `tareasVisibles` y `entregasVisibles`— y las escrituras
+   * reproducen **cómo fallan** las RPC, porque de eso depende el código de estado
+   * que ve el usuario. Un doble que dejara pasar todo daría por buenas
+   * operaciones que la base rechaza.
+   */
+  const aula: PuertaAula = {
+    async tablon(seccionId) {
+      revisar('aula.tablon');
+
+      return anunciosVisibles()
+        .filter((anuncio) => anuncio.seccionId === seccionId)
+        .sort((a, b) => {
+          // Del más nuevo al más viejo, con los sin publicar al final: es el
+          // `publicado_en desc nulls last` del índice real.
+          const fa = a.publicadoEn ?? null;
+          const fb = b.publicadoEn ?? null;
+          if (fa === null && fb === null) return 0;
+          if (fa === null) return 1;
+          if (fb === null) return -1;
+          return fb.localeCompare(fa);
+        })
+        .map(aAnuncioFalso);
+    },
+
+    async crearAnuncio(entrada) {
+      revisar('aula.crearAnuncio');
+
+      if (!dictaSeccion(entrada.seccionId)) throw noDictaSeccion('publicar en su tablón');
+
+      const fila: AnuncioFalso = {
+        id: idDeAnuncioNuevo(),
+        seccionId: entrada.seccionId,
+        autorId: usuarioActual(),
+        titulo: entrada.titulo,
+        cuerpo: entrada.cuerpo,
+        estado: 'BORRADOR',
+        programadoPara: entrada.programadoPara,
+        publicadoEn: null,
+      };
+
+      estado.anuncios.push(fila);
+
+      return aAnuncioFalso(fila);
+    },
+
+    async trabajoDeClase(seccionId) {
+      revisar('aula.trabajoDeClase');
+
+      return tareasVisibles()
+        .filter((tarea) => tarea.seccionId === seccionId)
+        .sort((a, b) => {
+          const ta = a.tema ?? null;
+          const tb = b.tema ?? null;
+          if (ta !== tb) {
+            if (ta === null) return -1;
+            if (tb === null) return 1;
+            return ta.localeCompare(tb);
+          }
+          return (a.orden ?? 0) - (b.orden ?? 0);
+        })
+        .map(aTareaFalsa);
+    },
+
+    async crearTarea(entrada) {
+      revisar('aula.crearTarea');
+
+      if (!dictaSeccion(entrada.seccionId)) throw noDictaSeccion('crear trabajo en ella');
+
+      // La RPC comprueba la coherencia MATERIAL/sin nota antes que el `CHECK`,
+      // para dar un mensaje que se entienda. El doble reproduce ese 23514.
+      if (
+        entrada.tipo === 'MATERIAL' &&
+        (entrada.puntosMaximos !== 0 || entrada.fechaLimite !== null)
+      ) {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          'Un MATERIAL es de lectura: no lleva puntos ni fecha límite.',
+          { contexto: 'crear una tarea' },
+        );
+      }
+
+      const fila: TareaFalsa = {
+        id: idDeTareaNueva(),
+        seccionId: entrada.seccionId,
+        titulo: entrada.titulo,
+        descripcion: entrada.descripcion,
+        tipo: entrada.tipo,
+        puntosMaximos: entrada.puntosMaximos,
+        fechaLimite: entrada.fechaLimite,
+        permitirEntregaTardia: entrada.permitirEntregaTardia,
+        tema: entrada.tema,
+        orden: entrada.orden,
+        estado: 'BORRADOR',
+        publicadoEn: null,
+      };
+
+      estado.tareas.push(fila);
+
+      return aTareaFalsa(fila);
+    },
+
+    async publicarTarea(tareaId): Promise<PublicacionTarea> {
+      revisar('aula.publicarTarea');
+
+      const tarea = estado.tareas.find((t) => t.id === tareaId);
+      if (!tarea) throw aulaInexistente('La tarea', tareaId);
+      if (!dictaSeccion(tarea.seccionId)) throw noDictaSeccion('publicarla');
+      if ((tarea.estado ?? 'BORRADOR') === 'ELIMINADO') {
+        throw new ErrorApi(400, 'RESTRICCION_VIOLADA', 'La tarea está eliminada.', {
+          contexto: 'publicar una tarea',
+        });
+      }
+
+      // Idempotente: sólo se crean los placeholders que faltan. Un alumno que ya
+      // entregó no puede perder su entrega al republicar —las entregas cuelgan
+      // de la fila en cascada—.
+      let creadas = 0;
+
+      for (const inscripcion of estado.inscripciones) {
+        if (inscripcion.seccionId !== tarea.seccionId) continue;
+        if ((inscripcion.estado ?? 'ENROLLED') !== 'ENROLLED') continue;
+
+        const yaHay = estado.entregas.some(
+          (e) => e.tareaId === tareaId && e.estudianteId === inscripcion.estudianteId,
+        );
+        if (yaHay) continue;
+
+        estado.entregas.push({
+          tareaId,
+          estudianteId: inscripcion.estudianteId,
+          estado: 'ASIGNADA',
+        });
+        creadas += 1;
+      }
+
+      tarea.estado = 'PUBLICADO';
+      tarea.publicadoEn = tarea.publicadoEn ?? CREADO_EN_FALSO;
+
+      return {
+        tarea: {
+          id: idDeFila(tarea.id, 'una tarea'),
+          seccionId: tarea.seccionId,
+          titulo: tarea.titulo,
+          estado: 'PUBLICADO',
+          publicadoEn: tarea.publicadoEn ?? null,
+        },
+        entregasCreadas: creadas,
+      };
+    },
+
+    async entregasDeTarea(tareaId) {
+      revisar('aula.entregasDeTarea');
+
+      // La RPC no lanza 403 si el llamante no dicta: **filtra** con
+      // `m6_dicta_entrega`, así que un alumno recibe una lista vacía. El doble
+      // hace lo mismo para no ser más estricto que la base.
+      return estado.entregas
+        .filter((e) => e.tareaId === tareaId && dictaEntrega(e.id ?? ''))
+        .sort((a, b) => a.estudianteId.localeCompare(b.estudianteId))
+        .map(aLibroEntregaFalso);
+    },
+
+    async misEntregas() {
+      revisar('aula.misEntregas');
+
+      return entregasVisibles()
+        .sort((a, b) => {
+          const fa = a.entregadaEn ?? null;
+          const fb = b.entregadaEn ?? null;
+          if (fa === null && fb === null) return 0;
+          if (fa === null) return 1;
+          if (fb === null) return -1;
+          return fb.localeCompare(fa);
+        })
+        .map(aEntregaFalsa);
+    },
+
+    async entregar(entregaId) {
+      revisar('aula.entregar');
+
+      const entrega = estado.entregas.find((e) => e.id === entregaId);
+      if (!entrega) throw aulaInexistente('La entrega', entregaId);
+
+      // El dueño, no el docente: entregar es del alumno. Ni siquiera el
+      // administrador entrega en nombre de otro.
+      if (entrega.estudianteId !== estado.usuarioActual) throw entregaAjena(entregaId);
+
+      const tarea = estado.tareas.find((t) => t.id === entrega.tareaId);
+      if (!tarea) throw aulaInexistente('La tarea', entrega.tareaId);
+
+      if ((tarea.estado ?? 'BORRADOR') !== 'PUBLICADO') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          'La tarea no está publicada: no se puede entregar.',
+          { contexto: 'entregar una tarea' },
+        );
+      }
+
+      const estadoActual = entrega.estado ?? 'ASIGNADA';
+
+      if (estadoActual === 'DEVUELTA') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          'La entrega ya fue devuelta: no se puede volver a entregar.',
+          { contexto: 'entregar una tarea' },
+        );
+      }
+
+      // `MODIFIABLE_UNTIL_TURNED_IN` es el defecto: una vez entregada, el alumno
+      // no cambia los adjuntos hasta que el docente se la devuelva.
+      if (estadoActual === 'ENTREGADA') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          'La tarea ya está entregada. Reclámala antes de volver a entregarla.',
+          { contexto: 'entregar una tarea' },
+        );
+      }
+
+      const limite = tarea.fechaLimite ?? null;
+      const tarde = limite !== null && new Date(limite).getTime() < Date.now();
+
+      if (tarde && !(tarea.permitirEntregaTardia ?? true)) {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          `La tarea cerró el ${limite} y no admite entregas tardías.`,
+          { contexto: 'entregar una tarea' },
+        );
+      }
+
+      entrega.estado = 'ENTREGADA';
+      entrega.esTardia = tarde;
+      entrega.entregadaEn = CREADO_EN_FALSO;
+
+      return aEntregaFalsa(entrega);
+    },
+
+    async reclamar(entregaId) {
+      revisar('aula.reclamar');
+
+      const entrega = estado.entregas.find((e) => e.id === entregaId);
+      if (!entrega) throw aulaInexistente('La entrega', entregaId);
+      if (entrega.estudianteId !== estado.usuarioActual) throw entregaAjena(entregaId);
+
+      const estadoActual = entrega.estado ?? 'ASIGNADA';
+
+      if (estadoActual !== 'ENTREGADA') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          `Sólo se puede reclamar una entrega ya entregada (estado actual: ${estadoActual}).`,
+          { contexto: 'reclamar una entrega' },
+        );
+      }
+
+      entrega.estado = 'RECLAMADA';
+
+      return aEntregaFalsa(entrega);
+    },
+
+    async calificar(entregaId, nota) {
+      revisar('aula.calificar');
+
+      if (!(nota >= 0 && nota <= 20)) {
+        throw new ErrorApi(400, 'RESTRICCION_VIOLADA', 'La nota debe estar entre 0 y 20.', {
+          contexto: 'calificar una entrega',
+        });
+      }
+
+      const entrega = estado.entregas.find((e) => e.id === entregaId);
+      if (!entrega) throw aulaInexistente('La entrega', entregaId);
+      if (!dictaEntrega(entregaId)) throw noDictaSeccion('calificarla');
+
+      const tarea = estado.tareas.find((t) => t.id === entrega.tareaId);
+      if (!tarea) throw aulaInexistente('La tarea', entrega.tareaId);
+
+      const maximo = tarea.puntosMaximos ?? 20;
+      if (nota > maximo) {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          `La nota ${nota} supera el máximo de la tarea (${maximo}).`,
+          { contexto: 'calificar una entrega' },
+        );
+      }
+
+      const estadoActual = entrega.estado ?? 'ASIGNADA';
+      if (estadoActual !== 'ENTREGADA' && estadoActual !== 'RECLAMADA') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          `No hay nada que calificar todavía (estado actual: ${estadoActual}).`,
+          { contexto: 'calificar una entrega' },
+        );
+      }
+
+      entrega.notaBorrador = nota;
+
+      return aEntregaCalificadaFalsa(entrega, false);
+    },
+
+    async devolver(entregaId) {
+      revisar('aula.devolver');
+
+      const entrega = estado.entregas.find((e) => e.id === entregaId);
+      if (!entrega) throw aulaInexistente('La entrega', entregaId);
+      if (!dictaEntrega(entregaId)) throw noDictaSeccion('devolverla');
+
+      const estadoActual = entrega.estado ?? 'ASIGNADA';
+      if (estadoActual !== 'ENTREGADA' && estadoActual !== 'RECLAMADA') {
+        throw new ErrorApi(
+          400,
+          'RESTRICCION_VIOLADA',
+          `No hay una entrega que devolver (estado actual: ${estadoActual}).`,
+          { contexto: 'devolver una entrega' },
+        );
+      }
+
+      entrega.estado = 'DEVUELTA';
+      // Copia el borrador a la asignada: es el único momento en que el alumno ve
+      // una nota. Devolver sin nota es legítimo y deja `null`.
+      entrega.notaAsignada = entrega.notaBorrador ?? null;
+      entrega.devueltaEn = CREADO_EN_FALSO;
+
+      return aEntregaCalificadaFalsa(entrega, true);
+    },
+  };
+
   const repos: Repositorios = {
     perfiles,
     modulos,
@@ -2750,6 +3473,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     secciones,
     inscripciones,
     archivos,
+    aula,
   };
 
   const enviarCorreo: EnvioCorreo = {
