@@ -109,12 +109,18 @@ async function main() {
     await db.query('select clave, habilitado, orden, categoria, roles_permitidos from public.system_modules order by orden')
   ).rows;
 
+  // `m6_aula_virtual` va entre `m5_archivos` (orden 50) y `m6_asistencia`
+  // (orden 60) porque comparte los archivos de M5. **No** sustituye a
+  // `m6_asistencia`: el número 6 estaba tomado por Asistencia desde
+  // `202609120002`, y la semilla dice que las claves nunca se renombran. El
+  // nombre del archivo de la migración (`202609220001_mod6_aula_virtual.sql`)
+  // no crea la clave.
   const esperados = [
     'm0_cpanel', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante',
-    'm4_inscripciones', 'm5_archivos', 'm6_asistencia', 'm7_calificaciones',
-    'm8_pasantias',
+    'm4_inscripciones', 'm5_archivos', 'm6_aula_virtual', 'm6_asistencia',
+    'm7_calificaciones', 'm8_pasantias',
   ];
-  check('hay 9 módulos sembrados', modulos.length === 9, `hay ${modulos.length}`);
+  check('hay 10 módulos sembrados', modulos.length === 10, `hay ${modulos.length}`);
   check(
     'los códigos coinciden con el ROADMAP',
     JSON.stringify(modulos.map((m) => m.clave)) === JSON.stringify(esperados),
@@ -138,6 +144,23 @@ async function main() {
   check(
     'm5_archivos arranca encendido: lo enciende 202609210002',
     modulos.find((m) => m.clave === 'm5_archivos').habilitado === true,
+  );
+  // `m6_aula_virtual` es el caso espejo y por eso se fija en `false`: la
+  // bandera se enciende cuando ya existen las rutas Y la UI que las sostiene
+  // (patrón de R-22). Al cerrar la fase 3 existen las rutas, pero no el aula en
+  // Flutter, así que sigue apagada a propósito. La aserción está aquí para que
+  // encenderla sea una decisión y no un descuido.
+  check(
+    'm6_aula_virtual arranca APAGADO a propósito (la UI todavía no existe)',
+    modulos.find((m) => m.clave === 'm6_aula_virtual').habilitado === false,
+  );
+  check(
+    'm6_aula_virtual va en el orden 55, entre M5 (50) y Asistencia (60)',
+    modulos.find((m) => m.clave === 'm6_aula_virtual').orden === 55,
+  );
+  check(
+    'm6_aula_virtual es visible para todos los roles (roles_permitidos vacío)',
+    modulos.find((m) => m.clave === 'm6_aula_virtual').roles_permitidos.length === 0,
   );
   check(
     'm0_cpanel está restringido al rol admin',
@@ -242,7 +265,7 @@ async function main() {
   const m6 = (await db.query("select habilitado from public.system_modules where clave = 'm6_asistencia'")).rows[0];
   const totalModulos = (await db.query('select count(*)::int as n from public.system_modules')).rows[0].n;
   check('reaplicar la semilla NO revive un módulo apagado a mano', m6.habilitado === false);
-  check('reaplicar la semilla NO duplica filas', totalModulos === 9, `hay ${totalModulos}`);
+  check('reaplicar la semilla NO duplica filas', totalModulos === 10, `hay ${totalModulos}`);
 
   // ------------------------------------------------------------ 7. usuarios
   seccion('7. Onboarding atómico (Fase 1) y datos de prueba');
@@ -269,7 +292,7 @@ async function main() {
   const alumnoVe = await como('authenticated', ALUMNO_ID, () =>
     db.query('select count(*)::int as n from public.system_modules'),
   );
-  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 9);
+  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 10);
 
   await como('authenticated', ALUMNO_ID, () =>
     db.exec("update public.system_modules set orden = 999 where clave = 'm1_onboarding'"),
@@ -2191,6 +2214,878 @@ async function main() {
     'reaplicar la migración de M5 deja el módulo ENCENDIDO (no lo apaga ni lo enciende)',
     m5Sigue === true,
   );
+
+  // ==========================================================================
+  // 19. Módulo 6 — Aula Virtual: RLS, RPCs y ciclo de calificación
+  // ==========================================================================
+  //  El «Google Classroom del INCES». No estrena una tabla de cursos: una
+  //  `sections` de M3 YA es el curso, con su roster (M4) y sus docentes (M3).
+  //  Nacen tres tablas (`m6_anuncios`, `m6_tareas`, `m6_entregas`) y ocho RPC.
+  //
+  //  Aquí se prueban tres cosas que no caben en ningún otro sitio, y por eso la
+  //  sección existe:
+  //    · el GRANT POR COLUMNA sobre `nota_borrador` — una política RLS es por
+  //      FILA y no puede esconder una COLUMNA; sin el grant, el alumno leería su
+  //      nota antes de que el docente la devuelva;
+  //    · la publicación programada SIN planificador — la visibilidad se decide
+  //      al LEER, no la escribe ningún job (no puede haberlo: cortes eléctricos);
+  //    · las tres políticas nuevas sobre `files_metadata`, que cierran la mitad
+  //      de D17 que M5 no podía expresar porque `entidad_id` no tenía tabla.
+  seccion('19. Módulo 6 — Aula Virtual: RLS, RPCs y ciclo de calificación');
+
+  // ------------------------------------------------- 19.1 fixtures
+  // El docente que dicta el aula reutiliza DOC1. El «tercero» que no ve nada es
+  // DOC2: es docente, pero NO dicta esta sección, así que distingue «no soy
+  // docente» de «no soy docente DE ESTA sección» — que es la pregunta que hace
+  // la autorización de M6.
+  const DOC_M6 = DOC1;
+
+  // UUIDs frescos: `enrollments` y `schedule_slots` tienen reglas de unicidad
+  // que una reutilización haría saltar por el motivo equivocado.
+  const MAT_M6 = 'f6000001-0000-4000-8000-000000000001';
+  const SEC_M6 = 'f6000002-0000-4000-8000-000000000002';
+  const ALU_M6A = 'f6000003-0000-4000-8000-000000000003'; // ENROLLED
+  const ALU_M6B = 'f6000004-0000-4000-8000-000000000004'; // ENROLLED
+  const ALU_M6W = 'f6000005-0000-4000-8000-000000000005'; // WAITLISTED
+  const ALU_M6D = 'f6000006-0000-4000-8000-000000000006'; // DROPPED
+  const ALU_M6X = 'f6000007-0000-4000-8000-000000000007'; // estudiante sin matrícula
+  const SLOT_M6 = 'f6000008-0000-4000-8000-000000000008';
+
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours)
+     values ('${MAT_M6}', 'M6-AV', 'Aula Virtual', 48)`,
+  );
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity)
+     values ('${SEC_M6}', '${PROG_ID}', '${MAT_M6}', '${PERIODO}', 'M6A', 30)`,
+  );
+
+  // `handle_new_user` crea el perfil al insertar en `auth.users`; por eso se
+  // inserta ahí y se eleva el rol por SQL, como en todo el archivo. Insertar
+  // además en `profiles` chocaría con la PK.
+  await db.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${ALU_M6A}', 'm6a@inces.test', '{"nombres":"Alba","apellidos":"Mora"}'::jsonb),
+      ('${ALU_M6B}', 'm6b@inces.test', '{"nombres":"Beto","apellidos":"Nava"}'::jsonb),
+      ('${ALU_M6W}', 'm6w@inces.test', '{"nombres":"Cira","apellidos":"Ortiz"}'::jsonb),
+      ('${ALU_M6D}', 'm6d@inces.test', '{"nombres":"Dani","apellidos":"Paz"}'::jsonb),
+      ('${ALU_M6X}', 'm6x@inces.test', '{"nombres":"Eva","apellidos":"Quiroz"}'::jsonb);
+  `);
+
+  // El roster mezcla estados A PROPÓSITO: publicar debe crear placeholders sólo
+  // para ENROLLED. Un placeholder de un WAITLISTED o un DROPPED aparecería en el
+  // libro como «faltante» de alguien que no cursa el aula.
+  await db.exec(
+    `insert into public.enrollments (student_id, section_id, status) values
+       ('${ALU_M6A}', '${SEC_M6}', 'ENROLLED'),
+       ('${ALU_M6B}', '${SEC_M6}', 'ENROLLED'),
+       ('${ALU_M6W}', '${SEC_M6}', 'WAITLISTED'),
+       ('${ALU_M6D}', '${SEC_M6}', 'DROPPED')`,
+  );
+
+  // La clase que convierte a DOC1 en docente DE ESTA sección: sin un
+  // `schedule_slot` activo, `m6_dicta_seccion` es falso y todo el módulo se
+  // cerraría. El día/bloque (5,5) no choca con ningún slot ni guardia previos.
+  await db.exec(
+    `insert into public.schedule_slots (id, section_id, teacher_id, classroom_id, day_of_week, block)
+     values ('${SLOT_M6}', '${SEC_M6}', '${DOC_M6}', '${AULA_TALLER}', 5, 5)`,
+  );
+
+  const matriculadosM6 = (
+    await db.query(
+      `select count(*)::int as n from public.enrollments where section_id='${SEC_M6}' and status='ENROLLED'`,
+    )
+  ).rows[0].n;
+  check(
+    'la sección de M6 tiene 2 alumnos ENROLLED (y dos no-alumnos de control)',
+    matriculadosM6 === 2,
+    `hay ${matriculadosM6}`,
+  );
+
+  // ------------------------------------------------- 19.2 estructura y RLS
+  const tablasM6 = (
+    await db.query(
+      "select tablename, rowsecurity from pg_tables where schemaname='public' " +
+        "and tablename in ('m6_anuncios','m6_tareas','m6_entregas') order by tablename",
+    )
+  ).rows;
+  check('existen las 3 tablas de M6', tablasM6.length === 3, `hay ${tablasM6.length}`);
+  check('RLS activo en las 3 tablas de M6', tablasM6.every((t) => t.rowsecurity));
+
+  // Los CHECK NOMBRADOS son el contrato que el backend cita al traducir un
+  // 23514. Se comprueban por nombre porque un CHECK anónimo obligaría a leer el
+  // mensaje crudo del motor para saber cuál saltó.
+  const checksTareas = (
+    await db.query(
+      "select conname from pg_constraint where conrelid = 'public.m6_tareas'::regclass and contype = 'c'",
+    )
+  ).rows.map((r) => r.conname);
+  check(
+    'm6_tareas trae los 4 CHECK de coherencia por tipo y de programación',
+    [
+      'm6_tareas_material_sin_nota',
+      'm6_tareas_material_sin_plazo',
+      'm6_tareas_calificable_con_puntos',
+      'm6_tareas_programado_coherente',
+    ].every((c) => checksTareas.includes(c)),
+    checksTareas.join(', '),
+  );
+  const checksAnuncios = (
+    await db.query(
+      "select conname from pg_constraint where conrelid = 'public.m6_anuncios'::regclass and contype = 'c'",
+    )
+  ).rows.map((r) => r.conname);
+  check(
+    'm6_anuncios exige coherencia de programación',
+    checksAnuncios.includes('m6_anuncios_programado_coherente'),
+    checksAnuncios.join(', '),
+  );
+  const checksEntregas = (
+    await db.query(
+      "select conname, contype from pg_constraint where conrelid = 'public.m6_entregas'::regclass",
+    )
+  ).rows;
+  check(
+    'm6_entregas exige un borrador antes de la nota asignada',
+    checksEntregas.some((c) => c.conname === 'm6_entregas_nota_asignada_exige_borrador'),
+  );
+  // La unicidad (tarea, estudiante) es lo que hace IDEMPOTENTE a publicar: el
+  // `on conflict do nothing` de la RPC no puede apoyarse en nada más.
+  check(
+    'm6_entregas tiene unique (tarea_id, estudiante_id)',
+    checksEntregas.some((c) => c.conname === 'm6_entregas_una_por_alumno' && c.contype === 'u'),
+    checksEntregas.map((c) => c.conname).join(', '),
+  );
+
+  // ------------------------------------- 19.3 el GRANT por columna (metadato)
+  //  `nota_borrador` NO se protege con RLS —una política es por fila y no puede
+  //  esconder una columna— sino con GRANT POR COLUMNA. Es la garantía de la
+  //  decisión 3: el alumno no ve la nota hasta que el docente devuelve.
+  const privM6 = (
+    await db.query(
+      "select " +
+        "has_column_privilege('authenticated','public.m6_entregas','nota_borrador','SELECT') as nb, " +
+        "has_column_privilege('authenticated','public.m6_entregas','nota_asignada','SELECT') as na, " +
+        "has_column_privilege('authenticated','public.m6_entregas','estado','SELECT') as est, " +
+        "has_table_privilege('authenticated','public.m6_entregas','SELECT') as ts, " +
+        "has_table_privilege('authenticated','public.m6_anuncios','SELECT') as ta, " +
+        "has_table_privilege('authenticated','public.m6_tareas','SELECT') as tt",
+    )
+  ).rows[0];
+  check('authenticated NO tiene privilegio de columna sobre nota_borrador', privM6.nb === false);
+  check('authenticated SÍ puede leer nota_asignada (la ve al devolverse)', privM6.na === true);
+  check('authenticated SÍ puede leer estado', privM6.est === true);
+  // `has_table_privilege(...,'SELECT')` es FALSO aunque el SELECT funcione: el
+  // privilegio es por columna, no por tabla. Es la señal de que el GRANT está
+  // bien hecho; si fuera `true`, la columna protegida viajaría en cualquier
+  // `select *`.
+  check(
+    'el SELECT de m6_entregas es por columna, no por tabla (has_table_privilege=false)',
+    privM6.ts === false,
+  );
+  check('anuncios y tareas sí son SELECT de tabla completa', privM6.ta === true && privM6.tt === true);
+
+  const escrituraM6 = (
+    await db.query(
+      "select " +
+        "has_table_privilege('authenticated','public.m6_anuncios','INSERT') as ai, " +
+        "has_table_privilege('authenticated','public.m6_anuncios','UPDATE') as au, " +
+        "has_table_privilege('authenticated','public.m6_anuncios','DELETE') as ad, " +
+        "has_table_privilege('authenticated','public.m6_tareas','INSERT') as ti, " +
+        "has_table_privilege('authenticated','public.m6_tareas','UPDATE') as tu, " +
+        "has_table_privilege('authenticated','public.m6_tareas','DELETE') as td, " +
+        "has_table_privilege('authenticated','public.m6_entregas','INSERT') as ei, " +
+        "has_table_privilege('authenticated','public.m6_entregas','UPDATE') as eu, " +
+        "has_table_privilege('authenticated','public.m6_entregas','DELETE') as ed",
+    )
+  ).rows[0];
+  check(
+    'authenticated no tiene INSERT/UPDATE/DELETE directo en ninguna tabla de M6',
+    Object.values(escrituraM6).every((v) => v === false),
+    JSON.stringify(escrituraM6),
+  );
+
+  // ------------------------------------------------- 19.4 el ciclo por RPC
+  const TAREA1 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','Tarea 1','Primera tarea')`),
+    )
+  ).rows[0];
+  check('m6_crear_tarea nace en BORRADOR', TAREA1.estado === 'BORRADOR', String(TAREA1.estado));
+  check('un borrador no tiene fecha de publicación', TAREA1.publicado_en === null);
+  // `numeric` vuelve como texto en el driver (`"20.00"`), no como número: la
+  // coerción es del test, no del contrato.
+  check('los puntos por defecto son 20', Number(TAREA1.puntos_maximos) === 20, String(TAREA1.puntos_maximos));
+  check('el tipo por defecto es TAREA', TAREA1.tipo === 'TAREA', String(TAREA1.tipo));
+
+  const crearComoAlumno = await esperaError('un alumno NO puede crear tareas', () =>
+    como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','X','X')`),
+    ),
+  );
+  check(
+    'crear tarea como alumno sale 42501',
+    crearComoAlumno?.code === '42501',
+    `código ${crearComoAlumno?.code}`,
+  );
+
+  // Autorización por SECCIÓN, no por rol: ser docente no basta, hay que dictar
+  // ESTA sección. SEC_M3B la dicta DOC2, así que DOC1 rebota.
+  const crearAjeno = await esperaError('un docente NO crea tareas en una sección que no dicta', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M3B}','X','X')`),
+    ),
+  );
+  check('crear en sección ajena sale 42501', crearAjeno?.code === '42501', `código ${crearAjeno?.code}`);
+
+  // MATERIAL con puntos: la RPC lo rechaza como error de NEGOCIO (23514 con
+  // mensaje legible), no dejando que salte el CHECK crudo.
+  const materialConPuntos = await esperaError('un MATERIAL no puede llevar puntos', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','Material','', 'MATERIAL', 5)`),
+    ),
+  );
+  check(
+    'MATERIAL con puntos sale 23514',
+    materialConPuntos?.code === '23514',
+    `código ${materialConPuntos?.code}`,
+  );
+  check(
+    'el mensaje explica la regla, no cita un CHECK',
+    /MATERIAL/.test(materialConPuntos?.message ?? '') && !/constraint/i.test(materialConPuntos?.message ?? ''),
+    materialConPuntos?.message,
+  );
+
+  // REGRESIÓN que la sección 19 cazó: omitir `puntos_maximos` al crear un
+  // MATERIAL debe FUNCIONAR. Antes fallaba con 23514 porque el argumento tenía
+  // `default 20` y la comprobación de MATERIAL lo leía como «un material con
+  // puntos»: la llamada natural —un material no se califica, así que no se le
+  // pasan puntos— era justo la que rompía, y el error aparecía lejos de su
+  // causa. Se corrigió el default a `null` («no me lo dijeron» ≠ «me dijeron
+  // 20»). Esta aserción es la que lo habría cazado; no enshrinar el 23514 fue
+  // lo que permitió arreglar la raíz en vez de documentar el rodeo.
+  const materialSinPuntos = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','Lectura','', 'MATERIAL')`),
+    )
+  ).rows[0];
+  check(
+    'un MATERIAL SIN pasar puntos se crea (regresión del default 20)',
+    materialSinPuntos?.tipo === 'MATERIAL' && Number(materialSinPuntos?.puntos_maximos) === 0,
+    String(materialSinPuntos?.puntos_maximos),
+  );
+  check('ese MATERIAL nace sin fecha límite', materialSinPuntos?.fecha_limite === null);
+
+  // El mismo MATERIAL con una fecha límite explícita sí contradice su
+  // naturaleza: el guard sigue guardando.
+  const materialConPlazo = await esperaError('un MATERIAL no puede llevar fecha límite', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(
+        `select * from public.m6_crear_tarea('${SEC_M6}','Lectura 2','', 'MATERIAL', null, now() + interval '1 day')`,
+      ),
+    ),
+  );
+  check(
+    'MATERIAL con fecha límite sale 23514',
+    materialConPlazo?.code === '23514',
+    `código ${materialConPlazo?.code}`,
+  );
+
+  // El default de negocio sigue aplicándose DONDE debe: lo calificable vale 20.
+  const tareaSinPuntos = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','Tarea sin puntos','')`),
+    )
+  ).rows[0];
+  check(
+    'una TAREA sin pasar puntos toma el default de negocio (20)',
+    tareaSinPuntos?.tipo === 'TAREA' && Number(tareaSinPuntos?.puntos_maximos) === 20,
+    String(tareaSinPuntos?.puntos_maximos),
+  );
+
+  // Los dos límites de lo calificable, como error de NEGOCIO: si el mensaje
+  // nombrara `m6_tareas_calificable_con_puntos`, la pre-comprobación no estaría
+  // disparando y el 400 saldría con el texto crudo del motor.
+  const tareaCero = await esperaError('una tarea calificable no puede valer 0', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','T','', 'TAREA', 0)`),
+    ),
+  );
+  check('TAREA con 0 puntos sale 23514', tareaCero?.code === '23514', `código ${tareaCero?.code}`);
+  check(
+    'el mensaje nombra la regla («más de 0 puntos»), no la restricción',
+    /más de 0 puntos/.test(tareaCero?.message ?? '') && !/constraint/i.test(tareaCero?.message ?? ''),
+    tareaCero?.message,
+  );
+
+  const tareaExcede = await esperaError('una tarea no puede valer más de 20', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','T','', 'TAREA', 21)`),
+    ),
+  );
+  check('TAREA con 21 puntos sale 23514', tareaExcede?.code === '23514', `código ${tareaExcede?.code}`);
+  check(
+    'el mensaje de la nota máxima es legible, no una violación de CHECK',
+    /superar 20/.test(tareaExcede?.message ?? '') && !/constraint/i.test(tareaExcede?.message ?? ''),
+    tareaExcede?.message,
+  );
+
+  // El caso válido, para que el CHECK no sea «rechaza todo»: MATERIAL con 0.
+  const MATERIAL1 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_tarea('${SEC_M6}','Material de apoyo','', 'MATERIAL', 0)`),
+    )
+  ).rows[0];
+  check(
+    'un MATERIAL con 0 puntos sí se crea',
+    MATERIAL1.tipo === 'MATERIAL' && Number(MATERIAL1.puntos_maximos) === 0,
+  );
+  check('un MATERIAL no lleva fecha límite', MATERIAL1.fecha_limite === null);
+  check('el MATERIAL nace BORRADOR (aún no lo ve el alumno)', MATERIAL1.estado === 'BORRADOR');
+
+  // TAREA2 con fecha límite VENCIDA: es la que permite probar «tardía» (4.2) y
+  // «faltante» (4.3) sin viajar en el tiempo.
+  const TAREA2 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(
+        `select * from public.m6_crear_tarea('${SEC_M6}','Tarea 2','Con plazo', 'TAREA', 10, now() - interval '2 days')`,
+      ),
+    )
+  ).rows[0];
+  check('la tarea con plazo guarda 10 puntos', Number(TAREA2.puntos_maximos) === 10);
+  check('la tarea con plazo nace BORRADOR', TAREA2.estado === 'BORRADOR');
+
+  // --- publicar: crea los placeholders de cada matrícula ENROLLED ---
+  const entregasAntes = (
+    await db.query(`select count(*)::int as n from public.m6_entregas where tarea_id='${TAREA1.id}'`)
+  ).rows[0].n;
+  check('antes de publicar NO hay ninguna entrega', entregasAntes === 0, `hay ${entregasAntes}`);
+
+  const publicada = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_publicar_tarea('${TAREA1.id}')`),
+    )
+  ).rows[0];
+  check('publicar deja la tarea en PUBLICADO', publicada.estado === 'PUBLICADO', String(publicada.estado));
+  check('publicar fija publicado_en', publicada.publicado_en != null);
+  check(
+    'publicar devuelve el número de placeholders creados',
+    Number(publicada.entregas) === 2,
+    String(publicada.entregas),
+  );
+
+  const entregasT1 = (
+    await db.query(
+      `select estudiante_id from public.m6_entregas where tarea_id='${TAREA1.id}' order by estudiante_id`,
+    )
+  ).rows;
+  check(
+    'se crea EXACTAMENTE una entrega por alumno ENROLLED',
+    entregasT1.length === matriculadosM6 && entregasT1.length === 2,
+    `hay ${entregasT1.length}`,
+  );
+  check(
+    'los placeholders son de los dos ENROLLED',
+    entregasT1
+      .map((r) => r.estudiante_id)
+      .sort()
+      .join(',') === [ALU_M6A, ALU_M6B].sort().join(','),
+  );
+  const sinPlaceholder = (
+    await db.query(
+      `select count(*)::int as n from public.m6_entregas where tarea_id='${TAREA1.id}' and estudiante_id in ('${ALU_M6W}','${ALU_M6D}')`,
+    )
+  ).rows[0].n;
+  check('WAITLISTED y DROPPED NO reciben placeholder', sinPlaceholder === 0, `hay ${sinPlaceholder}`);
+
+  // IDEMPOTENCIA: es la garantía que hace seguro un botón que se pulsa dos
+  // veces. Sin ella, republicar duplicaría entregas por alumno.
+  const publicada2 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_publicar_tarea('${TAREA1.id}')`),
+    )
+  ).rows[0];
+  const entregasT1bis = (
+    await db.query(`select count(*)::int as n from public.m6_entregas where tarea_id='${TAREA1.id}'`)
+  ).rows[0].n;
+  check('republicar NO duplica entregas (idempotencia)', entregasT1bis === 2, `hay ${entregasT1bis}`);
+  check(
+    'republicar reporta las entregas ya existentes',
+    Number(publicada2.entregas) === 2,
+    String(publicada2.entregas),
+  );
+
+  // Y la barrera de verdad, la del motor: el `on conflict do nothing` se apoya
+  // en la `unique`; sin ella no habría nada que absorbiera el duplicado.
+  const duplicadoEntrega = await esperaError('el motor rechaza una entrega duplicada', () =>
+    db.exec(
+      `insert into public.m6_entregas (tarea_id, estudiante_id) values ('${TAREA1.id}','${ALU_M6A}')`,
+    ),
+  );
+  check(
+    'el duplicado de entrega sale 23505 (unique_violation)',
+    duplicadoEntrega?.code === '23505',
+    `código ${duplicadoEntrega?.code}`,
+  );
+
+  // --- el GRANT por columna, EN EJECUCIÓN y con filas (el metadato está en 19.3) ---
+  // La prueba de fuego que pide el diseño: un `select` como alumno sobre la
+  // columna protegida debe FALLAR por privilegios (42501), no devolver NULL. Un
+  // NULL silencioso sería peor: parecería «sin nota».
+  const verNotaBorrador = await esperaError('un alumno NO puede leer nota_borrador', () =>
+    como('authenticated', ALU_M6A, () => db.query('select nota_borrador from public.m6_entregas')),
+  );
+  check(
+    'la lectura de nota_borrador por el alumno es 42501',
+    verNotaBorrador?.code === '42501',
+    `código ${verNotaBorrador?.code}`,
+  );
+  // `select *` es el error natural del repositorio: expande la columna
+  // protegida y falla. La migración lo advierte; aquí queda demostrado.
+  const verAsterisco = await esperaError('un alumno NO puede hacer select * en m6_entregas', () =>
+    como('authenticated', ALU_M6A, () => db.query('select * from public.m6_entregas')),
+  );
+  check(
+    'el select * del alumno es 42501',
+    verAsterisco?.code === '42501',
+    `código ${verAsterisco?.code}`,
+  );
+  // Pero la lista CONCEDIDA sí debe funcionar: si no, la frontera sería una
+  // pared y el alumno no podría ver ni sus propias entregas.
+  const columnasConcedidas = await como('authenticated', ALU_M6A, () =>
+    db.query(
+      'select id, tarea_id, estudiante_id, estado, es_tardia, nota_asignada, entregada_en from public.m6_entregas',
+    ),
+  );
+  check(
+    'el alumno SÍ lee las columnas concedidas y sólo SUS filas',
+    columnasConcedidas.rows.length >= 1 &&
+      columnasConcedidas.rows.every((r) => r.estudiante_id === ALU_M6A),
+    `${columnasConcedidas.rows.length} filas`,
+  );
+
+  const e1 = (
+    await db.query(
+      `select id from public.m6_entregas where tarea_id='${TAREA1.id}' and estudiante_id='${ALU_M6A}'`,
+    )
+  ).rows[0].id;
+  const e2 = (
+    await db.query(
+      `select id from public.m6_entregas where tarea_id='${TAREA1.id}' and estudiante_id='${ALU_M6B}'`,
+    )
+  ).rows[0].id;
+
+  await como('authenticated', DOC_M6, () =>
+    db.query(`select * from public.m6_publicar_tarea('${TAREA2.id}')`),
+  );
+  const entregasT2 = (
+    await db.query(`select count(*)::int as n from public.m6_entregas where tarea_id='${TAREA2.id}'`)
+  ).rows[0].n;
+  check('publicar TAREA2 también crea 2 placeholders', entregasT2 === 2, `hay ${entregasT2}`);
+  const eT2A = (
+    await db.query(
+      `select id from public.m6_entregas where tarea_id='${TAREA2.id}' and estudiante_id='${ALU_M6A}'`,
+    )
+  ).rows[0].id;
+
+  // Entregar con plazo VENCIDO y `permitir_entrega_tardia=true`: se admite y
+  // `es_tardia` se ESCRIBE al entregar (4.2), no lo calcula ningún job.
+  const entregaTardia = (
+    await como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_entregar_tarea('${eT2A}')`),
+    )
+  ).rows[0];
+  check('entregar tras el plazo marca es_tardia', entregaTardia.es_tardia === true);
+  check(
+    'la entrega tardía queda ENTREGADA',
+    entregaTardia.estado === 'ENTREGADA',
+    String(entregaTardia.estado),
+  );
+
+  // --- entregar / reclamar ---
+  const entregada = (
+    await como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_entregar_tarea('${e1}')`),
+    )
+  ).rows[0];
+  check('el alumno dueño entrega su tarea', entregada.estado === 'ENTREGADA', String(entregada.estado));
+  check('entregar fija entregada_en', entregada.entregada_en != null);
+  // Sin fecha límite, nunca es tardía (4.2).
+  check('sin plazo, la entrega NO es tardía', entregada.es_tardia === false);
+
+  const entregaAjena = await esperaError('un alumno NO entrega la tarea de otro', () =>
+    como('authenticated', ALU_M6B, () => db.query(`select * from public.m6_entregar_tarea('${e1}')`)),
+  );
+  check('entregar la ajena sale 42501', entregaAjena?.code === '42501', `código ${entregaAjena?.code}`);
+
+  // MODIFIABLE_UNTIL_TURNED_IN (el defecto de Google): una vez entregada, no se
+  // vuelve a entregar sin reclamar. Es el 23514 que abre la válvula `reclamar`.
+  const entregaDoble = await esperaError('no se entrega dos veces sin reclamar', () =>
+    como('authenticated', ALU_M6A, () => db.query(`select * from public.m6_entregar_tarea('${e1}')`)),
+  );
+  check('la segunda entrega sale 23514', entregaDoble?.code === '23514', `código ${entregaDoble?.code}`);
+
+  const reclamada = (
+    await como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_reclamar_entrega('${e1}')`),
+    )
+  ).rows[0];
+  check('reclamar deja la entrega en RECLAMADA', reclamada.estado === 'RECLAMADA', String(reclamada.estado));
+
+  const reEntregada = (
+    await como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_entregar_tarea('${e1}')`),
+    )
+  ).rows[0];
+  check(
+    'tras reclamar, SÍ se puede volver a entregar',
+    reEntregada.estado === 'ENTREGADA',
+    String(reEntregada.estado),
+  );
+
+  const reclamarAsignada = await esperaError('no se reclama lo que nunca se entregó', () =>
+    como('authenticated', ALU_M6B, () => db.query(`select * from public.m6_reclamar_entrega('${e2}')`)),
+  );
+  check(
+    'reclamar una ASIGNADA sale 23514',
+    reclamarAsignada?.code === '23514',
+    `código ${reclamarAsignada?.code}`,
+  );
+
+  // --- calificar / devolver ---
+  const calificada = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_calificar_entrega('${e1}', 15)`),
+    )
+  ).rows[0];
+  check(
+    'calificar escribe la nota BORRADOR',
+    Number(calificada.nota_borrador) === 15,
+    String(calificada.nota_borrador),
+  );
+  // La nota asignada sigue vacía: el alumno todavía no ve nada. Escribirla aquí
+  // sería saltarse el paso de devolución.
+  check(
+    'calificar NO asigna la nota todavía',
+    calificada.nota_asignada === null,
+    String(calificada.nota_asignada),
+  );
+
+  const nota21 = await esperaError('una nota de 21 se rechaza', () =>
+    como('authenticated', DOC_M6, () => db.query(`select * from public.m6_calificar_entrega('${e1}', 21)`)),
+  );
+  check('la nota 21 sale 23514', nota21?.code === '23514', `código ${nota21?.code}`);
+  const notaNeg = await esperaError('una nota negativa se rechaza', () =>
+    como('authenticated', DOC_M6, () => db.query(`select * from public.m6_calificar_entrega('${e1}', -1)`)),
+  );
+  check('la nota -1 sale 23514', notaNeg?.code === '23514', `código ${notaNeg?.code}`);
+  // Por encima del máximo DE LA TAREA (10), aunque dentro del 0..20 global.
+  const notaExcede = await esperaError('la nota no puede superar los puntos de la tarea', () =>
+    como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_calificar_entrega('${eT2A}', 11)`),
+    ),
+  );
+  check('la nota por encima del máximo sale 23514', notaExcede?.code === '23514', `código ${notaExcede?.code}`);
+
+  const calificarVacia = await esperaError('no se califica un placeholder vacío', () =>
+    como('authenticated', DOC_M6, () => db.query(`select * from public.m6_calificar_entrega('${e2}', 5)`)),
+  );
+  check(
+    'calificar una ASIGNADA sale 23514',
+    calificarVacia?.code === '23514',
+    `código ${calificarVacia?.code}`,
+  );
+
+  const calificarAlumno = await esperaError('un alumno NO califica', () =>
+    como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_calificar_entrega('${e1}', 5)`),
+    ),
+  );
+  check(
+    'calificar como alumno sale 42501',
+    calificarAlumno?.code === '42501',
+    `código ${calificarAlumno?.code}`,
+  );
+
+  const devuelta = (
+    await como('authenticated', DOC_M6, () => db.query(`select * from public.m6_devolver_entrega('${e1}')`))
+  ).rows[0];
+  check('devolver deja la entrega en DEVUELTA', devuelta.estado === 'DEVUELTA', String(devuelta.estado));
+  // La devolución COPIA el borrador a la nota asignada: es el único momento en
+  // que el alumno ve una nota.
+  check(
+    'devolver copia el borrador a la nota asignada',
+    devuelta.nota_asignada === devuelta.nota_borrador && Number(devuelta.nota_asignada) === 15,
+    `${devuelta.nota_borrador} -> ${devuelta.nota_asignada}`,
+  );
+  check('devolver fija devuelta_en', devuelta.devuelta_en != null);
+
+  const entregarTrasDevolver = await esperaError('una entrega devuelta no se reabre', () =>
+    como('authenticated', ALU_M6A, () => db.query(`select * from public.m6_entregar_tarea('${e1}')`)),
+  );
+  check(
+    'entregar tras DEVUELTA sale 23514',
+    entregarTrasDevolver?.code === '23514',
+    `código ${entregarTrasDevolver?.code}`,
+  );
+
+  // --- el libro del docente: `nota_borrador` y el «faltante» DERIVADO ---
+  const libroT2 = await como('authenticated', DOC_M6, () =>
+    db.query(`select * from public.m6_entregas_de_tarea('${TAREA2.id}')`),
+  );
+  const filaA = libroT2.rows.find((r) => r.estudiante_id === ALU_M6A);
+  const filaB = libroT2.rows.find((r) => r.estudiante_id === ALU_M6B);
+  check('el libro del docente trae una fila por alumno', libroT2.rows.length === 2, `${libroT2.rows.length}`);
+  check(
+    'el docente recibe la nota_borrador que el GRANT le esconde a authenticated',
+    filaA !== undefined && 'nota_borrador' in filaA,
+  );
+  // 4.3: «faltante» se DERIVA al leer (ASIGNADA + plazo vencido), no se escribe.
+  check('quien entregó NO aparece como faltante', filaA?.faltante === false, String(filaA?.faltante));
+  check(
+    'quien no entregó y venció el plazo SÍ aparece como faltante',
+    filaB?.faltante === true,
+    String(filaB?.faltante),
+  );
+  // La prueba de la decisión 4.3: el sistema NO auto-escribió un 0. Si lo
+  // hubiera hecho, `nota_borrador` no sería NULL y el alumno quedaría congelado
+  // con un cero que nadie puso.
+  check(
+    'el sistema NO escribió un 0 implícito en el faltante (nota_borrador sigue NULL)',
+    filaB?.nota_borrador === null,
+    String(filaB?.nota_borrador),
+  );
+
+  const libroAlumno = await como('authenticated', ALU_M6A, () =>
+    db.query(`select * from public.m6_entregas_de_tarea('${TAREA2.id}')`),
+  );
+  check(
+    'el libro del docente NO devuelve filas a un alumno',
+    libroAlumno.rows.length === 0,
+    `${libroAlumno.rows.length} filas`,
+  );
+
+  // ------------------------------------------------- 19.5 RLS de lectura
+  const verTarea = (sub, id) =>
+    como('authenticated', sub, () => db.query(`select id from public.m6_tareas where id = '${id}'`));
+
+  // El docente ve su borrador; el alumno no. Es la razón de existir del estado
+  // BORRADOR: se prepara sin publicar.
+  check('el docente ve su propio BORRADOR', (await verTarea(DOC_M6, MATERIAL1.id)).rows.length === 1);
+  check('el alumno NO ve el BORRADOR', (await verTarea(ALU_M6A, MATERIAL1.id)).rows.length === 0);
+  check('tras publicar, el alumno SÍ ve la tarea', (await verTarea(ALU_M6A, TAREA1.id)).rows.length === 1);
+  check(
+    'un alumno no matriculado no ve ninguna tarea',
+    (await como('authenticated', ALU_M6X, () => db.query('select count(*)::int as n from public.m6_tareas')))
+      .rows[0].n === 0,
+  );
+  // DOC2 es docente, pero no dicta ESTA sección: no ve el aula ajena. Distingue
+  // «no ser docente» de «no ser docente de esta sección».
+  check(
+    'un docente que no dicta la sección no ve el aula',
+    (await como('authenticated', DOC2, () => db.query('select count(*)::int as n from public.m6_tareas')))
+      .rows[0].n === 0,
+  );
+
+  // --- decisión 4.1: publicación programada SIN planificador ---
+  // No hay job, ni cron, ni función que se llame entre el UPDATE y el SELECT.
+  // La política de lectura compara `programado_para <= now()` y el resultado es
+  // el mismo que si un proceso hubiera publicado. El UPDATE es SQL directo del
+  // superusuario, para que quede claro que NADIE más actúa.
+  await db.exec(
+    `update public.m6_tareas set estado='BORRADOR', programado_para = now() - interval '1 hour' where id='${MATERIAL1.id}'`,
+  );
+  check(
+    'una tarea programada a pasado es visible para el alumno SIN que ningún job la publique',
+    (await verTarea(ALU_M6A, MATERIAL1.id)).rows.length === 1,
+  );
+  await db.exec(
+    `update public.m6_tareas set programado_para = now() + interval '1 hour' where id='${MATERIAL1.id}'`,
+  );
+  check(
+    'una tarea programada a futuro sigue oculta al alumno',
+    (await verTarea(ALU_M6A, MATERIAL1.id)).rows.length === 0,
+  );
+  check('el docente ve el borrador programado en ambos sentidos', (await verTarea(DOC_M6, MATERIAL1.id)).rows.length === 1);
+
+  // --- el tablón: mismas dos reglas ---
+  const ANUNCIO1 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_anuncio('${SEC_M6}','Aviso 1','Contenido')`),
+    )
+  ).rows[0];
+  check(
+    'el anuncio nace BORRADOR y sin publicar',
+    ANUNCIO1.estado === 'BORRADOR' && ANUNCIO1.publicado_en === null,
+  );
+
+  const anuncioAlumno = await esperaError('un alumno NO publica en el tablón', () =>
+    como('authenticated', ALU_M6A, () =>
+      db.query(`select * from public.m6_crear_anuncio('${SEC_M6}','X','X')`),
+    ),
+  );
+  check(
+    'crear anuncio como alumno sale 42501',
+    anuncioAlumno?.code === '42501',
+    `código ${anuncioAlumno?.code}`,
+  );
+
+  const verAnuncio = (sub) =>
+    como('authenticated', sub, () => db.query(`select id from public.m6_anuncios where id = '${ANUNCIO1.id}'`));
+  check('el alumno NO ve el anuncio en BORRADOR', (await verAnuncio(ALU_M6A)).rows.length === 0);
+  await db.exec(
+    `update public.m6_anuncios set programado_para = now() - interval '1 hour' where id='${ANUNCIO1.id}'`,
+  );
+  check(
+    'el anuncio programado a pasado es visible SIN planificador',
+    (await verAnuncio(ALU_M6A)).rows.length === 1,
+  );
+  await db.exec(
+    `update public.m6_anuncios set programado_para = now() + interval '1 hour' where id='${ANUNCIO1.id}'`,
+  );
+  check('el anuncio programado a futuro sigue oculto', (await verAnuncio(ALU_M6A)).rows.length === 0);
+
+  // Un anuncio programado conserva su fecha: `programado_para` es la promesa.
+  const ANUNCIO2 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(`select * from public.m6_crear_anuncio('${SEC_M6}','Aviso 2','', now() + interval '1 day')`),
+    )
+  ).rows[0];
+  check(
+    'un anuncio programado conserva su fecha y sigue en BORRADOR',
+    ANUNCIO2.programado_para != null && ANUNCIO2.estado === 'BORRADOR',
+  );
+
+  // --------------------------------- 19.6 las 3 políticas nuevas de archivos
+  //  Cierran la mitad de D17 que M5 no podía expresar: `files_metadata.entidad_id`
+  //  no tenía tabla que lo respaldara. M6 se la da (`m6_tareas` / `m6_entregas`)
+  //  y añade tres políticas de lectura ADITIVAS sobre la tabla de M5 —que no se
+  //  edita—. PostgreSQL combina los SELECT con OR: ninguna de M5 se debilita.
+  const veArchivo = (sub, id) =>
+    como('authenticated', sub, () =>
+      db.query(`select count(*)::int as n from public.files_metadata where id = '${id}'`),
+    );
+
+  // (a) El docente sube una guía de SU tarea publicada.
+  const guiaT1 = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${DOC_M6}','m6/guias/t1.pdf','guia-t1.pdf','application/pdf','TEACHER_GUIDE','${TAREA1.id}')`,
+      ),
+    )
+  ).rows[0];
+  check('el docente registra una guía de su tarea (el trigger la acepta)', Boolean(guiaT1?.id));
+
+  // (b) Guía colgada de un BORRADOR: el alumno no la ve hasta que se publique.
+  // Se limpia `programado_para` para que el borrador no sea «programado a pasado».
+  await db.exec(`update public.m6_tareas set programado_para = null where id='${MATERIAL1.id}'`);
+  const guiaBorrador = (
+    await como('authenticated', DOC_M6, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${DOC_M6}','m6/guias/borrador.pdf','guia-borrador.pdf','application/pdf','TEACHER_GUIDE','${MATERIAL1.id}')`,
+      ),
+    )
+  ).rows[0];
+
+  check(
+    'el alumno matriculado VE la guía de una tarea publicada',
+    (await veArchivo(ALU_M6A, guiaT1.id)).rows[0].n === 1,
+  );
+  check(
+    'el alumno NO ve la guía de una tarea en BORRADOR',
+    (await veArchivo(ALU_M6A, guiaBorrador.id)).rows[0].n === 0,
+  );
+  check(
+    'un alumno no matriculado tampoco ve la guía publicada',
+    (await veArchivo(ALU_M6X, guiaT1.id)).rows[0].n === 0,
+  );
+
+  // (c) LA ASERCIÓN QUE CIERRA D17: el alumno sube su entrega y el DOCENTE la ve,
+  // aunque el archivo NO sea suyo. Antes de M6 era imposible: no había unión
+  // entre `entidad_id` y ninguna tabla.
+  const entregaFile = (
+    await como('authenticated', ALU_M6A, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${ALU_M6A}','m6/entregas/a1.pdf','entrega.pdf','application/pdf','TASK_SUBMISSION','${e1}')`,
+      ),
+    )
+  ).rows[0];
+  check('el alumno registra su entrega', Boolean(entregaFile?.id));
+  check(
+    'EL DOCENTE VE LA ENTREGA DE SU ALUMNO (política files_metadata_docente_entrega)',
+    (await veArchivo(DOC_M6, entregaFile.id)).rows[0].n === 1,
+  );
+  check('otro alumno NO ve la entrega ajena', (await veArchivo(ALU_M6B, entregaFile.id)).rows[0].n === 0);
+  check(
+    'un alumno no matriculado tampoco ve la entrega ajena',
+    (await veArchivo(ALU_M6X, entregaFile.id)).rows[0].n === 0,
+  );
+  // M5 sigue valiendo: el dueño ve lo suyo. Las nuevas políticas son aditivas.
+  check(
+    'el dueño sigue viendo su propio archivo (M5 intacta, políticas aditivas)',
+    (await veArchivo(ALU_M6A, entregaFile.id)).rows[0].n === 1,
+  );
+
+  // ----------------------------- 19.7 trigger de integridad de `entidad_id`
+  //  PARTE 7.1: M6 da sentido a `entidad_id`, así que M6 impide que apunte a
+  //  cualquier cosa. Sin esto, un alumno colgaría un archivo de la entrega de
+  //  OTRO compañero y al docente le aparecería material ajeno.
+  const ajeno = await esperaError('no se ata un archivo a la entrega de otro', () =>
+    como('authenticated', ALU_M6B, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${ALU_M6B}','m6/x/ajena.pdf','x.pdf','application/pdf','TASK_SUBMISSION','${e1}')`,
+      ),
+    ),
+  );
+  check('atarse a la entrega ajena sale 23503', ajeno?.code === '23503', `código ${ajeno?.code}`);
+
+  const inexistente = await esperaError('no se ata un archivo a una entidad inexistente', () =>
+    como('authenticated', ALU_M6A, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${ALU_M6A}','m6/x/nada.pdf','x.pdf','application/pdf','TASK_SUBMISSION','00000000-0000-4000-8000-0000000000ff')`,
+      ),
+    ),
+  );
+  check('la entidad inexistente sale 23503', inexistente?.code === '23503', `código ${inexistente?.code}`);
+
+  const guiaAjena = await esperaError('un alumno no cuelga una guía en una tarea que no dicta', () =>
+    como('authenticated', ALU_M6A, () =>
+      db.query(
+        `select id from public.registrar_archivo_pendiente('${ALU_M6A}','m6/x/guia.pdf','x.pdf','application/pdf','TEACHER_GUIDE','${TAREA1.id}')`,
+      ),
+    ),
+  );
+  check('la guía en tarea ajena sale 23503', guiaAjena?.code === '23503', `código ${guiaAjena?.code}`);
+
+  // `entidad_id` NULL sigue permitido: M5 lo admite a propósito (la entidad
+  // puede crearse después) y la UI sube material de apoyo sin atarlo todavía.
+  const sinEntidad = await como('authenticated', ALU_M6A, () =>
+    db.query(
+      `select id from public.registrar_archivo_pendiente('${ALU_M6A}','m6/x/suelto.pdf','x.pdf','application/pdf','TASK_SUBMISSION',null)`,
+    ),
+  );
+  check('entidad_id NULL sigue permitido (M5 lo admite)', Boolean(sinEntidad.rows[0]?.id));
+
+  // El caso válido que prueba que el trigger no rechaza todo: una guía de una
+  // tarea que el docente SÍ dicta.
+  const guiaValida = await como('authenticated', DOC_M6, () =>
+    db.query(
+      `select id from public.registrar_archivo_pendiente('${DOC_M6}','m6/guias/t2.pdf','guia-t2.pdf','application/pdf','TEACHER_GUIDE','${TAREA2.id}')`,
+    ),
+  );
+  check('una guía válida del docente se acepta (el trigger no rechaza todo)', Boolean(guiaValida.rows[0]?.id));
+
+  // ----------------------------------------------- 19.8 semilla del módulo
+  //  La sección 2 ya fija clave, orden y bandera. Aquí sólo lo que le es propio
+  //  a M6 —nombre, icono y categoría—, que no se comprueba en ningún otro sitio.
+  const moduloM6 = (
+    await db.query(
+      "select nombre, icono, categoria from public.system_modules where clave='m6_aula_virtual'",
+    )
+  ).rows[0];
+  check('el módulo se llama «Aula Virtual»', moduloM6?.nombre === 'Aula Virtual', String(moduloM6?.nombre));
+  check('el módulo usa el icono school', moduloM6?.icono === 'school', String(moduloM6?.icono));
+  check('el módulo es de categoría academico', moduloM6?.categoria === 'academico', String(moduloM6?.categoria));
 
   // ---------------------------------------------------------------- resumen
   console.log(

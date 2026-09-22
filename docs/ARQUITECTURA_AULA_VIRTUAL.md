@@ -87,7 +87,7 @@ modelo.
 | `creado_por` | uuid FK → `profiles(id)` | |
 | `titulo`, `descripcion` | text | |
 | `tipo` | text | `TAREA` \| `MATERIAL` \| `PREGUNTA`. Reproduce `workType` y la separación `CourseWork` / `CourseWorkMaterial`. |
-| `puntos_maximos` | numeric(4,2) | `DEFAULT 20`, `CHECK (puntos_maximos > 0 AND puntos_maximos <= 20)`. |
+| `puntos_maximos` | numeric(4,2) | `DEFAULT 20`, `CHECK (>= 0 AND <= 20)` **+ coherencia por tipo** (ver §2.5). |
 | `fecha_limite` | timestamptz NULL | |
 | `permitir_entrega_tardia` | boolean | `DEFAULT true` (comportamiento de Google). |
 | `permite_edicion` | text | `MODIFIABLE_UNTIL_TURNED_IN` (defecto) \| `MODIFIABLE`. |
@@ -102,6 +102,60 @@ modelo.
 material de lectura, sin nota ni fecha límite. El `CHECK` de coherencia lo exige:
 una tarea de tipo `MATERIAL` no puede tener `puntos_maximos` distintos de 0 ni
 `fecha_limite` no nula.
+
+#### 2.5 Por qué `puntos_maximos` son tres `CHECK` y no uno
+
+Este documento pedía, en su primera versión, dos cosas incompatibles: un rango
+`> 0` y, a la vez, que un `MATERIAL` tuviera `puntos_maximos = 0`. Un `MATERIAL`
+no habría podido existir — el diseño tenía una contradicción que no se ve hasta
+que se escribe la restricción. Se resuelve con tres, cada uno diciendo una cosa:
+
+```sql
+check (puntos_maximos >= 0 and puntos_maximos <= 20),          -- el rango
+check (tipo <> 'MATERIAL' or puntos_maximos = 0),              -- el material no se califica
+check (tipo =  'MATERIAL' or puntos_maximos > 0)               -- lo calificable vale > 0
+```
+
+Un único `CHECK` no puede decir «mayor que cero salvo para `MATERIAL`» sin
+repetir el tipo dentro de la expresión, y una condición con la misma cláusula
+dos veces es una que se corrige en un sitio y no en el otro.
+
+La comprobación está **además** en `m6_crear_tarea`, para devolver un mensaje
+que se entienda («Un MATERIAL es de lectura: no lleva puntos ni fecha límite»)
+en vez de un `violates check constraint m6_tareas_material_sin_nota` a secas.
+Las dos capas no son redundancia: una da el mensaje, la otra garantiza que no
+haya camino que las esquive —incluido un `insert` desde el editor SQL—.
+
+#### 2.6 Un valor por defecto que contradecía al caso más común
+
+`m6_crear_tarea` tenía `p_puntos_maximos default 20`. La consecuencia no se ve
+hasta que alguien hace la llamada natural:
+
+```sql
+-- Un material de lectura no se califica, así que no se le pasan puntos.
+select * from public.m6_crear_tarea(sec, 'Lectura', '', 'MATERIAL');
+-- ERROR 23514: Un MATERIAL es de lectura: no lleva puntos ni fecha límite.
+```
+
+El argumento llegaba valiendo **20**, la comprobación de coherencia de `MATERIAL`
+lo leía como «un material con puntos» y rechazaba. El valor por defecto
+contradecía exactamente al caso para el que existía el tipo.
+
+Se corrige con `default null`: «no me lo dijeron» pasa a distinguirse de «me
+dijeron 20», y el 20 de negocio se aplica **dentro**, sólo a lo que sí se
+califica (`case when tipo='MATERIAL' then 0 else coalesce(p_puntos_maximos, 20) end`).
+Los dos `CHECK` de coherencia siguen ahí y el guardia sigue guardando: un
+`MATERIAL` con puntos explícitos sigue siendo 400.
+
+> **La lección, que es transferible:** un valor por defecto que contradice al
+> caso más frecuente es **peor que no tenerlo**, porque el error aparece lejos
+> de su causa. Y se detectó porque la puerta de verificación **no** convirtió el
+> comportamiento en una aserción: congelarlo como contrato habría dejado el
+> defecto escrito en piedra.
+
+Los dos errores que la tabla habría dado como violación de `CHECK` se traducen
+también a errores de negocio: `TAREA` con 0 → «Una tarea calificable debe valer
+más de 0 puntos», y por encima de 20 → «La nota máxima no puede superar 20».
 
 ### 2.3 `m6_entregas` — StudentSubmission
 
@@ -238,12 +292,34 @@ con `auth.uid()`**: al ser `definer`, la RLS no la protege (lección R-20).
 
 | RPC | Quién | Efecto |
 |---|---|---|
+| `m6_crear_anuncio(seccion, titulo, cuerpo, programado_para)` | Docente de la sección | Inserta con `estado='BORRADOR'`. |
 | `m6_crear_tarea(...)` | Docente de la sección | Inserta con `estado='BORRADOR'`. |
 | `m6_publicar_tarea(tarea_id)` | Docente de la sección | `PUBLICADO` + `publicado_en` + **crea los placeholders** de entrega por cada matrícula `ENROLLED`. |
 | `m6_entregar_tarea(entrega_id)` | El alumno dueño | `ENTREGADA`, `entregada_en`, `es_tardia`; valida §4.4. |
 | `m6_reclamar_entrega(entrega_id)` | El alumno dueño | `RECLAMADA` (el «des-entregar» de Google). |
 | `m6_calificar_entrega(entrega_id, nota)` | Docente de la sección | `nota_borrador := nota`. |
 | `m6_devolver_entrega(entrega_id)` | Docente de la sección | `nota_asignada := nota_borrador`, `DEVUELTA`, `devuelta_en`. |
+| `m6_entregas_de_tarea(tarea_id)` | Docente de la sección | **Lectura**: el libro de calificaciones, con `nota_borrador` y el `faltante` derivado. |
+
+Son **ocho y no seis**. Las dos que el diseño no preveía son las que se
+descubrieron al escribir la migración, y ninguna es cosmética:
+
+- **`m6_crear_anuncio`** cierra la simetría con `m6_crear_tarea`. Sin ella, el
+  tablón habría sido la única tabla del módulo con escritura directa, y una
+  política de `INSERT` laxa dejaría a cualquiera publicar en el tablón de una
+  sección ajena —o marcarse el anuncio como `PUBLICADO` de una vez, saltándose
+  el borrador—.
+- **`m6_entregas_de_tarea`** es la que hace posible la ruta del libro. Y su
+  ausencia habría sido un fallo **silencioso**, no un error: el `GRANT` por
+  columna le esconde `nota_borrador` a `authenticated`, así que un `SELECT`
+  normal desde la ruta habría devuelto la columna en blanco y el docente habría
+  calificado a ciegas sin que nada fallara. Ver §3.2.
+
+**Las RPC devuelven columnas explícitas, nunca la fila entera.** No es estilo:
+devolver `setof m6_entregas` arrastraría `nota_borrador` dentro del resultado, y
+el `GRANT` por columna habría quedado decorativo —el alumno recibiría la nota
+que se quiso esconder—. Por eso `m6_entregar_tarea` y `m6_reclamar_entrega`
+declaran seis columnas, y `m6_calificar_entrega` y `m6_devolver_entrega` siete.
 
 **Publicar es idempotente.** Volver a publicar no duplica placeholders: el
 `unique (tarea_id, estudiante_id)` con `on conflict do nothing` lo garantiza. Un
@@ -319,3 +395,57 @@ módulo es la excepción, porque que el módulo esté encendido no lo sabe la ba
 **Obligatorio tras tocar la migración:** la suite de PGlite. Un `CHECK` o una
 política RLS que no se prueba contra un motor real es una intención, no una
 barrera.
+
+---
+
+## 10. Lo que cambió al escribir la migración
+
+Este documento se escribió antes que el SQL. Al escribirlo aparecieron **tres
+cosas que el diseño no había previsto**, y se anotan aquí en vez de dejarlas
+sólo en el archivo `.sql`, porque un diseño que no registra sus correcciones
+obliga a reconstruir la historia cada vez que alguien lo lee.
+
+| # | Lo que decía el diseño | Lo que se hizo | Por qué |
+|---|---|---|---|
+| 1 | `puntos_maximos > 0` **y** un `MATERIAL` con 0 | Tres `CHECK` (§2.5) | Las dos condiciones juntas son insatisfacibles: un `MATERIAL` no podría existir. |
+| 2 | Seis RPC, todas de escritura | Ocho, dos de ellas de lectura | Sin `m6_crear_anuncio` el tablón sería la única tabla con escritura directa; sin `m6_entregas_de_tarea` la ruta del libro devolvería `nota_borrador` en blanco **sin dar error** (§5). |
+| 3 | Nada sobre la integridad de `entidad_id` | Un trigger en `files_metadata` | M6 es quien **da sentido** a `files_metadata.entidad_id`, así que M6 es quien debe impedir que apunte a cualquier cosa. |
+
+### 10.1 El agujero que abre M6 y no M5
+
+Hasta esta migración, `files_metadata.entidad_id` era un UUID **sin significado**:
+no había tabla que lo respaldara. M5 no podía validarlo porque no había contra
+qué. A partir de `m6_entregas` sí lo hay, y con el significado llega el riesgo:
+
+- Un alumno podía subir un archivo con el `entidad_id` de la entrega de **otro
+  compañero** —la RPC de M5 no lo mira y no se puede editar, ya está aplicada— y
+  al docente le aparecería un archivo ajeno colgado de una entrega que no lo
+  subió.
+- Con `entity_type='TEACHER_GUIDE'`, un alumno podía colgar «material de apoyo»
+  en la tarea de **toda la sección**.
+
+Se cierra con el trigger `m6_validar_entidad_de_archivo` (PARTE 7.1 de la
+migración): una `TASK_SUBMISSION` exige una entrega que exista y sea **de quien
+sube el archivo**; una `TEACHER_GUIDE` exige una tarea que el usuario dicte (o
+que sea administrador). `entidad_id` **NULL sigue permitido**: M5 lo admite a
+propósito —la entidad puede crearse después de subir el archivo— y la pantalla
+del estudiante sube material de apoyo sin atarlo a nada todavía.
+
+Va en un trigger y no en la ruta por la razón de siempre: la ruta no es la
+frontera (ADR-003), y un `insert` desde el editor SQL tampoco pasa por Node.
+
+### 10.2 Lo que sigue sin resolverse, y se sabe
+
+| Pendiente | Dónde se resolverá |
+|---|---|
+| Editar y eliminar anuncios y tareas (el diseño sólo tiene creación y publicación) | Ciclo propio; el `estado='ELIMINADO'` ya está previsto en las tablas |
+| El motor de `tipo='PREGUNTA'` | Ciclo propio; hoy es un marcador |
+| El libro de calificaciones **del alumno** (sus notas de todas las materias) | M7 (`m7_calificaciones`), que ya tiene su hueco |
+| Encender `m6_aula_virtual` | `202609220002_mod6_habilitar_modulo.sql`, cuando exista la UI en Flutter |
+
+**El módulo queda APAGADO a propósito.** Es la misma decisión que tomó M5: la
+bandera se enciende cuando ya existen las rutas **y** la UI que las sostiene.
+Al cerrar la fase 3 existen las rutas, pero el aula en Flutter todavía no, así
+que encenderla dejaría un ítem de menú sin circuito detrás —el patrón de R-22—.
+La suite de PGlite fija ese `false` para que encenderla sea una decisión y no un
+descuido.
