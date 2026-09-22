@@ -243,6 +243,34 @@ export function rutasAula(app: FastifyInstance, deps: DependenciasRutas): void {
     },
   );
 
+  /**
+   * Reclama la entrega: el «des-entregar» de Google, y la única válvula de
+   * escape de `MODIFIABLE_UNTIL_TURNED_IN`.
+   *
+   * Sin esta ruta, el botón «Reclamar entrega» de la UI no tendría a dónde
+   * llamar: la RPC existe y está concedida, pero un cliente no puede invocarla
+   * si no hay puerta HTTP. La entrega vuelve a `RECLAMADA` para que el alumno
+   * pueda volver a entregarla.
+   *
+   * La RPC devuelve exactamente las mismas columnas que `entregar`
+   * (`id, tarea_id, estado, es_tardia, nota_asignada, entregada_en`), así que la
+   * respuesta es la misma `Entrega` en camelCase. Las dos condiciones —ser el
+   * dueño y venir de `ENTREGADA`— las decide la base: una entrega ya devuelta no
+   * se reabre, y eso llega como 403 o 400 con su mensaje, no como un filtro que
+   * esta ruta repita.
+   */
+  app.post<{ Params: { entregaId: string } }>(
+    '/api/v1/aula/entregas/:entregaId/reclamar',
+    { preHandler: [exigirSesion(), exigirAula] },
+    async (request) => {
+      const { entregaId } = esquemaRutaEntrega.parse(request.params);
+
+      const entrega = await reposDe(request).aula.reclamar(entregaId);
+
+      return { entrega };
+    },
+  );
+
   // --- Calificación ---------------------------------------------------------
 
   /**

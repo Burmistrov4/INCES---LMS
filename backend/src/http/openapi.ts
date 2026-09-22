@@ -3249,6 +3249,31 @@ export function construirRegistro(): OpenAPIRegistry {
   registro.registerPath({
     ...aulaTag,
     method: 'post',
+    path: '/api/v1/aula/entregas/{entregaId}/reclamar',
+    summary: 'Reclama la entrega para volver a entregarla (alumno dueño)',
+    description:
+      'El «des-entregar» de Google, y la única válvula de escape de `MODIFIABLE_UNTIL_TURNED_IN`: la entrega vuelve a `RECLAMADA` para que el alumno pueda entregarla de nuevo. Sólo el alumno dueño (403 si no) y sólo desde `ENTREGADA`; una entrega ya devuelta **no** se reabre, porque reclamarla devolvería a borrador una nota que el alumno ya vio. Ambas condiciones las decide la RPC y llegan como 403 o 400 con su mensaje. Devuelve la misma `Entrega` que `entregar`, sin `nota_borrador`.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroEntregaAula },
+    responses: {
+      200: {
+        description: 'La entrega quedó `RECLAMADA` y admite una nueva entrega.',
+        content: { 'application/json': { schema: RespuestaEntrega } },
+      },
+      400: error(
+        'El identificador no es un UUID, la entrega no existe, o su estado no es `ENTREGADA` (RESTRICCION_VIOLADA).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      403: error(
+        'La entrega no es tuya (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...aulaTag,
+    method: 'post',
     path: '/api/v1/aula/entregas/{entregaId}/calificar',
     summary: 'Escribe la nota borrador (docente)',
     description:

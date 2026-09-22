@@ -53,7 +53,7 @@ afterEach(async () => {
   app = null;
 });
 
-/** Las diez rutas del módulo, con ids válidos, para las pruebas de acceso. */
+/** Las once rutas del módulo, con ids válidos, para las pruebas de acceso. */
 const RUTAS = [
   { method: 'GET' as const, url: `/api/v1/aula/secciones/${ID_SECCION_SA}/tablon` },
   { method: 'POST' as const, url: `/api/v1/aula/secciones/${ID_SECCION_SA}/anuncios` },
@@ -63,6 +63,7 @@ const RUTAS = [
   { method: 'GET' as const, url: `/api/v1/aula/tareas/${ID_TAREA_SA}/entregas` },
   { method: 'GET' as const, url: '/api/v1/aula/mis-entregas' },
   { method: 'POST' as const, url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/entregar` },
+  { method: 'POST' as const, url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar` },
   { method: 'POST' as const, url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/calificar` },
   { method: 'POST' as const, url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/devolver` },
 ];
@@ -80,7 +81,7 @@ function conModuloApagado(): Arnés {
 }
 
 describe('control de acceso al aula', () => {
-  it('exige sesión en las diez rutas', async () => {
+  it('exige sesión en las once rutas', async () => {
     const arnes = crearArnés();
     app = arnes.app;
 
@@ -113,7 +114,7 @@ describe('control de acceso al aula', () => {
 });
 
 describe('la guardia del módulo (m6_aula_virtual)', () => {
-  it('con el módulo apagado, las diez rutas responden 403 y no llegan a tocar nada', async () => {
+  it('con el módulo apagado, las once rutas responden 403 y no llegan a tocar nada', async () => {
     // Ésta es la prueba que da sentido a la bandera, y sin ella la guardia sería
     // fe. El módulo arranca **encendido** en el arnés, así que una guardia
     // cableada a la clave equivocada —`m6_aula`, sin el `_virtual`— nunca se
@@ -744,6 +745,139 @@ describe('entregar', () => {
 
     expect(respuesta.statusCode).toBe(400);
     expect(respuesta.json().error.mensaje).toContain('Reclámala');
+  });
+});
+
+describe('reclamar', () => {
+  it('sin token responde 401: la sesión va antes que la guardia de módulo', async () => {
+    // La ruta existe para el botón «Reclamar entrega» de la UI. Si el
+    // `preHandler` estuviera invertido, una petición anónima con el módulo
+    // apagado recibiría 403 y el cliente creería que el problema es la bandera.
+    const arnes = conModuloApagado();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar`,
+    });
+
+    expect(respuesta.statusCode).toBe(401);
+    expect(respuesta.json().error.codigo).toBe('NO_AUTENTICADO');
+  });
+
+  it('el alumno reclama su entrega entregada y vuelve a RECLAMADA, en camelCase', async () => {
+    const arnes = crearArnés({
+      entregas: [
+        {
+          id: ID_ENTREGA_SA,
+          tareaId: ID_TAREA_SA,
+          estudianteId: ID_ALUMNO,
+          estado: 'ENTREGADA',
+          esTardia: false,
+          entregadaEn: '2026-09-01T10:00:00.000Z',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(respuesta.statusCode).toBe(200);
+
+    const { entrega } = respuesta.json();
+    expect(entrega.estado).toBe('RECLAMADA');
+    expect(entrega.id).toBe(ID_ENTREGA_SA);
+    expect(entrega.tareaId).toBe(ID_TAREA_SA);
+    // La misma `Entrega` camelCase que devuelve `entregar`: sin `nota_borrador`.
+    expect(respuesta.body).not.toContain('notaBorrador');
+    expect(respuesta.body).not.toContain('nota_borrador');
+  });
+
+  it('reclamar y volver a entregar cierra el ciclo', async () => {
+    const arnes = crearArnés({
+      entregas: [
+        {
+          id: ID_ENTREGA_SA,
+          tareaId: ID_TAREA_SA,
+          estudianteId: ID_ALUMNO,
+          estado: 'ENTREGADA',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const reclamada = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+    expect(reclamada.statusCode).toBe(200);
+
+    const entregada = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/entregar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(entregada.statusCode).toBe(200);
+    expect(entregada.json().entrega.estado).toBe('ENTREGADA');
+  });
+
+  it('un alumno no puede reclamar la entrega de otro: 403', async () => {
+    const arnes = crearArnés({
+      entregas: [
+        {
+          id: ID_ENTREGA_SA,
+          tareaId: ID_TAREA_SA,
+          estudianteId: '99999999-9999-4999-8999-999999999999',
+          estado: 'ENTREGADA',
+        },
+      ],
+    });
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(respuesta.statusCode).toBe(403);
+    expect(respuesta.json().error.mensaje).toContain('no es tuya');
+  });
+
+  it('no se puede reclamar una entrega que no está ENTREGADA: 400', async () => {
+    // El doble fiel a la RPC: reclamar una `ASIGNADA` no tiene sentido y una
+    // `DEVUELTA` reabriría una nota que el alumno ya vio.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: `/api/v1/aula/entregas/${ID_ENTREGA_SA}/reclamar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.mensaje).toContain('ya entregada');
+  });
+
+  it('un id que no es UUID da 400 antes de tocar la base', async () => {
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/aula/entregas/no-es-uuid/reclamar',
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(respuesta.statusCode).toBe(400);
+    expect(respuesta.json().error.codigo).toBe('PETICION_INVALIDA');
   });
 });
 

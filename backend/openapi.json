@@ -8634,6 +8634,85 @@
         }
       }
     },
+    "/api/v1/aula/entregas/{entregaId}/reclamar": {
+      "post": {
+        "tags": [
+          "Aula Virtual"
+        ],
+        "summary": "Reclama la entrega para volver a entregarla (alumno dueño)",
+        "description": "El «des-entregar» de Google, y la única válvula de escape de `MODIFIABLE_UNTIL_TURNED_IN`: la entrega vuelve a `RECLAMADA` para que el alumno pueda entregarla de nuevo. Sólo el alumno dueño (403 si no) y sólo desde `ENTREGADA`; una entrega ya devuelta **no** se reabre, porque reclamarla devolvería a borrador una nota que el alumno ya vio. Ambas condiciones las decide la RPC y llegan como 403 o 400 con su mensaje. Devuelve la misma `Entrega` que `entregar`, sin `nota_borrador`.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la entrega. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "entregaId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La entrega quedó `RECLAMADA` y admite una nueva entrega.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaEntrega"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El identificador no es un UUID, la entrega no existe, o su estado no es `ENTREGADA` (RESTRICCION_VIOLADA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La entrega no es tuya (SIN_PERMISO_EN_EL_AULA), o el módulo está apagado (MODULO_DESHABILITADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/aula/entregas/{entregaId}/calificar": {
       "post": {
         "tags": [
