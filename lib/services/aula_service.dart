@@ -5,8 +5,8 @@ import 'supabase_service.dart';
 
 /// Implementación de [AulaGateway] contra el backend Fastify.
 ///
-/// Cubre el listado de aulas y el contenido del aula, que son las seis
-/// operaciones que la UI usa hoy:
+/// Cubre el listado de aulas, el contenido del aula y el Centro de Mando del
+/// docente —doce operaciones en total—:
 ///
 /// | Método | Ruta |
 /// |---|---|
@@ -16,6 +16,12 @@ import 'supabase_service.dart';
 /// | [misEntregas] | `GET /api/v1/aula/mis-entregas` |
 /// | [entregar] | `POST /api/v1/aula/entregas/:entregaId/entregar` |
 /// | [reclamar] | `POST /api/v1/aula/entregas/:entregaId/reclamar` |
+/// | [crearAnuncio] | `POST /api/v1/aula/secciones/:seccionId/anuncios` |
+/// | [crearTarea] | `POST /api/v1/aula/secciones/:seccionId/tareas` |
+/// | [publicarTarea] | `POST /api/v1/aula/tareas/:tareaId/publicar` |
+/// | [libroDeCalificaciones] | `GET /api/v1/aula/tareas/:tareaId/entregas` |
+/// | [calificar] | `POST /api/v1/aula/entregas/:entregaId/calificar` |
+/// | [devolver] | `POST /api/v1/aula/entregas/:entregaId/devolver` |
 ///
 /// **La forma de las respuestas no está adivinada.** Sale de los mapeadores
 /// `a*` de `backend/src/infra/repos-supabase.ts`: ninguna ruta declara un
@@ -149,6 +155,128 @@ class BackendAulaGateway implements AulaGateway {
 
     return Entrega.fromJson(respuesta['entrega'] as Map<String, dynamic>);
   }
+
+  // --- Centro de Mando del docente ------------------------------------------
+
+  @override
+  Future<Anuncio> crearAnuncio({
+    required String seccionId,
+    required String titulo,
+    String? cuerpo,
+    DateTime? programadoPara,
+  }) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/secciones/$seccionId/anuncios',
+      token: _tokenSesion(),
+      // El cuerpo es vacío por defecto y `programadoPara` ausente significa
+      // «publícalo ya»; por eso se envían sólo los valores presentes. Los
+      // esquemas HTTP de M6 son `.strict()` y `tema: ''` reventaría el `.min(1)`,
+      // así que un `null` se omite y no se manda como cadena vacía.
+      cuerpo: _sinNulos(<String, dynamic>{
+        'titulo': titulo,
+        'cuerpo': cuerpo ?? '',
+        'programadoPara': programadoPara?.toIso8601String(),
+      }),
+    );
+
+    return Anuncio.fromJson(respuesta['anuncio'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<TareaDeClase> crearTarea({
+    required String seccionId,
+    required String titulo,
+    String? descripcion,
+    required TipoTarea tipo,
+    double? puntosMaximos,
+    DateTime? fechaLimite,
+    bool permitirEntregaTardia = true,
+    String? tema,
+    int orden = 0,
+  }) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/secciones/$seccionId/tareas',
+      token: _tokenSesion(),
+      cuerpo: _sinNulos(<String, dynamic>{
+        'titulo': titulo,
+        'descripcion': descripcion ?? '',
+        'tipo': tipo.valorRemoto,
+        // `null` para un MATERIAL: la RPC lo distingue de «me dijeron 20» y no
+        // lo rechaza con 23514. Si viniera `0` por un campo numérico vacío,
+        // el `CHECK` de material lo habría rechazado; omitir la clave evita eso.
+        'puntosMaximos': puntosMaximos,
+        'fechaLimite': fechaLimite?.toIso8601String(),
+        'permitirEntregaTardia': permitirEntregaTardia,
+        'tema': tema,
+        'orden': orden,
+      }),
+    );
+
+    return TareaDeClase.fromJson(respuesta['tarea'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<PublicacionTarea> publicarTarea(String tareaId) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/tareas/$tareaId/publicar',
+      token: _tokenSesion(),
+    );
+
+    // La ruta devuelve `{ tarea: {id, seccionId, titulo, estado, publicadoEn},
+    // entregasCreadas }` a secas —no envuelta en una clave—, porque la RPC sólo
+    // retorna la cabecera. Se mapea exactamente eso, no se inventa el resto.
+    final tarea = respuesta['tarea'] as Map<String, dynamic>;
+
+    return PublicacionTarea(
+      tareaId: tarea['id'] as String,
+      seccionId: tarea['seccionId'] as String,
+      titulo: tarea['titulo'] as String,
+      estado: EstadoTarea.desde(tarea['estado'] as String?),
+      publicadoEn: tarea['publicadoEn'] as String?,
+      entregasCreadas: (respuesta['entregasCreadas'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  Future<List<LibroEntrega>> libroDeCalificaciones(String tareaId) async {
+    final respuesta = await _api.get(
+      '$_rutaAula/tareas/$tareaId/entregas',
+      token: _tokenSesion(),
+    );
+
+    return _listaDe(respuesta, 'entregas', LibroEntrega.fromJson);
+  }
+
+  @override
+  Future<LibroEntrega> calificar(String entregaId, double nota) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/entregas/$entregaId/calificar',
+      token: _tokenSesion(),
+      cuerpo: {'nota': nota},
+    );
+
+    return LibroEntrega.fromJson(respuesta['entrega'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<LibroEntrega> devolver(String entregaId) async {
+    final respuesta = await _api.post(
+      '$_rutaAula/entregas/$entregaId/devolver',
+      token: _tokenSesion(),
+    );
+
+    return LibroEntrega.fromJson(respuesta['entrega'] as Map<String, dynamic>);
+  }
+
+  /// Quita las claves con valor `null` de un mapa antes de enviarlo.
+  ///
+  /// Los esquemas HTTP de M6 son `.strict()`: una clave no conocida revienta con
+  /// 400, y una clave presente con `null` es ruido que la RPC no necesita. Enviar
+  /// sólo lo que hay evita ambigüedades —`tema: ''` pasaría el `.min(1)` y
+  /// reventaría— y deja que el `default null` del backend actúe para lo que no se
+  /// dijo.
+  static Map<String, dynamic> _sinNulos(Map<String, dynamic> mapa) =>
+      mapa..removeWhere((_, valor) => valor == null);
 
   /// Reduce el horario del llamante a un aula por sección.
   ///

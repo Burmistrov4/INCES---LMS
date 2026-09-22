@@ -385,6 +385,45 @@ class LibroEntrega {
       );
 }
 
+/// Lo que devuelve [AulaGateway.publicarTarea].
+///
+/// Es la **cabecera** de la tarea —estado y fecha de publicación— acoplada al
+/// recuento de entregas creadas. Eso es todo lo que la RPC devuelve; completar
+/// los demás campos aquí sería inventarlos. El recuento importa a la UI: es la
+/// confirmación de que se creó un placeholder por estudiante matriculado.
+class PublicacionTarea {
+  const PublicacionTarea({
+    required this.tareaId,
+    required this.seccionId,
+    required this.titulo,
+    required this.estado,
+    this.publicadoEn,
+    required this.entregasCreadas,
+  });
+
+  final String tareaId;
+  final String seccionId;
+  final String titulo;
+  final EstadoTarea estado;
+
+  /// Cuándo se publicó. `null` no debería ocurrir en una publicación exitosa,
+  /// pero se lee con respaldo para no reventar si la RPC lo omite.
+  final String? publicadoEn;
+
+  /// Cuántas entregas se crearon. 0 en una segunda publicación (idempotente),
+  /// y eso es un 200 con la verdad, no un error.
+  final int entregasCreadas;
+
+  factory PublicacionTarea.fromJson(Map<String, dynamic> json) => PublicacionTarea(
+        tareaId: json['id'] as String,
+        seccionId: json['seccionId'] as String,
+        titulo: json['titulo'] as String,
+        estado: EstadoTarea.desde(json['estado'] as String?),
+        publicadoEn: json['publicadoEn'] as String?,
+        entregasCreadas: (json['entregasCreadas'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// Una de las aulas del llamante, reducida a lo que el menú necesita.
 ///
 /// **Es una vista reducida de `ClaseCuadrante`, no una tabla.** `/mi-horario`
@@ -493,8 +532,7 @@ abstract interface class AulasPropiasGateway {
 
 /// Contrato de la capa de datos del Aula Virtual (M6).
 ///
-/// Refleja las rutas HTTP de §6 del diseño, con la salvedad de que el puerto
-/// expone **sólo** las que la UI del aula necesita hoy:
+/// Refleja las rutas HTTP de §6 del diseño:
 ///
 /// | Método | Ruta |
 /// |---|---|
@@ -504,11 +542,17 @@ abstract interface class AulasPropiasGateway {
 /// | [misEntregas] | `GET /aula/mis-entregas` |
 /// | [entregar] | `POST /aula/entregas/:entregaId/entregar` |
 /// | [reclamar] | `POST /aula/entregas/:entregaId/reclamar` |
+/// | [crearAnuncio] | `POST /aula/secciones/:seccionId/anuncios` |
+/// | [crearTarea] | `POST /aula/secciones/:seccionId/tareas` |
+/// | [publicarTarea] | `POST /aula/tareas/:tareaId/publicar` |
+/// | [libroDeCalificaciones] | `GET /aula/tareas/:tareaId/entregas` |
+/// | [calificar] | `POST /aula/entregas/:entregaId/calificar` |
+/// | [devolver] | `POST /aula/entregas/:entregaId/devolver` |
 ///
-/// Las rutas de escritura del docente (crear anuncio/tarea, publicar,
-/// calificar, devolver, libro de calificaciones) **no** están en el puerto
-/// todavía: su UI es un ciclo aparte. Añadirlas sin esa UI daría métodos sin
-/// consumidor.
+/// Las seis primeras son del ciclo del alumno; las seis últimas, del Centro de
+/// Mando del docente. Ambas viven en el mismo puerto porque el Aula Virtual es
+/// **una** pantalla con dos modos ([esDocente] sólo decide presentación; la
+/// autorización la hace la RLS, ADR-003).
 ///
 /// La implementación real es `BackendAulaGateway` (`lib/services/aula_service.dart`),
 /// que cubre este puerto entero. El doble de pruebas
@@ -544,4 +588,69 @@ abstract interface class AulaGateway implements AulasPropiasGateway {
 
   /// Des-hace la entrega para poder volver a editar (el «des-entregar»).
   Future<Entrega> reclamar(String entregaId);
+
+  // --- Centro de Mando del docente ------------------------------------------
+
+  /// Crea un anuncio en el tablón de una sección.
+  ///
+  /// Nace `BORRADOR` (o programado, si [programadoPara] no es nulo) y lo
+  /// publica quien tenga permiso sobre la sección —lo decide la RLS, no el
+  /// cliente—. [cuerpo] es opcional (por defecto vacío); [programadoPara] es la
+  /// publicación diferida, y `null` significa «publícalo ya».
+  Future<Anuncio> crearAnuncio({
+    required String seccionId,
+    required String titulo,
+    String? cuerpo,
+    DateTime? programadoPara,
+  });
+
+  /// Crea una tarea o material del trabajo de clase.
+  ///
+  /// Nace `BORRADOR` y **sin entregas**: [publicarTarea] es lo que crea los
+  /// placeholders, uno por matrícula. Un [TipoTarea.material] no se califica (no
+  /// lleva puntos ni fecha límite), así que [puntosMaximos] y [fechaLimite] deben
+  /// ir en `null` para él —la coherencia la refuerza la RPC, pero el cliente no
+  /// debe ofrecer campos que el tipo prohíbe—. [orden] y [tema] agrupan dentro del
+  /// tablero; [permitirEntregaTardia] rige la entrega fuera de plazo.
+  Future<TareaDeClase> crearTarea({
+    required String seccionId,
+    required String titulo,
+    String? descripcion,
+    required TipoTarea tipo,
+    double? puntosMaximos,
+    DateTime? fechaLimite,
+    bool permitirEntregaTardia = true,
+    String? tema,
+    int orden = 0,
+  });
+
+  /// Publica una tarea y crea los placeholders de entrega (uno por estudiante
+  /// matriculado).
+  ///
+  /// Es **idempotente**: publicar dos veces no duplica entregas —el `unique
+  /// (tarea_id, estudiante_id)` con `on conflict do nothing` lo garantiza en la
+  /// base—, y por eso [PublicacionTarea.entregasCreadas] puede ser 0 en la segunda
+  /// llamada sin que eso sea un error. Devuelve la **cabecera** de la tarea
+  /// (estado y fecha de publicación) más el recuento; no la tarea entera.
+  Future<PublicacionTarea> publicarTarea(String tareaId);
+
+  /// El libro de calificaciones de una tarea: una fila por estudiante matriculado.
+  ///
+  /// Es la única lectura que trae [LibroEntrega.notaBorrador] —por eso va por la
+  /// RPC `security definer` del docente y no por una lectura directa—, y por eso
+  /// el tipo es [LibroEntrega] y no [Entrega]: el alumno no ve este dato.
+  Future<List<LibroEntrega>> libroDeCalificaciones(String tareaId);
+
+  /// Escribe la nota **borrador** de una entrega. El alumno aún no la ve; la copia
+  /// a [LibroEntrega.notaAsignada] ocurre al [devolver]. Lanza si la entrega no
+  /// está entregada o la nota se pasa de los puntos de la tarea (lo decide la
+  /// RPC, con su mensaje).
+  Future<LibroEntrega> calificar(String entregaId, double nota);
+
+  /// Devuelve la entrega: copia el borrador a la nota asignada y cierra el ciclo.
+  ///
+  /// Es el **único** momento en que el alumno ve una nota. Devolver sin nota
+  /// previa es legítimo —«devuelta sin calificar»—; lo que prohíbe el `CHECK` es
+  /// una nota asignada sin borrador.
+  Future<LibroEntrega> devolver(String entregaId);
 }

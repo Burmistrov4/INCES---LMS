@@ -9,7 +9,10 @@ import '../repositories/archivos_repository.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'crear_anuncio_panel.dart';
+import 'crear_tarea_panel.dart';
 import 'gestor_documental_panel.dart';
+import 'libro_calificaciones_panel.dart';
 
 /// Aula Virtual de una sección (Módulo 6).
 ///
@@ -255,6 +258,47 @@ class _AulaVirtualDashboardScreenState
     );
   }
 
+  // ── Acciones del docente ────────────────────────────────────────────────────
+
+  Future<void> _crearAnuncio() async {
+    final creado = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CrearAnuncioPanel(
+          seccionId: widget.seccionId,
+          gateway: widget.gateway,
+          onGuardado: _cargarTablon,
+        ),
+      ),
+    );
+    if (creado == true && mounted) _cargarTablon();
+  }
+
+  Future<void> _crearTarea() async {
+    final creada = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CrearTareaPanel(
+          seccionId: widget.seccionId,
+          gateway: widget.gateway,
+          onGuardado: _cargarTrabajo,
+        ),
+      ),
+    );
+    if (creada == true && mounted) _cargarTrabajo();
+  }
+
+  Future<void> _abrirLibro(TareaDeClase tarea) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LibroCalificacionesPanel(
+          tareaId: tarea.id,
+          tareaTitulo: tarea.titulo,
+          gateway: widget.gateway,
+          onCambio: _cargarTrabajo,
+        ),
+      ),
+    );
+  }
+
   // ── Interfaz ───────────────────────────────────────────────────────────────
 
   @override
@@ -299,6 +343,29 @@ class _AulaVirtualDashboardScreenState
   // ── Tablón ─────────────────────────────────────────────────────────────────
 
   Widget _tablon() {
+    final contenido = _contenidoTablon();
+    if (!widget.esDocente) return contenido;
+
+    // El docente ve un botón de «Nuevo anuncio» sobre el feed: el tablón es suyo
+    // y la acción de crear va donde está el contenido, no escondida en otro menú.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _cargandoTablon ? null : _crearAnuncio,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Nuevo anuncio'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(child: contenido),
+      ],
+    );
+  }
+
+  Widget _contenidoTablon() {
     if (_cargandoTablon) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -378,6 +445,27 @@ class _AulaVirtualDashboardScreenState
   // ── Trabajo de clase ───────────────────────────────────────────────────────
 
   Widget _trabajoDeClase() {
+    final contenido = _contenidoTrabajo();
+    if (!widget.esDocente) return contenido;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.icon(
+            onPressed: _cargandoClase ? null : _crearTarea,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Nueva tarea'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(child: contenido),
+      ],
+    );
+  }
+
+  Widget _contenidoTrabajo() {
     if (_cargandoClase) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -481,6 +569,18 @@ class _AulaVirtualDashboardScreenState
                   if (entrega != null) _insigniaEntrega(entrega, tarea),
                 ],
               ),
+              if (widget.esDocente)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _abrirLibro(tarea),
+                      icon: const Icon(Icons.grading_outlined, size: 16),
+                      label: const Text('Calificar'),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -615,18 +715,24 @@ class _AulaVirtualDashboardScreenState
   }
 
   Widget _cuerpoDetalle(TareaDeClase tarea, Entrega? entrega) {
-    // Docente: no hay panel de entrega del alumno. El libro de calificaciones
-    // del docente es un ciclo propio (`m6_entregas_de_tarea`, §5) y su UI
-    // todavía no existe; decirlo es mejor que mostrar un panel que pediría el
-    // archivo de un alumno concreto sin poder elegirlo.
+    // Docente: su panel de entrega del alumno no existe (esa vista es del
+    // estudiante); en su lugar abre el libro de calificaciones de esta tarea,
+    // que es donde califica y devuelve. La acción está aquí —y no sólo en la
+    // tarjeta— porque desde el detalle ya tiene la tarea enfocada.
     if (widget.esDocente) {
       return ListView(
-        children: const [
-          AvisoEnLinea(
-            icono: Icons.grading_outlined,
-            texto: 'El libro de calificaciones del docente —con la lista de '
-                'entregas de tus estudiantes y sus notas— llegará en un paso '
-                'posterior. Aquí ves la tarea tal como la ve el aula.',
+        children: [
+          FilledButton.icon(
+            onPressed: () => _abrirLibro(tarea),
+            icon: const Icon(Icons.grading_outlined, size: 18),
+            label: const Text('Ver libro de calificaciones'),
+          ),
+          const SizedBox(height: 12),
+          const AvisoEnLinea(
+            icono: Icons.info_outline,
+            texto: 'Desde aquí calificas las entregas de esta tarea y las '
+                'devuelves a tus estudiantes. Una vez devuelta, la nota deja de '
+                'ser borrador y el alumno la ve.',
           ),
         ],
       );

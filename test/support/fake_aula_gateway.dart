@@ -42,6 +42,9 @@ class FakeAulaGateway implements AulaGateway {
   /// Las entregas del estudiante.
   List<Entrega> entregas = const [];
 
+  /// El libro de calificaciones de una tarea (vista del docente). Se arma a mano.
+  List<LibroEntrega> libro = const [];
+
   /// Las aulas del llamante. Se arma a mano: ver la nota de la clase.
   MisAulas misAulasResultado = const MisAulas(esDocente: false);
 
@@ -54,6 +57,14 @@ class FakeAulaGateway implements AulaGateway {
   Object? errorAlEntregar;
   Object? errorAlReclamar;
 
+  /// Fallos del Centro de Mando del docente.
+  Object? errorAlCrearAnuncio;
+  Object? errorAlCrearTarea;
+  Object? errorAlPublicar;
+  Object? errorAlLibro;
+  Object? errorAlCalificar;
+  Object? errorAlDevolver;
+
   // --- Registro de llamadas -------------------------------------------------
 
   final List<String> llamadas = [];
@@ -62,6 +73,27 @@ class FakeAulaGateway implements AulaGateway {
   String? ultimaSeccionTrabajo;
   String? ultimaEntregaId;
   String? ultimoPeriodoAulas;
+
+  // Registro del Centro de Mando del docente: los argumentos importan porque el
+  // contrato de esta capa es «crea la entrega para la sección/tarea correcta».
+  String? ultimaSeccionAnuncio;
+  String? ultimoTituloAnuncio;
+  String? ultimoCuerpoAnuncio;
+  DateTime? ultimoProgramadoParaAnuncio;
+  String? ultimaSeccionTarea;
+  String? ultimoTituloTarea;
+  String? ultimaDescripcionTarea;
+  TipoTarea? ultimoTipoTarea;
+  double? ultimosPuntosTarea;
+  DateTime? ultimaFechaLimiteTarea;
+  bool? ultimoPermitirTardiaTarea;
+  String? ultimoTemaTarea;
+  int? ultimoOrdenTarea;
+  String? ultimoIdPublicar;
+  String? ultimoIdLibro;
+  String? ultimoIdCalificar;
+  double? ultimaNotaCalificar;
+  String? ultimoIdDevolver;
 
   void limpiarLlamadas() => llamadas.clear();
 
@@ -119,6 +151,159 @@ class FakeAulaGateway implements AulaGateway {
       entregaId,
       (e) => e.copyWith(estado: EstadoEntrega.reclamada),
     );
+  }
+
+  // --- Centro de Mando del docente ------------------------------------------
+
+  @override
+  Future<Anuncio> crearAnuncio({
+    required String seccionId,
+    required String titulo,
+    String? cuerpo,
+    DateTime? programadoPara,
+  }) async {
+    llamadas.add('crearAnuncio:$seccionId');
+    ultimaSeccionAnuncio = seccionId;
+    ultimoTituloAnuncio = titulo;
+    ultimoCuerpoAnuncio = cuerpo;
+    ultimoProgramadoParaAnuncio = programadoPara;
+    _lanzarSi(errorAlCrearAnuncio);
+    return Anuncio(
+      id: 'an-nuevo',
+      seccionId: seccionId,
+      titulo: titulo,
+      cuerpo: cuerpo ?? '',
+      estado: EstadoAnuncio.borrador,
+      programadoPara: programadoPara?.toIso8601String(),
+    );
+  }
+
+  @override
+  Future<TareaDeClase> crearTarea({
+    required String seccionId,
+    required String titulo,
+    String? descripcion,
+    required TipoTarea tipo,
+    double? puntosMaximos,
+    DateTime? fechaLimite,
+    bool permitirEntregaTardia = true,
+    String? tema,
+    int orden = 0,
+  }) async {
+    llamadas.add('crearTarea:$seccionId');
+    ultimaSeccionTarea = seccionId;
+    ultimoTituloTarea = titulo;
+    ultimaDescripcionTarea = descripcion;
+    ultimoTipoTarea = tipo;
+    ultimosPuntosTarea = puntosMaximos;
+    ultimaFechaLimiteTarea = fechaLimite;
+    ultimoPermitirTardiaTarea = permitirEntregaTardia;
+    ultimoTemaTarea = tema;
+    ultimoOrdenTarea = orden;
+    _lanzarSi(errorAlCrearTarea);
+    return TareaDeClase(
+      id: 'tar-nueva',
+      seccionId: seccionId,
+      titulo: titulo,
+      descripcion: descripcion ?? '',
+      tipo: tipo,
+      // El doble reproduce el default del backend: un material vale 0, lo
+      // calificable 20 si no se dijo. Quien prueba puede sobreescribir `puntos`.
+      puntosMaximos: puntosMaximos ?? (tipo.seCalifica ? 20 : 0),
+      fechaLimite: fechaLimite?.toIso8601String(),
+      tema: tema,
+      orden: orden,
+      estado: EstadoTarea.borrador,
+    );
+  }
+
+  @override
+  Future<PublicacionTarea> publicarTarea(String tareaId) async {
+    llamadas.add('publicarTarea:$tareaId');
+    ultimoIdPublicar = tareaId;
+    _lanzarSi(errorAlPublicar);
+    return PublicacionTarea(
+      tareaId: tareaId,
+      seccionId: 'sec-1',
+      titulo: 'Tarea publicada',
+      estado: EstadoTarea.publicado,
+      publicadoEn: '2026-09-22T12:00:00.000Z',
+      entregasCreadas: 12,
+    );
+  }
+
+  @override
+  Future<List<LibroEntrega>> libroDeCalificaciones(String tareaId) async {
+    llamadas.add('libroDeCalificaciones:$tareaId');
+    ultimoIdLibro = tareaId;
+    _lanzarSi(errorAlLibro);
+    return libro;
+  }
+
+  @override
+  Future<LibroEntrega> calificar(String entregaId, double nota) async {
+    llamadas.add('calificar:$entregaId');
+    ultimoIdCalificar = entregaId;
+    ultimaNotaCalificar = nota;
+    _lanzarSi(errorAlCalificar);
+    return _mutarLibro(
+      entregaId,
+      (e) => LibroEntrega(
+        estudianteId: e.estudianteId,
+        estado: e.estado,
+        esTardia: e.esTardia,
+        notaBorrador: nota,
+        notaAsignada: e.notaAsignada,
+        devueltaEn: e.devueltaEn,
+        faltante: e.faltante,
+      ),
+    );
+  }
+
+  @override
+  Future<LibroEntrega> devolver(String entregaId) async {
+    llamadas.add('devolver:$entregaId');
+    ultimoIdDevolver = entregaId;
+    _lanzarSi(errorAlDevolver);
+    return _mutarLibro(
+      entregaId,
+      (e) => LibroEntrega(
+        estudianteId: e.estudianteId,
+        // Devolver cierra el ciclo: la entrega pasa a DEVUELTA y la nota borrador
+        // se copia a la asignada (es lo que el alumno por fin ve).
+        estado: EstadoEntrega.devuelta,
+        esTardia: e.esTardia,
+        notaBorrador: e.notaBorrador,
+        notaAsignada: e.notaBorrador,
+        devueltaEn: '2026-09-22T15:00:00.000Z',
+        faltante: e.faltante,
+      ),
+    );
+  }
+
+  /// Aplica [cambio] a una fila del libro y **actualiza la lista**, no sólo la
+  /// copia devuelta. Si el id no está en el libro, se devuelve la fila mutada
+  /// sobre una base mínima: el doble no conoce esa entrega, pero la respuesta
+  /// sigue teniendo que reflejar el cambio para la prueba.
+  LibroEntrega _mutarLibro(
+    String estudianteId,
+    LibroEntrega Function(LibroEntrega) cambio,
+  ) {
+    final indice = libro.indexWhere((e) => e.estudianteId == estudianteId);
+    if (indice < 0) {
+      return cambio(
+        LibroEntrega(
+          estudianteId: estudianteId,
+          estado: EstadoEntrega.devuelta,
+          esTardia: false,
+          faltante: false,
+        ),
+      );
+    }
+
+    final actualizada = cambio(libro[indice]);
+    libro = [...libro]..[indice] = actualizada;
+    return actualizada;
   }
 
   /// Aplica [cambio] a la entrega y **actualiza la lista**, no sólo la copia
