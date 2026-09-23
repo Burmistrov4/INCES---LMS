@@ -587,6 +587,22 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
       items: _cursosDisponibles
           .map((curso) => DropdownMenuItem(value: curso, child: Text(curso)))
           .toList(),
+      // Medido a 375 px: la ranura del campo mide 165 px y «Higiene y
+      // Manipulación de Alimentos» pide `intrH@165 = 96` (4 líneas). Con
+      // `softWrap` el texto se parte, pero la caja mide 24 px de alto, así que
+      // las líneas 2 a 4 quedan fuera y el aspirante **no puede leer el curso
+      // que acaba de elegir**. Recortar en silencio no lanza, de modo que
+      // ninguna auditoría de `RenderFlex` lo ve: por eso el recorte tiene que
+      // ser explícito y de una sola línea.
+      selectedItemBuilder: (BuildContext context) {
+        return _cursosDisponibles.map<Widget>((String curso) {
+          return Text(
+            curso,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          );
+        }).toList();
+      },
       onChanged: (value) => setState(() => _cursoSeleccionado = value ?? ''),
       validator: (value) =>
           value == null || value.isEmpty ? 'Campo obligatorio' : null,
