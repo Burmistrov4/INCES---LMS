@@ -1540,8 +1540,9 @@ tipo que envejece igual de mal que una cifra:
 | `bccbbea` | `chore(test)` — 2 imports muertos (analyze limpio) |
 | `6710ced` | `docs(handover)` — este documento |
 
-**Árbol limpio. Quedan 21 commits sin subir a `origin/main`** — no se hizo
-`push`.
+**Árbol limpio y subido a `origin/main`** (`2cbf601..d7b2024`, avance directo
+verificado: el commit del remoto era ancestro de `main`, así que no se reescribió
+historial ni se tocó trabajo ajeno).
 
 ### Trabajo humano que sigue
 
