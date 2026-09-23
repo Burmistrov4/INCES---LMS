@@ -73,56 +73,81 @@ class EncabezadoInstitucional extends StatelessWidget {
               const BoxDecoration(gradient: IncesTheme.degradadoMarca)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                if (onAbrirMenu != null) ...[
-                  IconButton(
-                    tooltip: 'Menú',
-                    icon: const Icon(Icons.menu_rounded),
-                    onPressed: onAbrirMenu,
-                  ),
-                  const SizedBox(width: 4),
-                ],
-                const _EscudoInces(),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        saludo,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 2),
-                      // `Wrap` y no `Row`: en móvil el rol y el período no caben
-                      // junto al nombre y deben poder saltar de línea en vez de
-                      // desbordar.
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          _InsigniaRol(etiqueta: rolEtiqueta),
-                          if (periodoActivo != null)
-                            _InsigniaPeriodo(periodo: periodoActivo!),
-                          if (correoUsuario != null)
-                            Text(
-                              correoUsuario!,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w400,
+            child: LayoutBuilder(
+              builder: (context, restricciones) {
+                final identidad = <Widget>[
+                  if (onAbrirMenu != null) ...[
+                    IconButton(
+                      tooltip: 'Menú',
+                      icon: const Icon(Icons.menu_rounded),
+                      onPressed: onAbrirMenu,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  const _EscudoInces(),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          saludo,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        // `Wrap` y no `Row`: en móvil el rol y el período no
+                        // caben junto al nombre y deben poder saltar de línea en
+                        // vez de desbordar.
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _InsigniaRol(etiqueta: rolEtiqueta),
+                            if (periodoActivo != null)
+                              _InsigniaPeriodo(periodo: periodoActivo!),
+                            if (correoUsuario != null)
+                              Text(
+                                correoUsuario!,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w400,
+                                ),
                               ),
-                            ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                ...acciones,
-              ],
+                ];
+
+                // Las acciones iban al final de la `Row` como hijos NO
+                // flexibles: a 375 px el `Expanded` del saludo se quedaba sin
+                // ancho y la fila desbordaba. Es **la misma trampa** que tenía
+                // `TituloSeccion` — y el hueco hoy va vacío, así que el fallo
+                // sólo espera al primero que meta un botón. Por debajo de
+                // 640 px las acciones bajan a una segunda línea.
+                const anchoMinimoParaFila = 640.0;
+                final cabenEnLaFila = acciones.isEmpty ||
+                    restricciones.maxWidth >= anchoMinimoParaFila;
+
+                if (cabenEnLaFila) {
+                  return Row(children: [...identidad, ...acciones]);
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(children: identidad),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, runSpacing: 8, children: acciones),
+                  ],
+                );
+              },
             ),
           ),
         ],
