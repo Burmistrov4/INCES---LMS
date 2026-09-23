@@ -1650,4 +1650,104 @@ Commits de la sesión 3: `945ca12`, `d2e7572`, `c357028`, `c759f95`, `ed7f2f7`, 
 
 ---
 
+## 2026-09-23 (sesión 4) — Auditoría responsive y trampas del SDK
+
+### El disparador
+
+El barrido estático de la sesión 3 dejó **13 candidatos** sin medir. Esta sesión
+los midió uno por uno montándolos en el **padre real** (`ContenidoSeccion`, que
+aporta `anchoMaximo` 1280 y el scroll) a **375 px**, porque un `RenderFlex
+overflowed` **lanza** en `flutter test` y en `--release` no avisa: el test *es*
+la auditoría.
+
+### El método
+
+`test/barrido_responsive_test.dart` — 13 pruebas a 375 px en el padre real,
+incluido un **recorrido completo del asistente** paso a paso (`.at(i)` sobre
+«Continuar», porque el `Stepper` mantiene los controles de *todos* los pasos en
+el árbol).
+
+### Hallazgos medidos
+
+- **1 bug real y 12 falsos positivos.** El único que desbordaba de verdad era
+  `_FilaLapso` en `cpanel_lapsos_panel.dart` (11 px), arreglado con
+  `LayoutBuilder`. Los otros 12 quedaron verdes al medirlos. **Un barrido
+  estático señala pistas, no fallos**: reportarlos sin medirlos habría sido
+  afirmar sin evidencia.
+- **El bug del SDK.** El recorrido del asistente destapó un desborde de **29 px
+  en el paso 2** («Nivel Educativo») que **ningún barrido podía ver**: la `Row`
+  que desborda es la **interna del `DropdownButton`** (`dropdown.dart:1650`), no
+  una del proyecto. Causa medida: sin `isExpanded`, el `DropdownButton` no envuelve
+  su `IndexedStack` en `Expanded`, y el `IndexedStack` se dimensiona al ítem **más
+  ancho** —«No aplicable», 193,8 px— aunque el campo esté **vacío**. La geometría a
+  375 px: campo 257 × 48, ranura interior 165 px → `193,8 − 165 = 28,8 ≈ 29`.
+- **La corrección:** `isExpanded: true` para el ancho, más `selectedItemBuilder`
+  con `maxLines: 1` y `TextOverflow.ellipsis` para el alto. `isExpanded` a solas
+  quitaba el desborde pero **dejaba el texto partido** en una caja de una línea:
+  «No aplicable» se mostraba como **«No»**, una negación. El recorte silencioso
+  **no lanza**, así que ninguna auditoría de `RenderFlex` lo detecta: se mide con
+  `RenderParagraph.getMaxIntrinsicHeight(ancho)` contra `size.height`.
+
+### Hallazgo colateral, también arreglado
+
+El desplegable hermano, **«Propuesta Formativa a Cursar»**, arrastraba el mismo
+defecto y **más antiguo**: ya tenía `isExpanded: true`, de modo que no lanzaba,
+pero recortaba en silencio todo curso largo. Medido: «Higiene y Manipulación de
+Alimentos» pide `intrH@165 = 96` (4 líneas) en una caja de 24 px, así que las
+líneas 2–4 quedaban fuera y el aspirante **no podía leer el curso que acababa de
+elegir**. Arreglado con el mismo patrón.
+
+### Una lección de método
+
+Una hipótesis bien construida sigue siendo una hipótesis. Las dos que se traían
+—el aviso del paso 3 y la asimetría de 150 px del resumen— **medidas, estaban
+limpias**. El bug real apareció donde el mapa no lo situaba, y sólo lo encontró
+un punto de control **por etapa** (`takeException()` **consume** la excepción:
+uno solo al final dice «algo se rompió en alguna parte», no dónde).
+
+### Estado al cerrar
+
+| Suite | Resultado |
+|---|---|
+| Flutter | **491/491** (478 de la sesión 3 + 13 del barrido responsive) |
+| `flutter analyze` | **No issues found** |
+| Suite completa *re-ejecutada* | **no se pudo re-correr** — ver «Bloqueo de entorno» |
+
+El **491/491 es una medición de esta sesión**, obtenida por el corredor antes de
+que el entorno se degradara; **no es una promesa** del estado actual del
+toolchain. Se deja escrito así a propósito: una cifra dicha de memoria envejece
+igual de mal que una nota que dice «está roto».
+
+### Bloqueo de entorno (importante para quien retome)
+
+Al **final** de esta sesión, el toolchain dejó de poder correr pruebas, y la
+causa quedó **medida**, no supuesta:
+
+- `flutter test`, `flutter analyze` y `dart test` fallan los tres en su primer
+  spawn de un proceso hijo, con `ProcessException: … CreateFile failed 231`
+  (`ERROR_PIPE_BUSY`) en `process_win.cc:744`.
+- Aislado con un programa Dart de seis líneas, sin Flutter y sin código del
+  proyecto: **Dart no puede lanzar *ningún* proceso hijo** en este entorno
+  (`Process.runSync('git')` y `Process.runSync('where.EXE')` fallan ambos).
+- El mismo binario, lanzado desde **Python** en el mismo instante, funciona
+  (`git version 2.55.0.windows.3`). La variable es **el VM de Dart**, no el
+  binario, ni el padre, ni el código.
+- No se recupera con consola nueva, grupo de procesos nuevo ni *detached*: las
+  cuatro variantes fallan igual. Es el espacio de nombres de *pipes* del sandbox,
+  no la forma de lanzar a Dart.
+
+**Consecuencia operativa:** el entorno de esta sesión **no puede correr la suite
+de Flutter**. No es una regresión del código —`flutter analyze` estaba verde
+minutos antes, con el árbol sin tocar— ni residuo de `.dart_tool` (la hipótesis
+inicial, **descartada** al medirla). Si al retomar el toolchain vuelve a
+funcionar, **re-correr la suite antes de fiarse del 491/491**.
+
+### Commits de la sesión 4
+
+`28edf69` (la fila de lapso y la auditoría del barrido), `96de445` (el
+desplegable de nivel educativo), `cff62f9` (el catálogo de cursos) — subidos a
+`origin/main` junto con los de documentación de puertos (`606a29b`).
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
