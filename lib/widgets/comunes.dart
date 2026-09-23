@@ -768,37 +768,70 @@ class TituloSeccion extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  texto.toUpperCase(),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    letterSpacing: 1.1,
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                if (subtitulo != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitulo!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ],
+    final titulo = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          texto.toUpperCase(),
+          style: theme.textTheme.labelSmall?.copyWith(
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        if (subtitulo != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitulo!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          ...?acciones,
         ],
+      ],
+    );
+
+    final botones = acciones;
+    if (botones == null || botones.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: titulo,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: LayoutBuilder(
+        builder: (context, restricciones) {
+          // Título y acciones en la misma fila **sólo si caben**. Antes se
+          // metían siempre, y a 375 px las acciones se comían el ancho: la
+          // `Row` desbordaba y —peor, porque no se ve— el `Expanded` del
+          // título se quedaba con ancho cero, así que el subtítulo envolvía
+          // una letra por línea y la cabecera acababa **más alta que la
+          // pantalla**. El desborde horizontal tapaba al vertical.
+          const anchoMinimoParaFila = 640.0;
+
+          if (restricciones.maxWidth >= anchoMinimoParaFila) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: titulo),
+                const SizedBox(width: 16),
+                ...botones,
+              ],
+            );
+          }
+
+          // En estrecho se apilan, y los botones envuelven entre sí.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titulo,
+              const SizedBox(height: 12),
+              Wrap(spacing: 10, runSpacing: 8, children: botones),
+            ],
+          );
+        },
       ),
     );
   }
