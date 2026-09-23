@@ -48,9 +48,9 @@ import 'package:inces_lms_app/widgets/andamiaje.dart';
 /// archivo, no una estimación: `items` es el total del menú y `ramas` las
 /// secciones que de verdad tienen panel.
 const Map<String, ({int items, int ramas})> _dashboards = {
-  'admin_dashboard.dart': (items: 10, ramas: 8),
+  'admin_dashboard.dart': (items: 11, ramas: 9),
   'docente_dashboard.dart': (items: 5, ramas: 3),
-  'aspirante_dashboard.dart': (items: 6, ramas: 4),
+  'aspirante_dashboard.dart': (items: 6, ramas: 6),
 };
 
 void main() {
