@@ -53,6 +53,14 @@ import 'support/fake_selector_archivos.dart';
 ///
 /// Los datos se siembran **no vacíos** por el mismo motivo: la `Row` sospechosa
 /// vive dentro de la fila de un ítem, así que un estado vacío no la ejercita.
+///
+/// Un barrido y un recorrido **encuentran cosas distintas**. El desborde de
+/// 29 px que localizó la prueba de «recorrido completo» —el desplegable de
+/// «Nivel Educativo» del paso 2— no lo señaló ningún barrido, y no podía
+/// señalarlo: el `RenderFlex` que desborda **es del propio SDK** (la `Row`
+/// interna del `DropdownButton`, `dropdown.dart:1650`), no una `Row` del
+/// proyecto. El barrido sólo ve el código de este repo; el recorrido ve lo que
+/// el usuario provoca. Por eso están los dos.
 void main() {
   /// Ancho de un móvil estrecho: el que dicta sentencia.
   const Size movil = Size(375, 2400);
@@ -383,6 +391,99 @@ void main() {
       final error = await medirPantalla(tester, const AspiranteFormScreen());
 
       sinDesbordes(error, 'AspiranteFormScreen');
+    });
+
+    testWidgets('Formulario de inscripción - recorrido completo para auditar desbordes', (tester) async {
+      tester.view.physicalSize = const Size(375, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // `takeException()` **consume** la excepción registrada, así que revisar en
+      // cada etapa la localiza. Un único `takeException()` al final sólo dice que
+      // «algo» reventó en algún punto del recorrido — y eso no sirve para
+      // arreglarlo: obliga a adivinar qué `Row` fue.
+      final incidencias = <String>[];
+      void revisar(String etapa) {
+        final e = tester.takeException();
+        if (e != null) incidencias.add('$etapa → $e');
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: IncesTheme.claro(),
+          home: const AspiranteFormScreen(),
+        ),
+      );
+      await tester.pump();
+      revisar('Al montar, con la carga en vuelo');
+
+      // Damos tiempo a que falle la petición de cursos y muestre el aviso de respaldo
+      await tester.pump(const Duration(seconds: 1));
+      revisar('Tras fallar la carga de cursos');
+
+      // Paso 1: Datos Personales
+      await tester.enterText(find.widgetWithText(TextFormField, 'Nombres'), 'Lorenzo Valentin');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Apellidos'), 'Roca Burmistrow');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Cédula de Identidad / Pasaporte'), '20123456');
+
+      await tester.tap(find.widgetWithText(TextFormField, 'Fecha de Nacimiento'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK')); // Cerrar el DatePicker confirmando la fecha por defecto
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Sexo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Masculino').last);
+      await tester.pumpAndSettle();
+      revisar('Paso 1 · datos personales');
+
+      // `find.text('Continuar')` encuentra TRES: el `Stepper` deja en el árbol los
+      // controles de todos los pasos (sólo el actual es visible; el último dice
+      // «Finalizar inscripción»). Como el orden del árbol sigue el orden de los
+      // pasos, el control del paso `i` es `.at(i)`. Sin esto, `tap` se niega por
+      // ambigüedad — y con `.last` se pulsaría el botón de otro paso.
+      await tester.tap(find.text('Continuar').at(0));
+      await tester.pumpAndSettle();
+      revisar('Paso 2 · ubicación y contacto');
+
+      // Paso 2: Ubicación y Contacto
+      await tester.enterText(find.widgetWithText(TextFormField, 'Teléfono Móvil'), '04141234567');
+      // Un correo excepcionalmente largo y sin espacios para presionar la Row de 150px del resumen final
+      await tester.enterText(find.widgetWithText(TextFormField, 'Correo Electrónico'), 'lorenzo.roca.martinez.desarrollo@inces.gob.ve');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Domicilio'), 'Valencia, Carabobo');
+
+      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Nivel Educativo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Técnico').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Continuar').at(1));
+      await tester.pumpAndSettle();
+      revisar('Paso 3 · formación y misiones');
+
+      // Paso 3: Formación y Misiones
+      // Afirmamos que el aviso de error de catálogo realmente se está pintando en pantalla
+      expect(find.text('Reintentar'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Propuesta Formativa a Cursar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownMenuItem<String>).last); // Seleccionar cualquier curso de respaldo
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Continuar').at(2));
+      await tester.pumpAndSettle();
+      revisar('Paso 4 · resumen');
+
+      // Paso 4: Confirmación y Contraseña
+      // Afirmamos que hemos llegado al resumen
+      expect(find.text('Revisa tus datos antes de enviar'), findsOneWidget);
+
+      // Se informan **todas** las etapas de una vez: con un `expect` por etapa, el
+      // primero que falla corta la prueba y las demás nunca se evalúan. Un
+      // diagnóstico que oculta la mitad de los fallos obliga a correr dos veces
+      // para saber lo que ya se podía saber de una.
+      expect(incidencias, isEmpty, reason: incidencias.join('\n'));
     });
   });
 }

@@ -470,20 +470,52 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
+  /// Opciones del nivel educativo, en **fuente única**.
+  ///
+  /// `items` y `selectedItemBuilder` tienen que tener la misma longitud: si se
+  /// duplican los literales, el día que alguien añada una opción a uno solo, el
+  /// desplegable revienta en tiempo de ejecución. Con una sola lista, no puede
+  /// divergir.
+  static const List<String> _nivelesEducativos = [
+    'Primario',
+    'Secundario',
+    'Técnico',
+    'No aplicable',
+  ];
+
   Widget _buildNivelEducativoCampo() {
     return DropdownButtonFormField<String>(
       decoration: _inputDecoration(
         label: 'Nivel Educativo',
         icon: Icons.school_outlined,
       ),
+      // Medido conduciendo el asistente a 375 px: el campo mide 257 px y su
+      // ranura interior queda en 165 px. Sin `isExpanded`, el `DropdownButton`
+      // NO envuelve su `IndexedStack` en `Expanded` (dropdown.dart:1653) y éste
+      // toma el ancho de su ítem **más largo** —«No aplicable», 193,8 px—, así
+      // que la `Row` desborda 29 px y empuja el ícono del desplegable fuera de
+      // la vista. No depende de lo seleccionado: el `IndexedStack` mide a todos
+      // los ítems, de modo que revienta incluso con el campo vacío. El
+      // desplegable de «Propuesta Formativa a Cursar» ya usa `isExpanded`.
+      isExpanded: true,
+      // `isExpanded` quita el desborde, pero el texto **se parte**: a 165 px
+      // «No aplicable» necesita dos líneas (48 px) y la caja mide 24, así que
+      // el campo mostraría «No» —que se lee como una negación— en vez de la
+      // opción elegida. El recorte tiene que ser explícito, no accidental.
+      //
+      // Y se recorta **sólo la vista cerrada**: el menú abierto conserva los
+      // ítems de `items`, que envuelven y se leen completos. Recortar también
+      // el menú cambiaría algo que no se ha medido como roto.
+      selectedItemBuilder: (context) => [
+        for (final nivel in _nivelesEducativos)
+          Text(nivel, maxLines: 1, overflow: TextOverflow.ellipsis),
+      ],
       initialValue: _nivelEducativoController.text.isEmpty
           ? null
           : _nivelEducativoController.text,
-      items: const [
-        DropdownMenuItem(value: 'Primario', child: Text('Primario')),
-        DropdownMenuItem(value: 'Secundario', child: Text('Secundario')),
-        DropdownMenuItem(value: 'Técnico', child: Text('Técnico')),
-        DropdownMenuItem(value: 'No aplicable', child: Text('No aplicable')),
+      items: [
+        for (final nivel in _nivelesEducativos)
+          DropdownMenuItem(value: nivel, child: Text(nivel)),
       ],
       onChanged: (value) =>
           setState(() => _nivelEducativoController.text = value ?? ''),
