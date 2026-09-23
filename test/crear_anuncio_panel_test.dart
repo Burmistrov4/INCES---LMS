@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:inces_lms_app/core/gateways/aula_gateway.dart';
 import 'package:inces_lms_app/screens/crear_anuncio_panel.dart';
 import 'support/fake_aula_gateway.dart';
 
