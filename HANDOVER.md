@@ -1556,4 +1556,71 @@ historial ni se tocó trabajo ajeno).
 
 ---
 
+## 2026-09-22 (sesión 3) — un desborde real a 375 px y un `.git` caído
+
+### El encabezado de sección desbordaba en móvil (bug de producto)
+
+La auditoría en navegador salió limpia, pero **sólo cubría el login**: no hay
+GoRouter, así que no se puede enlazar a un panel, y CanvasKit no expone los
+widgets para pulsarlos. Así que se auditó donde sí se puede —**un widget test a
+375 px**— y apareció un bug real:
+
+`TituloSeccion` (`lib/widgets/comunes.dart`) metía las `acciones` en la `Row`
+como hijos **no flexibles** mientras el título era `Expanded`. A 375 px la `Row`
+desbordaba **175 px** a la derecha y, a la vez, el `Expanded` del título se
+quedaba **sin ancho**: el subtítulo envolvía una letra por línea y la cabecera
+terminaba **más alta que la pantalla** (1174 px). El desborde horizontal tapaba
+al vertical.
+
+**Lo usan 21 archivos y 12 le pasan `acciones:`** — incluido el encabezado del
+andamiaje. Un solo arreglo cubre los doce. `cpanel_inscripciones_panel.dart`
+tenía dos desbordes más que sólo se vieron **al arreglar el primero**.
+
+Cubierto por `test/m4_responsive_test.dart` y
+`test/titulo_seccion_responsive_test.dart`: en un widget test un
+`RenderFlex overflowed` **lanza**, así que montar a 375 px *es* la auditoría y
+queda como red permanente, en vez de una captura de un momento.
+
+**Trampa que costó una iteración:** el primer intento montó los paneles en un
+`Scaffold` pelado y reportó un desborde de 1088 px que era **del arnés**. El
+padre real es `ContenidoSeccion` (aporta `anchoMaximo` y scroll). Un arnés que
+no reproduce el padre mide el arnés.
+
+### `.git` se dañó a mitad de sesión — y nada se perdió
+
+`git` empezó a responder `fatal: not a git repository`: `.git/refs/`
+**desaparecido** y `.git/objects/` reducido a 2 archivos. El daño ya venía de
+antes (al empezar la sesión `refs/remotes/` ya estaba vacío y `git branch -vv`
+calculaba «ahead 22» contra una ref inexistente).
+
+Se recuperó clonando limpio (`--no-checkout`), sustituyendo el `.git` y
+reconstruyendo el índice con `git reset` **mixto** — nunca `--hard`. `git fsck`
+salió sin errores y `git status` mostró exactamente el trabajo pendiente.
+
+**Nada commiteado se perdió porque ya estaba subido.** Receta completa en
+`temas/infraestructura.md`.
+
+### Corregido de paso
+
+El guardián de alcanzabilidad del menú declara un suelo por dashboard y su
+comentario dice que los números son «el estado real de cada archivo». Dos
+habían dejado de serlo (cPanel 11/9 decía 10/8; aspirante 6 ramas decía 4).
+Como el suelo es `greaterThanOrEqualTo`, la suite no se puso roja — pero un
+suelo subestimado debilita justo lo que existe para hacer.
+
+### Estado al cerrar
+
+| Suite | Resultado |
+|---|---|
+| Backend | **540/540** |
+| Flutter | **474/474** (462 + 9 responsive + 3 del widget compartido) |
+| `backend/test-humo.mjs` | **25/25** |
+| `supabase/humo-aula.mjs` | **30/30 · EXIT=0 · purga limpia** |
+| `apply-migrations.mjs --check` | **0 pendientes, 0 deriva** |
+| `flutter analyze` | **No issues found** |
+
+Commits `945ca12`, `d2e7572`, `c357028`, `c759f95`, subidos a `origin/main`.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
