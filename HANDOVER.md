@@ -1401,4 +1401,147 @@ dos aserciones nuevas—. Sostienen peso.
 
 ---
 
+## 2026-09-22 (sesión 2) — Puertos anti-XAMPP, nube al día y cierre del frontend de M4
+
+Pedida como cuatro fases. Estado final: backend **540/540** · Flutter
+**462/462** (456 + 6 nuevos) · humo **25/25** · esquema **sin fallos** ·
+migraciones **20/20, 0 deriva** · `flutter analyze` **0 errores**.
+
+### Fase 1 — puertos: ya estaba hecha; se verificó, no se rehízo
+
+El working tree venía sucio del sprint anterior con `PORT=3001`,
+`API_BASE_URL=http://localhost:3001`, `CORS_ORIGINS` con los cuatro orígenes
+(8090/3001 × localhost/127.0.0.1), el default de `env.ts` en 8090,
+`docker-compose` en 3001 y `docs/r2-cors.json` con el origen 8090. Se
+comprobó que **no queda ninguna URL dura** a 3000/8080 en `lib/`,
+`backend/src/`, `supabase/`, `devops/` ni `docs/` — los únicos aciertos son
+`node_modules/` y `devops/out/contexto_proyecto.md`, que es un volcado
+generado, no código.
+
+### Fase 2 — la nube ya no va por detrás
+
+`apply-migrations.mjs --check` → **20 aplicadas, 0 pendiente, 0 deriva**. La
+nota que decía «4 pendientes» era deriva: se aplicaron en el sprint anterior.
+Con eso, `backend/test-humo.mjs` da **25/25** (necesita backend local en 3001
++ nube real) y `supabase/verificar-esquema.mjs` pasa entero, incluidas las
+aserciones de M4 (RPC `DEFINER`, `existe_oferta_vigente`, `v_ocupacion_secciones`
+con `oferta_vigente`), M5 (semilla de límites) y M6. **No se bajó ninguna
+aserción**: los fallos que quedaban eran la comprobación funcionando, y
+desaparecieron al aplicar las migraciones.
+
+### Fase 3 — auditoría en navegador real: qué se pudo y qué no
+
+`flutter run -d chrome` y `-d web-server` están **bloqueados por `reg.EXE`**
+(lista negra del sandbox, sin bypass desde aquí). Ruta que sí funcionó:
+`flutter build web --dart-define-from-file=.env.json` → servidor estático en
+8090 → Chrome real del sistema con `playwright-core`.
+
+**Verificado de verdad, no supuesto:**
+- **375×812**: login responsive, el panel de marca colapsa a una cabecera
+  compacta y el formulario se apila. Sin desbordamiento horizontal
+  (`scrollWidth` = viewport).
+- **1440×900**: dos columnas, branding institucional completo.
+- Consola sin errores, sin `pageerror`, sin 4xx/5xx.
+
+**Lo que NO se pudo, con la razón medida:**
+1. **El flujo M6 completo no es recorrible**: la nube tiene `sections=0`,
+   `subjects=0`, `enrollments=0`, `profiles=1`. Sin matrícula no hay aula que
+   abrir ni entrega que crear. No es un bug: es ausencia de semilla.
+2. **Conducir la UI con Playwright es limitado**: Flutter Web usa CanvasKit,
+   que pinta en un `<canvas>` único sin nodos DOM por widget, y el árbol
+   semántico se publica sólo bajo demanda. No hay forma fiable de teclear en
+   el login desde fuera. El comportamiento real ya lo cubre `flutter test`.
+3. **Los `RenderFlex overflowed` no se ven en release**: exigen un build con
+   aserciones (debug/profile). Con el release sólo se puede auditar lo que se
+   ve, que es lo que se hizo.
+
+### Fase 4 — el frontend de M4: lo que faltaba de verdad
+
+El plan daba por hecho que M4 no tenía frontend. **Era deriva**: ya existían
+`InscripcionGateway` (9 ops), su implementación HTTP, los dos repositorios,
+`PanelOfertas` y `PanelMisInscripciones` en `aspirante_dashboard.dart`, y
+`CpanelInscripcionesPanel` (ocupación, promover, expirar, reincorporar). Los
+huecos reales eran **cinco**, y son los que se cerraron:
+
+1. `obtenerCola(seccionId)` y `obtenerInscripcionesDeSeccion(seccionId)`.
+2. Un gateway para el **CRUD de secciones** (3 rutas admin).
+3. **Vista de Cola FIFO por sección** — no existía; sólo ocupación global.
+4. **Panel de CRUD de secciones** — sin secciones, el de ocupación está vacío.
+5. **Pruebas** de esos dos huecos.
+
+Nueve archivos nuevos y seis modificados (~700 LoC): `lib/models/seccion.dart`,
+`core/gateways/secciones_gateway.dart`, `services/secciones_service.dart`,
+`repositories/secciones_repository.dart`,
+`screens/admin/cpanel_inscripciones_cola_dialog.dart`,
+`screens/admin/cpanel_secciones_panel.dart`, más las dos entradas de menú y
+los tres archivos de prueba con su doble. **14/14 rutas quedan cubiertas.**
+
+**Tres fallos reales que destaparon las pruebas** (no teóricos): 19 errores
+de cableado en el primer `flutter analyze` (imports de `SupabaseService` y
+`Result`, `BackendSeccionesGateway` sin importar, e `IncesTheme.claro` que es
+**método**, no getter); un título de error que repetía la palabra «error» en
+lugar de decir qué falló; y una aserción que buscaba `'2'` cuando la UI pinta
+`Total: 2` (`find.text` es coincidencia exacta).
+
+### Cierre de la sesión: M6 verificado contra la nube
+
+Quedaba un hueco grande: **M6 nunca se había ejercitado de punta a punta
+contra la nube**. Rutas, UI y migraciones existían, pero nadie había recorrido
+el bucle real con tokens reales. Se cerró con `supabase/humo-aula.mjs`
+(710 líneas, patrón `humo-*.mjs` del proyecto).
+
+**Medido: 30 OK · 0 fallas · purga limpia · EXIT=0.**
+
+Prueba de verdad, no de nombre: aislamiento RLS (un tercer alumno ve
+exactamente 1 entrega y no la del compañero), publicación diferida **sin
+planificador**, `notaAsignada` `null` antes de devolver y `9` después, y el
+`MATERIAL` sin puntos llegando con `puntosMaximos === 0` (R-25).
+
+**La dependencia M6→M3 quedó demostrada en vivo**: sin fila activa en
+`schedule_slots`, `m6_dicta_seccion` es falso y el docente recibe
+`SIN_PERMISO_EN_EL_AULA`. Hay que asignarlo por
+`POST /api/v1/admin/cuadrante` antes de que vea nada.
+
+**Bug real encontrado en la purga del propio humo**: borraba por id
+recordado, así que una corrida que moría antes de capturar los ids dejaba
+residuo (se encontraron 4 `subjects`, 1 sección, 4 `program_subjects`). Y el
+comentario decía el orden correcto mientras el código hacía el inverso
+(`program_subjects` va antes que `subjects` por el `on delete restrict`).
+Reescrita para barrer **por marca** y en el orden correcto. **Residuo: 0.**
+
+**Deriva corregida en `temas/modulo6.md`** — tres afirmaciones falsas, del
+tipo que envejece igual de mal que una cifra:
+
+1. Decía que encender el módulo era `202609220002` → es **`202609220003`**.
+2. Decía que `AulaGateway` **no** tenía los 6 métodos del docente y que el
+   dashboard devolvía «llegará en un paso posterior». **Falso**: los métodos
+   están (`aula_gateway.dart:592-655`) y ese aviso no existe en `lib/`.
+3. La sección «Riesgo abierto» sobre el `default 20` quedó **resuelta**.
+
+### Estado final medido
+
+| Suite | Resultado |
+|---|---|
+| Backend | **540/540** |
+| Flutter | **462/462** |
+| Humo general (`backend/test-humo.mjs`) | **25/25** |
+| **Humo M6 (`supabase/humo-aula.mjs`)** | **30/30 · EXIT=0 · purga limpia** |
+| Esquema nube (`verificar-esquema.mjs`) | todas OK |
+| Migraciones (`apply-migrations.mjs --check`) | **20/20, 0 deriva** |
+| `flutter analyze` | 0 errores (2 warnings preexistentes) |
+
+### Trabajo humano que sigue
+
+- **Recorrido en navegador de M4/M6**: el humo ya siembra y purga, pero para
+  *ver* la UI hacen falta datos **persistentes** (programa con materias, una
+  sección, un docente, 2+ alumnos, matrículas). El humo es la plantilla de
+  cómo crearlos.
+- **R2 (R-24)**: sigue bloqueando la subida de adjuntos de M6.
+- **CI (D9)**: la receta de `flutter test` está escrita en
+  `temas/infraestructura.md`; falta el reloj que la ejecute solo.
+- **2 warnings de `flutter analyze`** preexistentes (`test/crear_anuncio_panel_test.dart:3`,
+  `test/libro_calificaciones_panel_test.dart:5`): imports muertos.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
