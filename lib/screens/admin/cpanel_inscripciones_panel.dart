@@ -5,6 +5,7 @@ import '../../models/inscripcion.dart';
 import '../../repositories/inscripcion_repository.dart';
 import '../../theme/inces_theme.dart';
 import '../../widgets/comunes.dart';
+import 'cpanel_inscripciones_cola_dialog.dart';
 
 /// Panel de ocupación y cupos del administrador (Módulo 4).
 ///
@@ -295,16 +296,33 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
               ),
             ),
             const SizedBox(width: 12),
-            FilledButton.icon(
-              onPressed: ocupado ? null : () => _promover(o),
-              icon: ocupado
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.arrow_upward_outlined, size: 16),
-              label: Text(ocupado ? 'Promoviendo…' : 'Promover siguiente'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => mostrarColaDeSeccion(
+                    context: context,
+                    repo: _repo,
+                    seccionId: o.seccionId,
+                    seccionNombre: titulo,
+                  ),
+                  icon: const Icon(Icons.list_alt_outlined, size: 16),
+                  label: const Text('Ver cola'),
+                ),
+                FilledButton.icon(
+                  onPressed: ocupado ? null : () => _promover(o),
+                  icon: ocupado
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward_outlined, size: 16),
+                  label: Text(ocupado ? 'Promoviendo…' : 'Promover siguiente'),
+                ),
+              ],
             ),
           ],
         ),

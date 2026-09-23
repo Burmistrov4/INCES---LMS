@@ -144,6 +144,32 @@ class FakeInscripcionGateway implements InscripcionGateway {
   }
 
   // ---------------------------------------------------------------------------
+  // Vista de cola e inscripciones de una sección (admin)
+  // ---------------------------------------------------------------------------
+
+  List<InscripcionDetallada> colaDevuelta = const [];
+  List<InscripcionDetallada> inscripcionesDeSeccionDevueltas = const [];
+  Object? errorAlObtenerCola;
+  Object? errorAlObtenerInscripcionesDeSeccion;
+
+  @override
+  Future<List<InscripcionDetallada>> obtenerCola(String seccionId) async {
+    llamadas.add('obtenerCola:$seccionId');
+    ultimaSeccion = seccionId;
+    _lanzarSi(errorAlObtenerCola);
+    return colaDevuelta;
+  }
+
+  @override
+  Future<List<InscripcionDetallada>> obtenerInscripcionesDeSeccion(
+      String seccionId) async {
+    llamadas.add('obtenerInscripcionesDeSeccion:$seccionId');
+    ultimaSeccion = seccionId;
+    _lanzarSi(errorAlObtenerInscripcionesDeSeccion);
+    return inscripcionesDeSeccionDevueltas;
+  }
+
+  // ---------------------------------------------------------------------------
   // Utilidades
   // ---------------------------------------------------------------------------
 
@@ -188,6 +214,8 @@ InscripcionDetallada inscripcionDetalladaEjemplo({
   String seccionNombre = 'Soldadura por Arco',
   String materia = 'Soldadura por Arco',
   String programa = 'Soldadura',
+  String? estudianteNombre = 'Lorenzo Roca',
+  String? estudianteEmail = 'lorenzo@inces.gob.ve',
 }) =>
     InscripcionDetallada(
       id: id,
@@ -202,6 +230,6 @@ InscripcionDetallada inscripcionDetalladaEjemplo({
       programaId: 'prog-1',
       programaNombre: programa,
       posicionEnCola: posicionEnCola,
-      estudianteNombre: 'Lorenzo Roca',
-      estudianteEmail: 'lorenzo@inces.gob.ve',
+      estudianteNombre: estudianteNombre,
+      estudianteEmail: estudianteEmail,
     );

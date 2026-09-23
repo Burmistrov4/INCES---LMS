@@ -27,6 +27,16 @@ abstract interface class InscripcionGateway {
   /// Promueve manualmente al siguiente de la cola (override tras ampliar cupo).
   Future<InscripcionDetallada> promoverSiguiente(String seccionId);
 
+  /// Cola FIFO de una sección: `WAITLISTED` en orden de llegada, con su
+  /// posición calculada por la base. La usa el panel del administrador para
+  /// mostrar quién sigue y a qué distancia del asiento.
+  Future<List<InscripcionDetallada>> obtenerCola(String seccionId);
+
+  /// Inscripciones no abandonadas de una sección: `ENROLLED`, `WAITLISTED`
+  /// y `PENDING_BID`. La usa el panel del administrador para revisar el
+  /// estado completo de un grupo.
+  Future<List<InscripcionDetallada>> obtenerInscripcionesDeSeccion(String seccionId);
+
   /// Vence las ofertas caducadas (idempotente). Devuelve cuántas vencieron.
   Future<int> expirarOfertas();
 

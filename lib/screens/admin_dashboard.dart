@@ -13,6 +13,7 @@ import 'admin/cpanel_invitaciones_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
 import 'admin/cpanel_cuadrante_panel.dart';
 import 'admin/cpanel_inscripciones_panel.dart';
+import 'admin/cpanel_secciones_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
@@ -84,6 +85,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     ItemNavegacion(
       icono: Icons.confirmation_number_outlined,
       titulo: 'Inscripciones y Cupos',
+      categoria: 'Gestión académica',
+      disponible: true,
+    ),
+    ItemNavegacion(
+      icono: Icons.class_outlined,
+      titulo: 'Secciones',
       categoria: 'Gestión académica',
       disponible: true,
     ),
@@ -177,6 +184,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Gestión académica', 'Inscripciones y Cupos'],
           child: CpanelInscripcionesPanel(),
+        );
+      case 'Secciones':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Gestión académica', 'Secciones'],
+          child: CpanelSeccionesPanel(),
         );
       case 'Cuadrante y Horarios':
         return const ContenidoSeccion(

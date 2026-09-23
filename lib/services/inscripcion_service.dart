@@ -110,6 +110,31 @@ class BackendInscripcionGateway implements InscripcionGateway {
   }
 
   @override
+  Future<List<InscripcionDetallada>> obtenerCola(String seccionId) async {
+    final respuesta = await _api.get(
+      '/api/v1/admin/secciones/$seccionId/cola',
+      token: _tokenSesion,
+    );
+    return ((respuesta['cola'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(InscripcionDetallada.fromJson)
+        .toList();
+  }
+
+  @override
+  Future<List<InscripcionDetallada>> obtenerInscripcionesDeSeccion(
+      String seccionId) async {
+    final respuesta = await _api.get(
+      '/api/v1/admin/secciones/$seccionId/inscripciones',
+      token: _tokenSesion,
+    );
+    return ((respuesta['inscripciones'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(InscripcionDetallada.fromJson)
+        .toList();
+  }
+
+  @override
   Future<EstadoInscripcion> reincorporar({
     required String estudianteId,
     required String seccionId,

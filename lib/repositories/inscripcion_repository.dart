@@ -62,4 +62,15 @@ class AdminInscripcionesRepository {
           seccionId: seccionId,
         ),
       );
+
+  /// Cola FIFO (`WAITLISTED` en orden de llegada). La usa el panel del
+  /// administrador para mostrar quién sigue y a qué distancia del asiento.
+  Future<Result<List<InscripcionDetallada>>> obtenerCola(String seccionId) =>
+      Result.guard(() => _gateway.obtenerCola(seccionId));
+
+  /// Inscripciones vivas de una sección: todas menos `DROPPED`. La usa el
+  /// panel del administrador para revisar el estado completo de un grupo.
+  Future<Result<List<InscripcionDetallada>>>
+      obtenerInscripcionesDeSeccion(String seccionId) =>
+          Result.guard(() => _gateway.obtenerInscripcionesDeSeccion(seccionId));
 }
