@@ -1522,13 +1522,26 @@ tipo que envejece igual de mal que una cifra:
 
 | Suite | Resultado |
 |---|---|
-| Backend | **540/540** |
-| Flutter | **462/462** |
+| Backend | **540/540** (21 archivos) |
+| Flutter | **462/462** — `All tests passed!` |
 | Humo general (`backend/test-humo.mjs`) | **25/25** |
 | **Humo M6 (`supabase/humo-aula.mjs`)** | **30/30 · EXIT=0 · purga limpia** |
 | Esquema nube (`verificar-esquema.mjs`) | todas OK |
 | Migraciones (`apply-migrations.mjs --check`) | **20/20, 0 deriva** |
-| `flutter analyze` | 0 errores (2 warnings preexistentes) |
+| `flutter analyze` | **No issues found** (0 errores, 0 warnings) |
+
+### Commits de esta sesión
+
+| Hash | Qué |
+|---|---|
+| `27853db` | `chore(puertos)` — 3001/8090 + CORS de R2 |
+| `eaeef74` | `test(m6)` — humo end-to-end 30/30 (+ `overview.md`) |
+| `a8d6fa4` | `feat(m4)` — los 5 huecos del frontend |
+| `bccbbea` | `chore(test)` — 2 imports muertos (analyze limpio) |
+| `6710ced` | `docs(handover)` — este documento |
+
+**Árbol limpio. Quedan 21 commits sin subir a `origin/main`** — no se hizo
+`push`.
 
 ### Trabajo humano que sigue
 
@@ -1539,8 +1552,6 @@ tipo que envejece igual de mal que una cifra:
 - **R2 (R-24)**: sigue bloqueando la subida de adjuntos de M6.
 - **CI (D9)**: la receta de `flutter test` está escrita en
   `temas/infraestructura.md`; falta el reloj que la ejecute solo.
-- **2 warnings de `flutter analyze`** preexistentes (`test/crear_anuncio_panel_test.dart:3`,
-  `test/libro_calificaciones_panel_test.dart:5`): imports muertos.
 
 ---
 
