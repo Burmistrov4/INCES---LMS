@@ -180,70 +180,78 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
 
     final theme = Theme.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            SizedBox(
-              width: 220,
-              child: TarjetaMetrica(
-                etiqueta: 'Secciones',
-                valor: '${_secciones.length}',
-                icono: Icons.explore_outlined,
+    return LayoutBuilder(
+      builder: (context, restricciones) {
+        // Dos tarjetas por fila en móvil, cuatro en escritorio. Con los 220 px
+        // fijos, a 375 px se apilaban las cuatro y esa columna se comía la
+        // pantalla antes de llegar a la lista de secciones.
+        final anchoTarjeta = restricciones.maxWidth >= 480
+            ? 220.0
+            : (restricciones.maxWidth - 12) / 2;
+
+        // Todo el cuerpo en un solo scroll. Antes sólo la lista era
+        // desplazable y las métricas quedaban fuera: con el móvil apilado, la
+        // suma de cabecera + métricas + aviso superaba la pantalla y la
+        // `Column` desbordaba por abajo.
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: anchoTarjeta,
+                    child: TarjetaMetrica(
+                      etiqueta: 'Secciones',
+                      valor: '${_secciones.length}',
+                      icono: Icons.explore_outlined,
+                    ),
+                  ),
+                  SizedBox(
+                    width: anchoTarjeta,
+                    child: TarjetaMetrica(
+                      etiqueta: 'Con oferta en el aire',
+                      valor: '$_conOfertaVigente',
+                      icono: Icons.local_offer_outlined,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  SizedBox(
+                    width: anchoTarjeta,
+                    child: TarjetaMetrica(
+                      etiqueta: 'Cupos disponibles',
+                      valor: '$_cuposDisponibles',
+                      icono: Icons.event_seat_outlined,
+                      color: IncesTheme.exito,
+                    ),
+                  ),
+                  SizedBox(
+                    width: anchoTarjeta,
+                    child: TarjetaMetrica(
+                      etiqueta: 'Cupos ocupados',
+                      valor: '$_cuposOcupados',
+                      icono: Icons.people_outline,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            SizedBox(
-              width: 220,
-              child: TarjetaMetrica(
-                etiqueta: 'Con oferta en el aire',
-                valor: '$_conOfertaVigente',
-                icono: Icons.local_offer_outlined,
-                color: theme.colorScheme.primary,
+              const SizedBox(height: 12),
+              const AvisoEnLinea(
+                texto: '«Promover siguiente» se usa tras ampliar la capacidad de '
+                    'una sección: sube al primero de la cola a «matriculado». Si '
+                    'la sección está llena o ya tiene una oferta en el aire, no '
+                    'promueve a nadie (lo confirma el mensaje).',
+                icono: Icons.info_outline,
+                tono: TonoAviso.info,
               ),
-            ),
-            SizedBox(
-              width: 220,
-              child: TarjetaMetrica(
-                etiqueta: 'Cupos disponibles',
-                valor: '$_cuposDisponibles',
-                icono: Icons.event_seat_outlined,
-                color: IncesTheme.exito,
-              ),
-            ),
-            SizedBox(
-              width: 220,
-              child: TarjetaMetrica(
-                etiqueta: 'Cupos ocupados',
-                valor: '$_cuposOcupados',
-                icono: Icons.people_outline,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        const AvisoEnLinea(
-          texto: '«Promover siguiente» se usa tras ampliar la capacidad de una '
-              'sección: sube al primero de la cola a «matriculado». Si la '
-              'sección está llena o ya tiene una oferta en el aire, no promueve '
-              'a nadie (lo confirma el mensaje).',
-          icono: Icons.info_outline,
-          tono: TonoAviso.info,
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final o in _secciones) _filaOcupacion(o),
-              ],
-            ),
+              const SizedBox(height: 12),
+              for (final o in _secciones) _filaOcupacion(o),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -256,49 +264,46 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(titulo, style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (o.programaNombre != null) o.programaNombre!,
-                      o.periodo,
-                    ].join(' · '),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+        child: LayoutBuilder(
+          builder: (context, restricciones) {
+            final informacion = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titulo, style: theme.textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    if (o.programaNombre != null) o.programaNombre!,
+                    o.periodo,
+                  ].join(' · '),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    Etiqueta(texto: 'Cupo ${o.resumenCupo}'),
+                    Etiqueta(
+                      texto: o.cuposDisponibles > 0
+                          ? '${o.cuposDisponibles} disponible(s)'
+                          : 'Sin cupos',
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      Etiqueta(texto: 'Cupo ${o.resumenCupo}'),
-                      Etiqueta(
-                        texto: o.cuposDisponibles > 0
-                            ? '${o.cuposDisponibles} disponible(s)'
-                            : 'Sin cupos',
+                    if (o.ofertaVigente)
+                      const Etiqueta(
+                        texto: 'Oferta en el aire',
+                        destacada: true,
                       ),
-                      if (o.ofertaVigente)
-                        const Etiqueta(
-                          texto: 'Oferta en el aire',
-                          destacada: true,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Wrap(
+                  ],
+                ),
+              ],
+            );
+
+            final botones = Wrap(
               spacing: 8,
-              runSpacing: 4,
+              runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 OutlinedButton.icon(
@@ -323,8 +328,34 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                   label: Text(ocupado ? 'Promoviendo…' : 'Promover siguiente'),
                 ),
               ],
-            ),
-          ],
+            );
+
+            // Los botones eran un hijo **no flexible** de la `Row`, así que se
+            // quedaban con su ancho natural y «Promover siguiente» (~200 px) no
+            // cabía junto a la información a 375 px. En estrecho se apilan: los
+            // botones reciben el ancho completo de la tarjeta y envuelven entre
+            // sí si aun así no caben.
+            const anchoMinimoParaFila = 560.0;
+            if (restricciones.maxWidth >= anchoMinimoParaFila) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: informacion),
+                  const SizedBox(width: 12),
+                  botones,
+                ],
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                informacion,
+                const SizedBox(height: 12),
+                botones,
+              ],
+            );
+          },
         ),
       ),
     );
