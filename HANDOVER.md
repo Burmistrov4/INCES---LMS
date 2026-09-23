@@ -337,47 +337,54 @@ código: es un límite del proveedor.
 
 Consecuencia práctica: para el humo real, invita a `lorenzoroca333@gmail.com`.
 
-### 2.3 Reparto de puertos y `CORS_ORIGINS` — ✅ ALINEADO
+### 2.3 Reparto de puertos y `CORS_ORIGINS` — ✅ ALINEADO (3001 / 8090)
 
 **No los cruces.** El reparto canónico es:
 
 ```
-backend  ->  3000   la API        (PORT, backend/.env)
-Flutter  ->  8080   el navegador  (--web-port=8080, obligatorio)
+backend  ->  3001   la API        (PORT, backend/.env)
+Flutter  ->  8090   el navegador  (--web-port=8090, obligatorio)
 ```
 
 ```bash
 # Backend
-cd backend && npm run dev            # escucha en 3000
+cd backend && npm run dev            # escucha en 3001
 
 # Frontend — --web-port NO es opcional
-flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
+flutter run -d chrome --web-port=8090 --dart-define-from-file=.env.json
 ```
 
-`API_BASE_URL` vive en `.env.json` y vale `http://localhost:3000` — el puerto del
+`API_BASE_URL` vive en `.env.json` y vale `http://localhost:3001` — el puerto del
 **backend**, porque es a quien el frontend llama.
+
+> **Por qué no 3000 / 8080.** Era el reparto anterior y se cambió el 2026-09-22.
+> El 8080 es el puerto alternativo de Apache y **XAMPP lo ocupa** en cuanto
+> arranca; el 3000 corría la misma suerte en la máquina de Lorenzo, donde un
+> proceso `node` ajeno al proyecto (responde 404 en `/salud`) lo tenía tomado y
+> el backend no llegaba a arrancar. 3001 y 8090 estaban libres en ambos casos.
 
 > **Corrección de una versión anterior de este documento:** decía que el backend
 > fuera en 8080 *y* el frontend en 8080. Eso es una colisión: el segundo en
-> arrancar no encuentra puerto. El backend va en 3000.
+> arrancar no encuentra puerto. El backend nunca va en el mismo puerto que el
+> frontend.
 
 `CORS_ORIGINS` autoriza el origen del **navegador**, es decir el del frontend
-(8080). Poner ahí el puerto del backend no autoriza nada. Valor por defecto ya
-corregido en `env.ts` y en `.env.example`:
+(8090). Poner ahí el puerto del backend no autoriza nada. Valor por defecto ya
+corregido en `env.ts` (8090) y en `.env.example`:
 
 ```
-CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+CORS_ORIGINS=http://localhost:8090,http://127.0.0.1:8090,http://localhost:3001,http://127.0.0.1:3001
 ```
 
 > Sin `--web-port`, Flutter elige un puerto **efímero distinto en cada arranque**
 > y `CORS_ORIGINS` queda obsoleto al segundo intento: el navegador bloquea la API
 > con un error que parece un bug de backend y no lo es.
 
-**⚠️ En la máquina de Lorenzo el puerto 3000 lo ocupa otro proceso `node`**
-(`C:\Program Files\nodejs\node.exe`, PID 16884, ajeno a este proyecto: responde
-404 en `/salud`). Si no lo libera, el backend no arranca en 3000. Salidas: cerrar
-ese proceso, o cambiar `PORT` y ajustar `API_BASE_URL` en `.env.json`. Los tres
-valores (`PORT`, `API_BASE_URL`, `CORS_ORIGINS`) deben contar la misma historia.
+> **Sobre el `PORT` por defecto de `env.ts`:** sigue siendo **3000**, y es
+> deliberado. Lo afirma `backend/test/env.test.ts`, y `docker-compose.yml` mapea
+> el servicio de desarrollo `${API_DEV_PORT:-3001}:3000` — el contenedor escucha
+> en 3000 y el host lo publica en 3001. El puerto de este proyecto se fija en
+> `backend/.env` (3001), no en el valor por defecto.
 
 > **Hay DOS listas de CORS, y no se hablan.** `CORS_ORIGINS` (backend/.env) decide
 > si el navegador puede llamar a **la API**. La política del bucket de R2 decide si
@@ -420,7 +427,7 @@ token se lee de `Uri.base.fragment`. Las 4 pruebas de
 fallan con el mensaje exacto de Flutter.
 
 **Lo que falta y no se puede fingir:** abrir
-`http://localhost:8080/#/auth/activate?token=…` en un **navegador de verdad**,
+`http://localhost:8090/#/auth/activate?token=…` en un **navegador de verdad**,
 fijar la contraseña y llegar al panel. Este entorno **no puede lanzar Chrome**
 (`reg.exe` lo bloquea) y la herramienta de navegador no soporta Windows, así que
 esa comprobación queda para la máquina de Lorenzo. Montar la app real en una
@@ -1004,7 +1011,7 @@ bien — mejor arreglar el reloj antes de tocar M5.
 | `docs/CONTRATO_API_MODULO2.md` | Contrato de M2 (currículo y pensum), ya implementado | Al tocar M2 |
 | `ROADMAP.md` | ⚠️ **Desactualizado** — no lo tomes como referencia de estado | Sólo contexto histórico |
 | `docs/PLAN_MAESTRO_STACK_DEFINITIVO.md` | El stack vigente, con sus ADR | Si dudas del stack |
-| `README.md` | Arranque rápido (incluye `--web-port=8080`) | Al levantar el entorno |
+| `README.md` | Arranque rápido (incluye `--web-port=8090`) | Al levantar el entorno |
 | `backend/.env.example` | Todas las variables, comentadas una por una | Antes de tocar configuración |
 | `backend/openapi.json` | Contrato de la API, generado | Al consumir el backend |
 | `HANDOVER.md` | Este archivo | Al empezar la sesión |
@@ -1608,18 +1615,38 @@ habían dejado de serlo (cPanel 11/9 decía 10/8; aspirante 6 ramas decía 4).
 Como el suelo es `greaterThanOrEqualTo`, la suite no se puso roja — pero un
 suelo subestimado debilita justo lo que existe para hacer.
 
+### El mismo patrón, una segunda vez: `EncabezadoInstitucional`
+
+El fallo de `TituloSeccion` no era un accidente aislado: era una instancia del
+patrón **`Row` con un `Expanded` y un hermano ancho no flexible**. Un barrido
+estático sobre `lib/` señaló 15 filas, y verificar las dos de `widgets/comunes.dart`
+—las compartidas, por tanto las de mayor impacto— encontró que
+**`EncabezadoInstitucional` (la barra de los tres dashboards) también desborda**:
+45 px a la derecha con un `IconButton` y un botón «Salir». Arreglado igual
+(apilar por debajo de 640 px).
+
+**Matiz importante:** hoy el hueco `accionesEncabezado` va **siempre vacío**
+—se declara y se reenvía, pero ningún llamador le pasa nada—, así que no era un
+bug vivo sino una **trampa latente** que sólo esperaba al primero que metiera un
+botón ahí. El test la fija con acciones para que no ocurra.
+
+Los otros 12 candidatos del barrido **quedan sin verificar a propósito**: un
+barrido estático señala pistas, no fallos, y reportarlos como bugs sin medirlos
+sería afirmar sin evidencia.
+
 ### Estado al cerrar
 
 | Suite | Resultado |
 |---|---|
 | Backend | **540/540** |
-| Flutter | **474/474** (462 + 9 responsive + 3 del widget compartido) |
+| Flutter | **478/478** (462 base + 9 responsive de M4 + 3 del widget compartido + 4 del encabezado) |
 | `backend/test-humo.mjs` | **25/25** |
 | `supabase/humo-aula.mjs` | **30/30 · EXIT=0 · purga limpia** |
 | `apply-migrations.mjs --check` | **0 pendientes, 0 deriva** |
 | `flutter analyze` | **No issues found** |
+| Auditoría en Chrome (build al día) | 375 y 1440 px: **0 desbordes, 0 errores, 0 4xx/5xx** |
 
-Commits `945ca12`, `d2e7572`, `c357028`, `c759f95`, subidos a `origin/main`.
+Commits de la sesión 3: `945ca12`, `d2e7572`, `c357028`, `c759f95`, `ed7f2f7`, `add6533` — subidos a `origin/main`.
 
 ---
 

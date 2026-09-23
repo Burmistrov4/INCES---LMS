@@ -543,7 +543,7 @@ bueno: un `PATCH` que responde 200 no prueba que la fila quedara bien.
 ```bash
 # 1. API en local (contra la base de la nube)
 docker compose up -d api
-curl http://localhost:3000/salud/profundo
+curl http://localhost:3001/salud/profundo
 
 # 2. Comprobación de extremo a extremo contra la nube real
 node backend/test-humo.mjs
@@ -934,7 +934,7 @@ registra Fastify. Las dos cosas las cubre `test/openapi.test.ts`:
 
 ```bash
 npm run openapi                                   # regenerar el artefacto
-curl -s http://localhost:3000/openapi.json | head # el mismo documento, en vivo
+curl -s http://localhost:3001/openapi.json | head # el mismo documento, en vivo
 ```
 
 ### Códigos de error
@@ -1013,7 +1013,7 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `lib/screens/aspirante_dashboard.dart` | ✅ | Usa el repositorio, con estado de error y reintento |
 
 > **Pendiente de la mitad de interfaz de M1:** que un navegador real abra
-> `http://localhost:8080/#/auth/activate?token=…` y confirme que el token llega
+> `http://localhost:8090/#/auth/activate?token=…` y confirme que el token llega
 > por el fragmento. El humo cubre la API; la pantalla no se ha abierto todavía.
 
 ### Backend (Node 22 / TypeScript 5.7 / Fastify 5)
@@ -1326,9 +1326,10 @@ URL de Supabase inexistente, no leyendo el código:
    habla directo con Supabase —que tiene su propia CORS y sí lo aceptaba— así
    que la pantalla de login cargaba bien; el fallo aparecía después, en cada
    llamada a la API propia, con un error de CORS en la consola del navegador.
-   Corregido por dos vías: el README fija `--web-port=8080` como obligatorio en
-   desarrollo, y `CORS_ORIGINS` incluye también `127.0.0.1` (que para el
-   navegador es un origen **distinto** de `localhost`).
+   Corregido por dos vías: el README fija un `--web-port` fijo como obligatorio en
+   desarrollo —entonces **8080**; desde el 2026-09-22, **8090**—, y `CORS_ORIGINS`
+   incluye también `127.0.0.1` (que para el navegador es un origen **distinto** de
+   `localhost`).
 10. **`enrollments` dejaba que cualquier usuario se auto-inscribiera** (R-23,
    2026-09-18). La tabla nació con `enrollments_insert_own`, que permite a
    **cualquier** autenticado insertar su propia fila con `status = 'ENROLLED'` y
@@ -1513,7 +1514,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 **Lo que queda en su tejado, en orden:**
 
 1. **Abrir la pantalla de activación en un navegador** con un token real
-   (`http://localhost:8080/#/auth/activate?token=…`) y confirmar que lee el token
+   (`http://localhost:8090/#/auth/activate?token=…`) y confirmar que lee el token
    del fragmento. Es la mitad de interfaz que el humo no cubre.
 2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
    el libro mayor marca 10/10 y la verificación independiente del esquema da 81/81.
@@ -1524,10 +1525,10 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
 4. **Arrancar el frontend con puerto fijo** contra la nube:
 
    ```bash
-   flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
+   flutter run -d chrome --web-port=8090 --dart-define-from-file=.env.json
    ```
 
-   El `--web-port=8080` no es opcional: sin él Flutter toma un puerto libre
+   El `--web-port=8090` no es opcional: sin él Flutter toma un puerto libre
    distinto en cada arranque y `CORS_ORIGINS` lo rechaza.
 
 ### Luego: M3 Cuadrante, y lo que queda por delante

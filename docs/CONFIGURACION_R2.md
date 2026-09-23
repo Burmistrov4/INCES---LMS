@@ -141,6 +141,8 @@ no la permite, el preflight falla igual que si no hubiera política.
 [
   {
     "AllowedOrigins": [
+      "http://localhost:8090",
+      "http://127.0.0.1:8090",
       "http://localhost:8080",
       "http://127.0.0.1:8080"
     ],
@@ -158,10 +160,16 @@ no la permite, el preflight falla igual que si no hubiera política.
   "rules": [
     {
       "allowed": {
-        "origins": ["http://localhost:8080", "http://127.0.0.1:8080"],
+        "origins": [
+          "http://localhost:8090",
+          "http://127.0.0.1:8090",
+          "http://localhost:8080",
+          "http://127.0.0.1:8080"
+        ],
         "methods": ["GET", "PUT"],
         "headers": ["Content-Type"]
-      }
+      },
+      "maxAgeSeconds": 3600
     }
   ]
 }
@@ -170,11 +178,21 @@ no la permite, el preflight falla igual que si no hubiera política.
 > Los dos formatos son distintos y la documentación de Cloudflare muestra ambos.
 > Si `wrangler` rechaza el archivo, usa el panel: es la vía que acepta el formato
 > completo sin ambigüedad.
+>
+> **La fuente de verdad es `docs/r2-cors.json`**, no este bloque: es el archivo
+> que se aplicó de verdad y el que se le pasa a `wrangler`. Los dos JSON de aquí
+> son su transcripción en los dos formatos. Si editas uno, edita el otro — o
+> mejor, edita `r2-cors.json` y vuelve a aplicar. **Los orígenes `8090` están en
+> la política aplicada y no son decorativos:** al mover el frontend a 8090, un
+> JSON sin ellos reaplicado borraría el origen vivo y reintroduciría el fallo de
+> §2.1 —el navegador bloqueando la subida—, que ya costó una sesión entera.
+> El `8080` se conserva porque es el puerto alternativo de Apache y sigue siendo
+> un origen de desarrollo legítimo.
 
 ### ⚠️ Son dos listas de CORS que no se conocen
 
 `CORS_ORIGINS` en `backend/.env` (hoy
-`http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:8080`)
+`http://localhost:8090,http://127.0.0.1:8090,http://localhost:3001,http://127.0.0.1:3001`)
 gobierna **la API**. La política del bucket gobierna **R2**. Son independientes:
 añadir un origen a una no lo añade a la otra. Cuando el frontend se despliegue
 (Vercel / servidor local), **hay que añadir el origen de producción a las dos**.
