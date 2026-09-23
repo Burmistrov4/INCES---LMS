@@ -103,7 +103,9 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
     // crear el usuario. Jamás se exponen al cliente; sólo los usa el servidor.
     reposAdmin: deps.reposAdmin,
     enviarCorreo: deps.enviarCorreo,
-    urlFrente: env.FRONTEND_URL ?? 'http://localhost:3000',
+    // El frente corre en 8090 (no 8080: lo ocupa XAMPP). Si el despliegue no
+    // declara FRONTEND_URL, el enlace de activación debe apuntar ahí.
+    urlFrente: env.FRONTEND_URL ?? 'http://localhost:8090',
     // `crearAlmacenamiento` devuelve `null` cuando R2 no está configurado, y
     // eso es una configuración válida: el módulo de archivos responde 503 y el
     // resto del backend funciona igual. Quien construye la app puede sustituirlo

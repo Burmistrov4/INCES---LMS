@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
-const API = process.env.API_BASE_URL ?? 'http://127.0.0.1:3000';
+const API = process.env.API_BASE_URL ?? 'http://127.0.0.1:3001';
 /**
  * Cuenta de administrador con la que el humo se autentica.
  *
@@ -191,7 +191,33 @@ console.log('\n  5. Lectura de system_modules en la nube\n');
   const cp = await pedir('/api/v1/admin/modulos', { headers: sesion });
   comprobar('GET /api/v1/admin/modulos → 200', cp.estado === 200, `HTTP ${cp.estado}`);
   const todos = cp.cuerpo?.modulos ?? [];
-  comprobar('el panel ve los 9 módulos', todos.length === 9, `${todos.length}`);
+  // Se compara contra el catálogo **por clave**, no contra un número suelto.
+  // `length === 9` quedó obsoleto el 2026-09-22 en cuanto `202609220001` sembró
+  // `m6_aula_virtual`: la cuenta creció a 10 y la aserción falló sin que nada
+  // estuviera roto. Un entero no dice *qué* falta; la lista sí, y además
+  // distingue «falta un módulo» de «sobra uno que nadie sembró».
+  const CLAVES_ESPERADAS = [
+    'm0_cpanel',
+    'm1_onboarding',
+    'm2_curriculo',
+    'm3_cuadrante',
+    'm4_inscripciones',
+    'm5_archivos',
+    'm6_aula_virtual',
+    'm6_asistencia',
+    'm7_calificaciones',
+    'm8_pasantias',
+  ];
+  const clavesVistas = todos.map((m) => m.clave);
+  const faltan = CLAVES_ESPERADAS.filter((c) => !clavesVistas.includes(c));
+  const sobran = clavesVistas.filter((c) => !CLAVES_ESPERADAS.includes(c));
+  comprobar(
+    `el panel ve los ${CLAVES_ESPERADAS.length} módulos del catálogo`,
+    todos.length === CLAVES_ESPERADAS.length && faltan.length === 0 && sobran.length === 0,
+    faltan.length || sobran.length
+      ? `faltan=[${faltan.join(',')}] sobran=[${sobran.join(',')}]`
+      : `${todos.length}`,
+  );
   // Estuvo APAGADO a propósito mientras la Capa 7 (la UI) no existía: encenderlo
   // antes habría dejado un ítem de menú sin circuito detrás, que es el patrón de
   // R-22. Con la UI construida y verificada, `202609210002` lo enciende y las
@@ -281,7 +307,7 @@ console.log('\n  7. CORS y cabeceras de seguridad\n');
   const preflight = await fetch(`${API}/api/v1/yo`, {
     method: 'OPTIONS',
     headers: {
-      Origin: 'http://localhost:8080',
+      Origin: 'http://localhost:8090',
       'Access-Control-Request-Method': 'GET',
     },
   });

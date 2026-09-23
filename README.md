@@ -92,8 +92,8 @@ node supabase/crear-admin.mjs correo@dominio.com             # real
 ```bash
 cd backend
 npm install
-npm run dev            # http://localhost:3000
-curl http://localhost:3000/salud/profundo
+npm run dev            # http://localhost:3001
+curl http://localhost:3001/salud/profundo
 ```
 
 Configura `backend/.env` a partir de `backend/.env.example`. La clave **secreta**
@@ -103,17 +103,37 @@ Configura `backend/.env` a partir de `backend/.env.example`. La clave **secreta*
 
 ```bash
 flutter pub get
-flutter run -d chrome --web-port=8080 --dart-define-from-file=.env.json
+flutter run -d chrome --web-port=8090 --dart-define-from-file=.env.json
 ```
 
 Flutter **no lee `.env` en tiempo de ejecución**: `String.fromEnvironment()` se
 resuelve al compilar, por eso la configuración viaja con `--dart-define-from-file`.
 
-`--web-port=8080` **no es opcional en desarrollo**. Sin él, `flutter run` toma un
+`--web-port=8090` **no es opcional en desarrollo**. Sin él, `flutter run` toma un
 puerto libre cualquiera (10443, 53211…) distinto en cada arranque, y el backend lo
 rechaza porque `CORS_ORIGINS` sólo lista orígenes concretos. El síntoma es
 confuso: la pantalla carga, pero cada llamada a la API falla con un error de CORS
 en la consola del navegador. Fijando el puerto, el origen es siempre el mismo.
+
+### 5. Por qué 3001 y 8090 (y no 3000 ni 8080)
+
+XAMPP ocupa los puertos clásicos: Apache escucha en 80/443 y suele dejar un
+virtual host en **8080**, y los servidores de desarrollo de Node caen por costumbre
+en **3000**. Con XAMPP arrancado, el backend no puede enlazar 3000 y el frente de
+Flutter no puede enlazar 8080: el síntoma es un `EADDRINUSE` o, peor, un servicio
+de *otro* proyecto respondiendo en el puerto que uno cree propio.
+
+| Servicio | Puerto | Antes |
+| --- | --- | --- |
+| API (Fastify) | **3001** | 3000 |
+| Flutter Web | **8090** | 8080 |
+
+Los dos puertos viven en dos sitios y hay que cambiarlos juntos:
+
+- `backend/.env` → `PORT=3001` y `CORS_ORIGINS` con los cuatro orígenes
+  (`localhost`/`127.0.0.1` × `8090`/`3001`).
+- `.env.json` (raíz) → `API_BASE_URL=http://localhost:3001`. Se inyecta al
+  **compilar** con `--dart-define-from-file`, así que hay que relanzar Flutter.
 
 > El login del frontend habla **directo con Supabase**, no con la API propia. Si
 > Supabase acepta la petición pero la API la rechaza, el problema es CORS.
@@ -155,7 +175,7 @@ semana, sin que ninguna prueba lo note.
 
 ```bash
 cd backend && npm run openapi      # regenera openapi.json
-curl -s localhost:3000/openapi.json | jq   # el mismo documento, en vivo
+curl -s localhost:3001/openapi.json | jq   # el mismo documento, en vivo
 ```
 
 ---

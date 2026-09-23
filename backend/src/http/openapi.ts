@@ -3352,7 +3352,7 @@ export function construirDocumentoOpenApi() {
       license: { name: 'Uso académico — TEG IUTEPI' },
     },
     servers: [
-      { url: 'http://localhost:3000', description: 'Desarrollo local' },
+      { url: 'http://localhost:3001', description: 'Desarrollo local' },
       { url: 'https://api.example.com', description: 'Producción (pendiente de dominio)' },
     ],
     tags: [

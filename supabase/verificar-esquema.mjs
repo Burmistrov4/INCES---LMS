@@ -89,6 +89,12 @@ const esperadas = [
   'config_audit_log',
   'enrollments',
   'files_metadata',
+  // Las tres del Aula Virtual (M6). Las sembró `202609220001`, que hasta el
+  // 2026-09-22 estaba sin aplicar en la nube: mientras tanto este control las
+  // veía como «heredadas» y fallaba. No son andamiaje: son el módulo.
+  'm6_anuncios',
+  'm6_entregas',
+  'm6_tareas',
   'profiles',
   'program_subjects',
   'programs',
@@ -204,7 +210,7 @@ console.log('\n  4. Semillas del cPanel\n');
 const modulos = await consultar(
   'select clave, habilitado, orden from public.system_modules order by orden;',
 );
-comprobar('módulos sembrados', modulos.length === 9, `${modulos.length} filas`);
+comprobar('módulos sembrados', modulos.length === 10, `${modulos.length} filas`);
 comprobar(
   'm0_cpanel arranca habilitado',
   modulos.some((m) => m.clave === 'm0_cpanel' && m.habilitado === true),
@@ -241,7 +247,16 @@ comprobar(
       'm5_archivos',
       'm6_aula_virtual',
     ]) &&
-    modulos.filter((m) => !m.habilitado).every((m) => /^m[7-8]_/.test(m.clave)),
+    // La lista de APAGADOS es explícita, no un `m[7-8]_` por expresión regular.
+    // La regular daba por hecho que todo lo apagado era M7 o M8, y `m6_asistencia`
+    // —reservado por la semilla para la asistencia, todavía sin construir— la
+    // rompió en cuanto el control se corrió contra una nube al día.
+    JSON.stringify(
+      modulos
+        .filter((m) => !m.habilitado)
+        .map((m) => m.clave)
+        .sort(),
+    ) === JSON.stringify(['m6_asistencia', 'm7_calificaciones', 'm8_pasantias']),
   `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');

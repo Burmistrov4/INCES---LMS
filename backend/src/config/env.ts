@@ -47,10 +47,14 @@ const esquema = z.object({
    *
    * El valor por defecto es el del **frontend**, no el del propio backend: quien
    * llama a la API desde un navegador es el servidor de desarrollo de Flutter
-   * (`flutter run --web-port=8080`), y es su origen —no el del backend— lo que
+   * (`flutter run --web-port=8090`), y es su origen —no el del backend— lo que
    * CORS debe autorizar. Poner aquí el puerto del backend no autoriza nada.
+   *
+   * Puerto elegido: **8090**, no 8080. El 8080 es el puerto alternativo de
+   * Apache y lo ocupa XAMPP en cuanto arranca; el 3000 corre la misma suerte con
+   * los servidores de desarrollo de Node. Ver la sección «Puertos» del README.
    */
-  CORS_ORIGINS: z.string().default('http://localhost:8080'),
+  CORS_ORIGINS: z.string().default('http://localhost:8090'),
 
   /** TTL de la caché de módulos. `0` la desactiva (útil en tests). */
   MODULE_CACHE_TTL_MS: z.coerce.number().int().min(0).default(30_000),

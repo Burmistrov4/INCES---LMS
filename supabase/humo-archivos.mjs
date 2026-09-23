@@ -58,7 +58,7 @@ import { fileURLToPath } from 'node:url';
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
 const CONFIRMAR = process.argv.includes('--confirmar');
-const API = (process.env.API_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const API = (process.env.API_BASE_URL ?? 'http://127.0.0.1:3001').replace(/\/+$/, '');
 
 /** Lee del entorno y, si no está, de `backend/.env` (sin añadir `dotenv`). */
 function variable(nombre) {

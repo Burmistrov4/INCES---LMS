@@ -200,7 +200,7 @@ describe('modo mantenimiento', () => {
     const respuesta = await app.inject({
       method: 'OPTIONS',
       url: '/api/v1/yo',
-      headers: { origin: 'http://localhost:8080', 'access-control-request-method': 'GET' },
+      headers: { origin: 'http://localhost:8090', 'access-control-request-method': 'GET' },
     });
 
     expect(respuesta.statusCode).not.toBe(503);

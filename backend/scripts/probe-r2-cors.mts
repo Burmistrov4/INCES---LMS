@@ -67,6 +67,8 @@ const bucket = process.env.R2_BUCKET!;
 
 /** Los orígenes donde el frontend corre de verdad en desarrollo y en producción. */
 const ORIGENES = [
+  'http://localhost:8090',
+  'http://127.0.0.1:8090',
   'http://localhost:8080',
   'http://127.0.0.1:8080',
 ];

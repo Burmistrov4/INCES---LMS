@@ -31,7 +31,7 @@
  *   node supabase/humo-invitaciones.mjs --confirmar  # ejecuta el humo
  *
  * La sección HTTP sólo corre si el backend responde en API_BASE_URL
- * (por defecto http://localhost:8080). La sección de RLS no necesita backend:
+ * (por defecto http://localhost:3001). La sección de RLS no necesita backend:
  * RLS la aplica PostgREST, no Fastify.
  */
 import { randomBytes } from 'node:crypto';
@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, '..');
 const CONFIRMAR = process.argv.includes('--confirmar');
-const API = (process.env.API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
+const API = (process.env.API_BASE_URL ?? 'http://localhost:3001').replace(/\/+$/, '');
 
 /** Lee del entorno y, si no está, de `backend/.env` (sin añadir `dotenv`). */
 function variable(nombre) {
