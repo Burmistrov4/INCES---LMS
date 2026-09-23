@@ -193,87 +193,128 @@ class _FilaLapso extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary
-                    .withValues(alpha: periodo.vigente ? 0.14 : 0.07),
-                borderRadius: BorderRadius.circular(IncesTheme.radioControl),
-              ),
-              child: Icon(
-                periodo.vigente
-                    ? Icons.play_circle_outline
-                    : Icons.event_outlined,
-                size: 19,
-                color: periodo.vigente
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    periodo.etiqueta,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: cerrado
-                          ? theme.colorScheme.onSurfaceVariant
-                          : theme.colorScheme.onSurface,
-                    ),
+        child: LayoutBuilder(
+          builder: (context, restricciones) {
+            final identidad = Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary
+                        .withValues(alpha: periodo.vigente ? 0.14 : 0.07),
+                    borderRadius:
+                        BorderRadius.circular(IncesTheme.radioControl),
                   ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                  child: Icon(
+                    periodo.vigente
+                        ? Icons.play_circle_outline
+                        : Icons.event_outlined,
+                    size: 19,
+                    color: periodo.vigente
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Etiqueta(texto: 'Código ${periodo.codigo}'),
-                      // Las dos insignias son distintas a propósito: son dos
-                      // cosas distintas, y llamar «activo» a las dos es lo que
-                      // hacía imposible saber qué lapso se está dictando.
-                      if (periodo.vigente)
-                        const Etiqueta(texto: 'Vigente', destacada: true),
-                      Etiqueta(texto: periodo.activo ? 'Abierto' : 'Cerrado'),
-                      Etiqueta(texto: _rangoDeFechas(periodo)),
+                      Text(
+                        periodo.etiqueta,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: cerrado
+                              ? theme.colorScheme.onSurfaceVariant
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Etiqueta(texto: 'Código ${periodo.codigo}'),
+                          // Las dos insignias son distintas a propósito: son dos
+                          // cosas distintas, y llamar «activo» a las dos es lo
+                          // que hacía imposible saber qué lapso se está dictando.
+                          if (periodo.vigente)
+                            const Etiqueta(texto: 'Vigente', destacada: true),
+                          Etiqueta(
+                            texto: periodo.activo ? 'Abierto' : 'Cerrado',
+                          ),
+                          Etiqueta(texto: _rangoDeFechas(periodo)),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            if (guardando)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-              )
-            else ...[
-              if (!periodo.vigente)
-                TextButton.icon(
-                  onPressed: onMarcarVigente,
-                  icon: const Icon(Icons.flag_outlined, size: 16),
-                  label: const Text('Hacer vigente'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
+              ],
+            );
+
+            final acciones = guardando
+                ? const <Widget>[
+                    Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ]
+                : <Widget>[
+                    if (!periodo.vigente)
+                      TextButton.icon(
+                        onPressed: onMarcarVigente,
+                        icon: const Icon(Icons.flag_outlined, size: 16),
+                        label: const Text('Hacer vigente'),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    IconButton(
+                      tooltip: 'Editar',
+                      onPressed: onEditar,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ];
+
+            // Por debajo de este ancho los botones no caben al lado del texto y
+            // la fila desborda (medido: 11 px a 375 px). El motivo es el de
+            // siempre: un hijo NO flexible se queda con su ancho natural primero,
+            // así que el `Expanded` del texto acaba sin espacio. Se apilan.
+            const anchoMinimoParaFila = 560.0;
+            if (restricciones.maxWidth >= anchoMinimoParaFila) {
+              return Row(
+                children: [
+                  Expanded(child: identidad),
+                  ...acciones,
+                ],
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                identidad,
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: acciones,
                   ),
                 ),
-              IconButton(
-                tooltip: 'Editar',
-                onPressed: onEditar,
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
