@@ -167,6 +167,16 @@ Unregister-ScheduledTask -TaskName 'INCES-LMS-Context-Watcher' -Confirm:$false
 
 ### 4.2 Barrido de subidas abandonadas de M5 (opcional, y **borra de verdad**)
 
+> **¿De verdad quieres la tarea local?** Desde el 2026-09-24 el barrido **ya corre
+> en la nube**: `.github/workflows/limpiar-pendientes.yml`, a diario a las 07:17
+> UTC (03:17 en Venezuela). Ese es el camino recomendado, porque **no depende de
+> que esta máquina esté encendida** — y con los cortes eléctricos eso no es un
+> detalle. Esta sección queda para quien prefiera correrlo en local.
+>
+> Eso sí: el flujo de la nube necesita **seis secretos** en GitHub y todavía no
+> están puestos, así que hoy por hoy **no barre**. Mientras falten, una tarea local
+> es la única que barre de verdad.
+
 > **Leelo antes de registrarla.** Esta tarea borra objetos de R2 y eso **no se
 > puede deshacer**. Sin la bandera `--confirmar` el script no escribe nada —modo
 > simulacion, que es su comportamiento por defecto—, asi que una tarea sin esa

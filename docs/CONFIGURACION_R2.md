@@ -417,11 +417,10 @@ El barrido es código, no configuración, y le corresponde esto:
 4. ✅ **Hecho (el disparador)** (2026-09-19). `POST /api/v1/admin/archivos/limpiar`
    — el barrido como ruta de administración, idempotente y sin credenciales de R2
    para quien la llama. Ver §3.7.
-5. ⬜ **Pendiente: el reloj.** El disparador existe; **nadie lo pulsa solo**. Hasta
-   que haya una tarea programada, esto sigue corriendo sólo cuando alguien se
-   acuerda. El **2026-09-24** el repo **ya tiene CI** (`flutter_ci.yml` +
-   `backend_ci.yml`), así que el planificador ya tiene dónde vivir — pero **el
-   flujo programado todavía no está escrito**. Ver §3.7 para las dos formas.
+5. ✅ **Hecho: el reloj** (2026-09-24). `.github/workflows/limpiar-pendientes.yml`
+   corre el barrido **a diario** (07:17 UTC) y una ejecución manual **simula por
+   defecto**. Corre en la nube, así que no depende de que la máquina esté
+   encendida. **Falta activarlo**: necesita seis secretos en GitHub. Ver §3.7.
 
 ---
 
@@ -467,9 +466,16 @@ de persona para no usar una clave que ya está en disco sería cambiar seguridad
 nada.
 
 La receta concreta —siguiendo el patrón de `devops/README.md` §4.1— está en
-`devops/README.md` §4.2. **No está registrada**: una tarea que borra objetos de
-producción sin que nadie la mire se activa a mano y con el dueño del sistema
-delante.
+`devops/README.md` §4.2, para quien corra el barrido en su propia máquina.
+
+**En la nube sí está registrada** desde el 2026-09-24:
+`.github/workflows/limpiar-pendientes.yml` es el reloj, y corre **aunque la
+máquina esté apagada** — que es justo lo que este proyecto necesita, con los
+cortes eléctricos. La regla de «activarla a mano y con el dueño delante» se
+conserva **en la forma**, no en el papel: la ejecución **programada** barre, pero
+una **manual simula por defecto**, así que la primera pasada real se puede
+observar antes de confiarle el borrado. Y mientras falten los seis secretos, el
+flujo es **inerte**: sin credenciales no puede tocar nada.
 
 ---
 
@@ -555,14 +561,18 @@ archivo del repo.**
       `POST /api/v1/admin/archivos/limpiar`, idempotente, con `exigirAdmin()` y la
       guardia de módulo. Quien la llama **no necesita credenciales de R2**: las
       tiene el backend. Ver §3.7.
-- [ ] **§3.6 punto 5 — el reloj.** El disparador existe; **nadie lo pulsa solo**.
-      El repo **ya tiene CI desde el 2026-09-24** (`flutter_ci.yml` +
-      `backend_ci.yml`, ambos verdes), pero **ningún flujo está programado**: el
-      andamiaje está puesto y la tarea sigue sin escribir. Y `pg_cron` **no puede**
-      hacer este trabajo (§3.7): corre dentro de PostgreSQL, que no habla con el
-      bucket. La receta de la tarea programada está escrita y **sin registrar** en
-      `devops/README.md` §4.2 — una tarea que borra objetos de producción se activa
-      con el dueño del sistema delante. Es lo único que queda de D9.
+- [x] **§3.6 punto 5 — el reloj.** ✅ **Hecho** (2026-09-24).
+      `.github/workflows/limpiar-pendientes.yml`: barrido **diario** a las 07:17
+      UTC (03:17 en Venezuela), más `workflow_dispatch` que **simula por defecto**
+      y sólo borra si se pide. Corre en la nube, así que **no depende de que la
+      máquina esté encendida** — la pega que arrastraba la receta local.
+      **Pendiente de activación**: necesita **seis secretos** en GitHub
+      (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CLOUDFLARE_ACCOUNT_ID`,
+      `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`). Mientras falten,
+      el flujo es **inerte**: el script sale con código 2 («FALTAN VARIABLES») y
+      no toca nada. La receta local de `devops/README.md` §4.2 sigue valiendo para
+      quien prefiera la tarea de Windows. Y `pg_cron` **sigue sin poder** hacer
+      este trabajo (§3.7): corre dentro de PostgreSQL, que no habla con el bucket.
 - [ ] **Origen de producción en la política de CORS.** Cuando el frontend se
       despliegue (Vercel o servidor local), añadirlo a `docs/r2-cors.json`
       **y** a `CORS_ORIGINS` del backend: son listas independientes.

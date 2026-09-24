@@ -50,10 +50,12 @@
 > ruta de administración —idempotente, con `exigirAdmin()` y la guardia de
 > módulo—, de modo que quien la llama **no necesita credenciales de R2**: las
 > tiene el backend. El recuento pasó de **55 a 56 rutas** y de **84 a 86
-> esquemas**, y las rutas de M5 son ya seis. Sigue **sin reloj** —nadie la pulsa
+> esquemas**, y las rutas de M5 son ya seis. Seguía **sin reloj** —nadie la pulsaba
 > sola— y la opción de `pg_cron` que ofrecía el plan era **imposible**: corre
 > dentro de PostgreSQL, que no habla con el bucket. La receta de la tarea
-> programada está escrita y **sin registrar** (`devops/README.md` §4.2). De paso,
+> programada estaba escrita y sin registrar (`devops/README.md` §4.2) →
+> **ya registrada en la nube el 2026-09-24**
+> (`.github/workflows/limpiar-pendientes.yml`). De paso,
 > `scripts/` entró por fin en el `include` de `tsconfig.json`, y al hacerlo
 > apareció un error de tipos que llevaba ahí sin que nadie lo viera: el
 > `generar-openapi.mts` compilaba a ciegas.
@@ -1113,13 +1115,15 @@ apagado. La bandera no es un barrido.
 **El barrido, en cambio, ya existe (2026-09-19).** Las dos mitades que faltaban
 están puestas: el **código** (`backend/scripts/limpiar-pendientes.mts`, con sus
 tres modos) y el **disparador** (`POST /api/v1/admin/archivos/limpiar`,
-idempotente y sin credenciales de R2 para quien la llama). **Lo único que le falta
-a D9 es el reloj**: nadie la pulsa sola. Y la salida que ofrecía el plan —`pg_cron`
+idempotente y sin credenciales de R2 para quien la llama). **A D9 le faltaba el reloj, y ya no**: desde el 2026-09-24 lo pulsa a diario
+`.github/workflows/limpiar-pendientes.yml`. Y la salida que ofrecía el plan —`pg_cron`
 en Supabase— era **imposible**: corre dentro de PostgreSQL, que no habla con el
 bucket, así que sólo podría marcar filas y dejaría el objeto exactamente donde
 está —que es el residuo que el modo `--revisar-borrados` va a buscar después—. La
-receta de la tarea programada está escrita y **sin registrar** en
-`devops/README.md` §4.2; el razonamiento completo, en `docs/CONFIGURACION_R2.md`
+receta de la tarea programada sigue en
+`devops/README.md` §4.2 para quien la corra en local —**en la nube ya está
+registrada** (`.github/workflows/limpiar-pendientes.yml`)—; el razonamiento
+completo, en `docs/CONFIGURACION_R2.md`
 §3.7.
 
 **Y un bloqueante que D9 no mencionaba: el CORS del bucket — resuelto el
@@ -1266,7 +1270,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D6** | Falta el contrato OpenAPI 3.1 | ✅ **Resuelta** (generado desde Zod + 9 pruebas de coherencia) |
 | **D7** | No hay verificación de tokens en caché (una llamada a Auth por petición) | ⏳ Aceptada; medir antes de optimizar |
 | **D8** | No se comprobaba que quedara **otro** administrador al degradar a uno | ✅ **Resuelta** (trigger + regla pura) |
-| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | ⏳ Pendiente **sólo del reloj**. Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla, y el barrido es además una **ruta de administración** (`POST /api/v1/admin/archivos/limpiar`), idempotente y sin credenciales de R2 para quien la llama. Lo que falta es **el reloj**: nadie lo pulsa solo. El **2026-09-24** el repo **ya tiene CI** —`flutter_ci.yml` y `backend_ci.yml`, ambos **verdes al primer intento**—, así que el andamiaje está puesto y lo que falta es la **tarea programada** que invoque el barrido. `pg_cron` **no puede** sustituirlo —corre dentro de PostgreSQL, que no habla con el bucket, así que marcaría la fila y dejaría el objeto donde está—; la receta de la tarea programada está escrita y **sin registrar** en `devops/README.md` §4.2, con el razonamiento en §3.7 de `docs/CONFIGURACION_R2.md`. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **Ya no está latente por la bandera**: desde el 2026-09-19 las seis rutas de M5 llevan `exigirModulo('m5_archivos')` y apagarla devuelve 403 — aunque la bandera sigue sin ser un barrido. Hubo **un huérfano real** el 2026-09-18 |
+| **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | 🟡 **El reloj está construido y verificado; falta activarlo** (seis secretos en GitHub). Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla, y el barrido es además una **ruta de administración** (`POST /api/v1/admin/archivos/limpiar`), idempotente y sin credenciales de R2 para quien la llama. **El reloj ya existe** (2026-09-24): `.github/workflows/limpiar-pendientes.yml` pulsa el barrido **a diario** (07:17 UTC) invocando el **script**, no la ruta —la ruta exige un JWT de administrador, y un JWT de Supabase caduca en una hora, así que un cron tendría que guardar la contraseña de una persona (§3.7)—, y el repo tiene CI desde ese mismo día. Corre **en la nube, así que no depende de que la máquina esté encendida** — que es la pega que arrastraba la receta local de `devops/README.md` §4.2, y este proyecto tiene cortes eléctricos. **Falta sólo activarlo**: el flujo necesita **seis secretos** de GitHub que aún no están configurados, y sin ellos el script sale con código 2 («FALTAN VARIABLES»), que es un fallo seguro — sin credenciales no toca nada. `pg_cron` **no puede** sustituirlo —corre dentro de PostgreSQL, que no habla con el bucket, así que marcaría la fila y dejaría el objeto donde está—; la receta local sigue en `devops/README.md` §4.2 —ya no es la única puerta—, con el razonamiento en §3.7 de `docs/CONFIGURACION_R2.md`. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **Ya no está latente por la bandera**: desde el 2026-09-19 las seis rutas de M5 llevan `exigirModulo('m5_archivos')` y apagarla devuelve 403 — aunque la bandera sigue sin ser un barrido. Hubo **un huérfano real** el 2026-09-18 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |

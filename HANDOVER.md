@@ -1837,4 +1837,111 @@ Commits de la sesión 5: `65d5abd` (el CI) — subido a `origin/main`.
 
 ---
 
+## 2026-09-24 (sesión 6) — el reloj de D9: el barrido corre solo
+
+### El disparador
+
+Cerrar D9, que llevaba abierta desde el 2026-09-19 «pendiente sólo del reloj».
+`ESTADO_DEL_SISTEMA.md` nombraba el bloqueante con todas las letras: *«el repo no
+tiene CI»*. Cerrado el CI en la sesión 5, quedaba construir el reloj.
+
+### El bloqueante que apareció al construirlo
+
+**El script del barrido no podía correr en un runner.** `limpiar-pendientes.mts`
+leía `backend/.env` con un `readFileSync` **en el nivel superior del módulo**, sin
+`try/catch`, así que si el archivo no existe muere con `ENOENT` **antes de leer
+una sola variable** — y no lo cubre el `catch` de `principal()`, porque el fallo
+ocurre al evaluar el módulo.
+
+Medido, no supuesto: se ejecutó el script real en una copia sin `.env` (hecha con
+`cp -al`, de modo que borrar el enlace de la copia no tocó el original) y salió
+`ENOENT` en `limpiar-pendientes.mts:80`, exit 1. **El cron habría fallado en todas
+sus ejecuciones.**
+
+La lectura pasa a ser **opcional** (`existsSync`). No es un parche para el CI: el
+script ya prefería las variables del entorno sobre el archivo, así que la
+dependencia del archivo nunca fue intencional.
+
+### El diseño, y por qué así
+
+`.github/workflows/limpiar-pendientes.yml`, **diario a las 07:17 UTC** (03:17 en
+Venezuela). El minuto es 17 y no 00 porque GitHub avisa de que `schedule` se
+retrasa en las horas en punto.
+
+- **Un cron en la nube y no la tarea de Windows** por una razón concreta: la
+  receta local de `devops/README.md` §4.2 arrastra la pega de que *«la máquina no
+  siempre está encendida»*, y este proyecto **tiene cortes eléctricos**. Aquí el
+  reloj corre aunque el PC esté apagado. Y el barrido es idempotente con umbral de
+  24 h, así que una pasada perdida no deja nada a medias.
+- **Se invoca el script, no `POST /api/v1/admin/archivos/limpiar`.** La ruta exige
+  un JWT de administrador y **un JWT de Supabase caduca en una hora**: un cron
+  tendría que guardar la contraseña de una persona, que no se puede rotar sin
+  romper la tarea. El razonamiento completo está en `docs/CONFIGURACION_R2.md`
+  §3.7, y ya preveía este caso —*«la ruta queda para el cPanel y para el despliegue
+  en la nube, donde nadie tiene la máquina»*—.
+- **`--horas` y `--limite` NO se pasan.** Sus valores viven en
+  `backend/src/dominio/almacenamiento.ts`, que es donde está la razón de que sean
+  esos. Escribirlos en el flujo sería una segunda copia que algún día se quedaría
+  corta — y la que se quedara corta borraría subidas en vuelo sin dar error.
+
+### La seguridad: esto borra objetos de producción
+
+La asimetría es **deliberada**:
+
+- la ejecución **programada** barre (`--confirmar`) — es el reloj;
+- una ejecución **manual simula por defecto**, y sólo borra si se pide.
+
+La receta original decía que una tarea así «se activa a mano y con el dueño del
+sistema delante». Eso se conserva en la forma: la primera pasada real se observa
+en simulación antes de confiarle el borrado.
+
+### Estado de la verificación, sin adornos
+
+**Verificado en local, ejecutando de verdad:**
+
+| Comprobación | Resultado |
+|---|---|
+| Script sin `.env`, sin variables | `FALTAN VARIABLES: …`, exit 2 (antes: `ENOENT`) |
+| Script sin `.env`, con las 6 inyectadas | exit 0, barrido correcto |
+| Script con `.env` (operador) | exit 0 — **sin regresión** |
+| Barrido real en simulación | exit 0 contra `inces-lms-media`; **0 abandonadas, 0 objetos en el bucket** |
+| `npm run verify` del backend | **540/540** |
+| Los 6 escenarios de armado de argumentos | correctos, incluido el fallo ruidoso ante modo desconocido |
+
+**NO verificado, y no se puede desde aquí: la ejecución del flujo en GitHub.**
+Necesita **seis secretos** que no se pueden crear sin acceso a la API de GitHub
+(no hay conector ni `gh`). Mientras falten, el flujo es **inerte**: el script sale
+con código 2 y no toca nada — fallo seguro, no fallo silencioso.
+
+**Para activarlo:** añadir los secretos `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY` y `R2_BUCKET` (los nombres son idénticos a las variables),
+y luego lanzarlo **a mano en simulación** desde la pestaña Actions antes de
+dejarlo al horario.
+
+> **Aviso que hay que tener presente:** GitHub **desactiva los flujos programados
+> tras 60 días sin actividad en el repositorio**. Un cron de GitHub no es eterno;
+> si el proyecto se queda quieto dos meses, el reloj se para solo y hay que
+> reactivarlo.
+
+### Deriva documental corregida
+
+Mi propio cambio volvía falsas las frases que decían que faltaba el reloj, en
+`ESTADO_DEL_SISTEMA.md` (fila de D9), `docs/CONFIGURACION_R2.md` (§3.6 punto 5 y
+el cierre de §3.7) y `devops/README.md` (§4.2).
+
+### Estado al cerrar
+
+| Suite | Resultado |
+|---|---|
+| Backend (`npm run verify`) | ✅ **540/540** |
+| Flutter CI / Backend CI | ✅ verdes (sesión 5) |
+| Barrido (simulación, contra la nube) | ✅ exit 0 · nada que barrer |
+| Flutter en local (sandbox Windows) | ⛔ sigue sin poder correr — `ERROR_PIPE_BUSY` |
+
+Commits de la sesión 6: `d95467f` (el arreglo del script), `646aaf4` (el reloj) —
+subidos a `origin/main`.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
