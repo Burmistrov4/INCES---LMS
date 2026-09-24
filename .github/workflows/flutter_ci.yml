@@ -66,13 +66,49 @@ jobs:
       # `flutter analyze` ya falla por sí solo ante errores o avisos, y el
       # proyecto está en «No issues found!». No se añade `--fatal-infos` para que
       # el listón sea exactamente el mismo que se usa en local.
+      #
+      # La salida se republica además como **anotación del check-run**. El motivo
+      # es concreto y se pagó una vez: los registros del job exigen permisos de
+      # administración sobre el repositorio, de modo que desde fuera un fallo se
+      # lee como «Process completed with exit code 1» y nada más —sin archivo,
+      # sin línea y sin mensaje—. Las anotaciones sí son públicas, así que sin
+      # esto lo único que queda es adivinar qué línea rompió.
       - name: Análisis estático
-        run: flutter analyze
+        run: |
+          set +e
+          flutter analyze > analisis.txt 2>&1
+          estado=$?
+          cat analisis.txt
+          if [ "$estado" -ne 0 ]; then
+            # El escapado se hace con `awk` y no con `sed`: en `sed` el patrón
+            # `\001` no es un byte, así que un centinela de un solo carácter no
+            # sustituye nada y el salto de línea se cuela crudo en la anotación
+            # —que es justo lo que hay que evitar—. `%` se escapa antes de
+            # introducir `%0A`, o los `%0A` recién creados se escaparían solos.
+            mensaje=$(tail -c 60000 analisis.txt \
+              | awk '{gsub(/\r/,""); gsub(/%/,"%25"); printf "%s%%0A", $0}')
+            echo "::error title=flutter analyze::${mensaje}"
+            exit 1
+          fi
 
       # A propósito NO se afirma un número concreto de pruebas.
       #
       # Un suelo escrito a mano («que sean al menos 491») se queda viejo en
       # silencio y debilita justo lo que existe para proteger. El número sale del
       # corredor; lo que este paso certifica es que la suite pasa entera.
+      #
+      # Igual que en el análisis, el informe se republica como anotación: una
+      # prueba que falla dice **cuál** y por qué, y eso no puede depender de
+      # tener permisos de administración sobre el repositorio.
       - name: Suite de pruebas
-        run: flutter test
+        run: |
+          set +e
+          flutter test > pruebas.txt 2>&1
+          estado=$?
+          cat pruebas.txt
+          if [ "$estado" -ne 0 ]; then
+            mensaje=$(tail -c 60000 pruebas.txt \
+              | awk '{gsub(/\r/,""); gsub(/%/,"%25"); printf "%s%%0A", $0}')
+            echo "::error title=flutter test::${mensaje}"
+            exit 1
+          fi

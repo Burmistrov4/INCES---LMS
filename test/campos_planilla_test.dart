@@ -50,7 +50,12 @@ void main() {
   /// `valor`; el campo lo sube por `onCambio`. Montar el campo suelto con un
   /// valor fijo no probaría nada: lo que hay que ejercitar es justamente ese ida
   /// y vuelta.
-  Future<_Anfitrion> montar(
+  /// Devuelve el **estado**, no el widget: lo que las pruebas leen es
+  /// `anfitrion.ultimo`, que es el último valor que subió el campo, y eso vive
+  /// en el estado. `tester.state<T>()` devuelve `T`, así que el parámetro de
+  /// tipo tiene que ser `_AnfitrionState` — declarar aquí `_Anfitrion` compila
+  /// el cuerpo pero no el `return`, y es un error de tipos, no un matiz.
+  Future<_AnfitrionState> montar(
     WidgetTester tester,
     CampoInscripcion campo, {
     Object? inicial,
