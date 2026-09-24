@@ -1750,4 +1750,91 @@ desplegable de nivel educativo), `cff62f9` (el catálogo de cursos) — subidos 
 
 ---
 
+## 2026-09-24 (sesión 5) — CI en GitHub Actions: el repo deja de no tener reloj
+
+### El disparador
+
+Lorenzo pidió abordar cuatro frentes a la vez (R2, datos semilla, CI, y liberar
+los *pipes* de Windows con `taskkill`). **Tres de las cuatro premisas no
+coincidían con el repositorio**, y se corrigieron midiendo antes de tocar nada:
+
+- **No es FastAPI.** El backend es **Fastify 5 + TypeScript + Zod (ESM)**, con
+  **cero archivos `.py`**. R2 se implementa en `backend/src/infra/r2_service.ts`
+  con `@aws-sdk/client-s3` + `s3-request-presigner`. **`boto3` no existe aquí.**
+- **R-24 no está abierta: está resuelta y verificada en vivo desde el
+  2026-09-18** (sonda de ciclo completo: 200/200/200/200/204). Y el código de
+  firma ya era correcto —`region: 'auto'`, `forcePathStyle: true`, y firma el
+  `content-type` con `signableHeaders`—. No había nada que «corregir».
+- **`taskkill` era un no-op:** no había ningún `dart.exe` ni `flutter.exe` vivo.
+  El bloqueo de `ERROR_PIPE_BUSY` es del **espacio de nombres de *pipes* del
+  sandbox**, no de procesos colgados; matar procesos no lo arregla.
+
+### Lo que sí se hizo: el CI
+
+`.github/workflows/flutter_ci.yml` y `.github/workflows/backend_ci.yml`. Van en
+**dos archivos** porque un flujo llamado «Flutter CI» que además corriera el
+backend mentiría en el nombre.
+
+**Ambos verdes al primer intento**, medidos por la API pública de GitHub:
+
+| Flujo | Resultado | Duración |
+|---|---|---|
+| Backend CI (run #1) | ✅ success | 34 s |
+| Flutter CI (run #1) | ✅ success | **2 min 38 s** |
+
+Decisiones que importan:
+
+- **Flutter fijado a 3.47.0**, no a `stable`. Su hash publicado
+  (`4cf24164269a5ebf0c16a028a00727d0e77bbb05`) es **idéntico** al del Flutter
+  local, así que un verde en CI es evidencia sobre **el mismo toolchain** que se
+  compila y se defiende. Con `stable` habría corrido 3.47.5 (Dart 3.13.4) y el
+  verde no diría nada sobre el entorno real.
+- **El flujo de Flutter NO afirma un número de pruebas.** Un suelo escrito a mano
+  («que sean al menos 491») envejece en silencio y debilita justo lo que protege.
+- **El flujo del backend no usa secretos**, y eso está verificado, no supuesto:
+  los 540 tests son herméticos e inyectan el entorno a mano (`cargarEnv({...})`).
+- `backend_ci.yml` corre `npm run verify` (typecheck → lint → vitest), con
+  `npm ci` para que el lockfile divergente **falle** en vez de resolverse solo.
+
+### El hallazgo de método: la prueba cruzada
+
+Este CI es, además, **la demostración definitiva de que el fallo local era el
+entorno y no el código**: el **mismo commit** (`65d5abd`) que no puede correr la
+suite en el sandbox de Windows **la pasa entera en `ubuntu-latest`**. Un tercero
+independiente zanjó la discusión que quedó abierta en la sesión 4.
+
+### Dos trampas propias, anotadas para no repetirlas
+
+1. **`WebFetch` cachea por URL 15 minutos.** Consulté la misma URL de la API
+   cuatro veces y las cuatro me devolvió la **misma respuesta congelada** en el
+   paso 3; estuve a punto de diagnosticar «flujo colgado» y de reescribir un
+   workflow que ya había pasado. El job había terminado en **2 min 38 s**. Se
+   arregla cambiando la URL (parámetro de descarte) entre sondeos. **Es el mismo
+   error de clase que el `head`/`grep` de la sesión 4: culpar al sistema de lo que
+   fabricó la propia instrumentación.**
+2. **La instalación del SDK tarda lo que tarda.** 63 s en frío, y eso ya incluye
+   el `cache: true` del action para las corridas siguientes.
+
+### Deriva documental corregida
+
+El CI hacía **falsa** una afirmación escrita en tres sitios: «el repo no tiene
+CI». Corregida en `ESTADO_DEL_SISTEMA.md` (fila de D9) y en
+`docs/CONFIGURACION_R2.md` (§3.6 punto 5 y la lista de cierre de §3.7).
+
+**D9 NO se marca resuelta**: sigue faltando **la tarea programada** que pulse el
+barrido. Lo que cambió es que ahora **tiene dónde vivir**. La distinción importa:
+el andamiaje está puesto; el reloj, no.
+
+### Estado al cerrar
+
+| Suite | Resultado |
+|---|---|
+| Flutter (`ubuntu-latest`, Flutter 3.47.0) | ✅ **verde** (run #1) |
+| Backend (`ubuntu-latest`, Node 22) | ✅ **verde** (run #1) |
+| Flutter en local (sandbox Windows) | ⛔ **sigue sin poder correr** — `ERROR_PIPE_BUSY` del VM de Dart |
+
+Commits de la sesión 5: `65d5abd` (el CI) — subido a `origin/main`.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*

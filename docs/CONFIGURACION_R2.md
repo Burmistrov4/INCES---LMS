@@ -419,8 +419,9 @@ El barrido es código, no configuración, y le corresponde esto:
    para quien la llama. Ver §3.7.
 5. ⬜ **Pendiente: el reloj.** El disparador existe; **nadie lo pulsa solo**. Hasta
    que haya una tarea programada, esto sigue corriendo sólo cuando alguien se
-   acuerda — y el repo **no tiene CI**, así que no hay ningún planificador de
-   facto que lo esté haciendo por otra vía. Ver §3.7 para las dos formas.
+   acuerda. El **2026-09-24** el repo **ya tiene CI** (`flutter_ci.yml` +
+   `backend_ci.yml`), así que el planificador ya tiene dónde vivir — pero **el
+   flujo programado todavía no está escrito**. Ver §3.7 para las dos formas.
 
 ---
 
@@ -555,11 +556,13 @@ archivo del repo.**
       guardia de módulo. Quien la llama **no necesita credenciales de R2**: las
       tiene el backend. Ver §3.7.
 - [ ] **§3.6 punto 5 — el reloj.** El disparador existe; **nadie lo pulsa solo**.
-      El repo **no tiene CI**, y `pg_cron` **no puede** hacer este trabajo (§3.7):
-      corre dentro de PostgreSQL, que no habla con el bucket. La receta de la tarea
-      programada está escrita y **sin registrar** en `devops/README.md` §4.2 — una
-      tarea que borra objetos de producción se activa con el dueño del sistema
-      delante. Es lo único que queda de D9.
+      El repo **ya tiene CI desde el 2026-09-24** (`flutter_ci.yml` +
+      `backend_ci.yml`, ambos verdes), pero **ningún flujo está programado**: el
+      andamiaje está puesto y la tarea sigue sin escribir. Y `pg_cron` **no puede**
+      hacer este trabajo (§3.7): corre dentro de PostgreSQL, que no habla con el
+      bucket. La receta de la tarea programada está escrita y **sin registrar** en
+      `devops/README.md` §4.2 — una tarea que borra objetos de producción se activa
+      con el dueño del sistema delante. Es lo único que queda de D9.
 - [ ] **Origen de producción en la política de CORS.** Cuando el frontend se
       despliegue (Vercel o servidor local), añadirlo a `docs/r2-cors.json`
       **y** a `CORS_ORIGINS` del backend: son listas independientes.
