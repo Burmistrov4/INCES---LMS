@@ -1,0 +1,78 @@
+# Integración continua del frontend (Flutter Web).
+#
+# Por qué existe este archivo, y no sólo "porque toca tener CI":
+#
+# 1. `flutter test` en el sandbox local de Windows moría **antes de empezar** por
+#    un fallo de *pipes* del VM de Dart (`ERROR_PIPE_BUSY`, `CreateFile failed
+#    231`). No era el código ni el caché: era el sustrato. En `ubuntu-latest` ese
+#    problema no existe, así que el runner es el único sitio donde la suite puede
+#    correr **sin depender del entorno de quien la lanza**.
+# 2. El repositorio no tenía CI, y ése era el bloqueante declarado de D9
+#    (`ESTADO_DEL_SISTEMA.md`: «lo que falta es el reloj […] y el repo no tiene
+#    CI»). Este flujo es la mitad de ese reloj: la otra mitad es una tarea
+#    programada que llame a `backend/scripts/limpiar-pendientes.mts`.
+#
+# La versión de Flutter va **fijada a 3.47.0**, no a `stable`. Es la que usa el
+# proyecto en local (Dart 3.13.0, revisión 4cf24164269a5ebf0c16a028a00727d0e77bbb05).
+# Si CI usara otra, un verde aquí no sería evidencia sobre el toolchain que
+# realmente se compila y se defiende ante el jurado.
+
+name: Flutter CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Permite lanzarlo a mano desde la pestaña Actions, útil para comprobar el
+  # flujo sin necesidad de empujar un commit.
+  workflow_dispatch:
+
+# Un push nuevo sobre la misma rama cancela la corrida anterior: no tiene sentido
+# gastar runner en revisar algo que ya quedó obsoleto.
+concurrency:
+  group: flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# El flujo sólo lee el repositorio; no necesita permisos de escritura.
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    name: Análisis y pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Flutter 3.47.0
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      # Deja la versión en el registro de la corrida: si algún día CI y local
+      # divergen, esto es lo primero que se lee.
+      - name: Comprobar el toolchain
+        run: flutter --version
+
+      - name: Resolver dependencias
+        run: flutter pub get
+
+      # `flutter analyze` ya falla por sí solo ante errores o avisos, y el
+      # proyecto está en «No issues found!». No se añade `--fatal-infos` para que
+      # el listón sea exactamente el mismo que se usa en local.
+      - name: Análisis estático
+        run: flutter analyze
+
+      # A propósito NO se afirma un número concreto de pruebas.
+      #
+      # Un suelo escrito a mano («que sean al menos 491») se queda viejo en
+      # silencio y debilita justo lo que existe para proteger. El número sale del
+      # corredor; lo que este paso certifica es que la suite pasa entera.
+      - name: Suite de pruebas
+        run: flutter test

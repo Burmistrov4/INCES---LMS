@@ -1,0 +1,68 @@
+# Integración continua del backend (Fastify 5 + TypeScript + Zod).
+#
+# Va en un archivo aparte de `flutter_ci.yml` por una razón de nombres: un flujo
+# llamado «Flutter CI» que además corriera el backend mentiría. Cada archivo hace
+# lo que su nombre dice.
+#
+# **No necesita secretos.** Los 540 tests del backend son herméticos: inyectan el
+# entorno a mano (`cargarEnv({ ... })` en `test/env.test.ts` y `test/r2.test.ts`)
+# con valores de prueba, y nunca hablan con Supabase ni con R2 de verdad. Por eso
+# este flujo no configura ningún `secrets.*`, y por eso puede correr en un fork o
+# en un PR sin exponer credenciales.
+
+name: Backend CI
+
+on:
+  push:
+    branches: [main]
+    # Sólo cuando cambia el backend o este mismo flujo. Un cambio en `lib/` no
+    # puede romper los tipos ni el lint del backend, así que no gasta runner.
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend_ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend_ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Tipos, lint y pruebas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      # La versión la fija `engines.node: ">=22"` del `package.json`.
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # `npm ci` y no `npm install`: instala exactamente lo que dice el lockfile y
+      # **falla si diverge** del `package.json`. Esa divergencia es precisamente
+      # lo que se quiere detectar en CI, no resolver en silencio.
+      - name: Instalar dependencias
+        run: npm ci
+
+      # `verify` = `typecheck && lint && test`, en ese orden a propósito: los
+      # tipos son el fallo más barato de leer, así que van primero.
+      - name: Verificar
+        run: npm run verify
