@@ -44,6 +44,7 @@ import type {
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
+  PuertaPlanilla,
   PuertaSecciones,
   Repositorios,
 } from '../dominio/puertos.js';
@@ -65,6 +66,7 @@ import {
   esAcaparamientoDeMateria,
   esEstadoInscripcion,
   esOfertaVencida,
+  esPlanillaIncompleta,
   esReincorporacionSinHistorial,
   esRequiereReincorporacion,
   esSeccionArchivada,
@@ -77,6 +79,7 @@ import {
   esEstadoEntrega,
   esEstadoTarea,
   esRol,
+  esTipoCampoInscripcion,
   esTipoEntidadArchivo,
   esTipoPrograma,
   esTipoTarea,
@@ -85,6 +88,7 @@ import {
   type ArchivoMetadata,
   type Aula,
   type CambiosModulo,
+  type CampoInscripcion,
   type ClaseCuadrante,
   type DetallePrograma,
   type DocenteResumen,
@@ -112,6 +116,7 @@ import {
   type ParametroSistema,
   type Perfil,
   type Periodo,
+  type PlanillaInscripcion,
   type Programa,
   type ProgramaConTotales,
   type PublicacionTarea,
@@ -120,6 +125,7 @@ import {
   type RolDeHorario,
   type Seccion,
   type Tarea,
+  type TipoCampoInscripcion,
   type TipoEntidadArchivo,
   type TipoParametro,
   type TipoTarea,
@@ -544,6 +550,80 @@ function aOcupacion(
   };
 }
 
+// --- mapeadores del catálogo de inscripción (M4) -----------------------------
+
+/**
+ * Un objeto JSON de la base, o `null`.
+ *
+ * Los arreglos se descartan a propósito: `opciones` y `condicion` son objetos en
+ * las cuatro formas que `202609240001` documenta, y un arreglo ahí significa que
+ * alguien escribió el catálogo mal. Devolver `null` deja el campo sin opciones
+ * —la pantalla pintará lo que pueda— en vez de reventar la lista entera por una
+ * fila mal formada.
+ */
+function objetoOpcional(valor: unknown): Record<string, unknown> | null {
+  if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) return null;
+  return valor as Record<string, unknown>;
+}
+
+/**
+ * El `tipo` de un campo del catálogo.
+ *
+ * **No se degrada**, por la misma razón que `tipoEntidadSeguro`: la columna tiene
+ * un `check`, así que un valor fuera de la unión significa que hay una migración
+ * aplicada que este backend todavía no conoce.
+ *
+ * Y aquí degradar sería peor que en ningún otro sitio del proyecto. `tipo` no
+ * elige una etiqueta: elige el **widget** y, con él, la **forma del valor** que
+ * se guarda. Un `tabla` pintado como `texto` no es un campo que se ve distinto —
+ * escribe una cadena donde la exportación a HACER espera un arreglo de filas, y
+ * el dato queda corrupto en la columna que este módulo existe para proteger.
+ * Un 500 que nombra el código y el tipo se arregla desplegando el backend; un
+ * dato mal guardado, no.
+ */
+function tipoCampoSeguro(valor: unknown, codigo: string): TipoCampoInscripcion {
+  if (!esTipoCampoInscripcion(valor)) {
+    throw ErrorApi.interno(
+      `El catálogo declara el tipo «${String(valor)}» para el campo «${codigo}», ` +
+        'que este backend todavía no conoce. Falta desplegar el backend, o la ' +
+        'migración que añadió el tipo.',
+    );
+  }
+
+  return valor;
+}
+
+/**
+ * Una fila de `inscripcion_campos`.
+ *
+ * `opciones` se transporta **tal cual**: su forma depende del `tipo` y
+ * normalizarla a un esquema común convertiría cada ampliación del catálogo en un
+ * cambio de backend. Ver `OpcionesCampoInscripcion` en `dominio/tipos.ts`.
+ */
+function aCampoInscripcion(fila: Fila): CampoInscripcion {
+  const codigo = textoObligatorio(fila.codigo);
+  const condicion = objetoOpcional(fila.condicion);
+
+  return {
+    codigo,
+    etiqueta: textoObligatorio(fila.etiqueta),
+    grupo: textoObligatorio(fila.grupo),
+    tipo: tipoCampoSeguro(fila.tipo, codigo),
+    obligatorio: booleano(fila.obligatorio, false),
+    orden: entero(fila.orden, 0),
+    opciones: objetoOpcional(fila.opciones),
+    fuente: texto(fila.fuente),
+    // La condición sólo vale si nombra el campo del que depende: `{campo: …}`
+    // sin `campo` no es una condición, es un objeto con una clave de más, y
+    // dejarlo pasar haría que la pantalla escondiera un campo «por nada».
+    condicion:
+      condicion && typeof condicion.campo === 'string'
+        ? { campo: condicion.campo, igual: condicion.igual }
+        : null,
+    ayuda: texto(fila.ayuda),
+  };
+}
+
 // --- mapeadores de M5 -------------------------------------------------------
 
 /**
@@ -791,6 +871,37 @@ const TABLA_INSCRIPCIONES = 'enrollments';
  * vacía. Es la combinación que da el número correcto sin exponer datos ajenos.
  */
 const VISTA_OCUPACION = 'v_ocupacion_secciones';
+
+/**
+ * La ficha de aspirante.
+ *
+ * El backend **no** la escribe al registrarse: de eso se encarga el trigger
+ * `handle_new_user()` en la misma transacción del `signUp` (ADR-007). Aquí sólo
+ * se toca `datos_planilla`, y sólo desde `PUT /api/v1/yo/planilla`.
+ */
+const TABLA_ASPIRANTES = 'aspirantes';
+
+/** El catálogo de campos de la planilla de inscripción. */
+const TABLA_CAMPOS_INSCRIPCION = 'inscripcion_campos';
+
+/**
+ * Columnas del catálogo.
+ *
+ * Se listan en vez de usar `*` por la razón de siempre: una columna añadida por
+ * una migración futura no debe cambiar la forma de la respuesta sin que nadie lo
+ * decida. Aquí además importa más que en otros sitios, porque el catálogo lo
+ * consume un formulario que se construye **a partir de su forma**: una columna
+ * de más no rompería nada, pero una de menos dejaría campos sin pintar.
+ *
+ * `created_at` y `updated_at` **no** viajan: son auditoría de la configuración,
+ * y ninguna pantalla de inscripción los necesita. El panel de administración que
+ * los quiera pedirá lo que le haga falta.
+ *
+ * Una sola cadena literal, no concatenada: partirla ensancha el tipo a `string`,
+ * `supabase-js` deja de reconocer las columnas y el `as Fila` no compila.
+ */
+const COLUMNAS_CAMPO_INSCRIPCION =
+  'codigo,etiqueta,grupo,tipo,obligatorio,orden,opciones,fuente,condicion,ayuda';
 
 // --- M5: archivos -----------------------------------------------------------
 
@@ -3077,6 +3188,112 @@ class InscripcionesSupabase implements PuertaInscripciones {
 }
 
 /**
+ * El catálogo de la planilla de inscripción y su escritura (M4).
+ *
+ * **Aquí no se decide qué campos son obligatorios.** La regla vive en
+ * `inscripcion_campos` y la aplica `public.validar_planilla()`, llamada desde dos
+ * sitios y ninguno de este archivo:
+ *
+ *   · `handle_new_user()` (`202609240001`), en el `signUp`, y sólo si el cliente
+ *     manda la clave `datos_planilla`.
+ *   · `validar_planilla_guardada()`, el trigger de `aspirantes`
+ *     (`202609240002`), que es el que hace que la validación **no se pueda
+ *     esquivar** escribiendo la columna por PostgREST con el token propio.
+ *
+ * Repetir la lista de obligatorios en TypeScript sería una tercera copia de la
+ * regla —SQL, TypeScript y formulario— y las tres se desviarían en cuanto el CFS
+ * marcara un campo como obligatorio desde el panel. Lo único que se hace aquí es
+ * **traducir** el `23514` para que el mensaje llegue con los nombres de los
+ * campos en vez de con un «los datos no cumplen una regla» genérico.
+ *
+ * La lectura sí va por PostgREST, y ahí la RLS **sí** actúa: la política
+ * `inscripcion_campos_lectura_publica` deja leer a `anon` y a `authenticated` los
+ * campos activos, que es lo que permite pintar el formulario antes de que el
+ * aspirante tenga cuenta.
+ */
+class PlanillaSupabase implements PuertaPlanilla {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  async campos(): Promise<CampoInscripcion[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_CAMPOS_INSCRIPCION)
+      .select(COLUMNAS_CAMPO_INSCRIPCION)
+      // El filtro de `activo` no es redundante con la RLS aunque para `anon` y
+      // `authenticated` coincida: un administrador **sí** ve los inactivos (la
+      // política `inscripcion_campos_admin_lectura` es aditiva), y el formulario
+      // no debe pintar un campo que el CFS decidió dejar de preguntar.
+      .eq('activo', true)
+      .order('orden', { ascending: true })
+      // Desempate por código: `orden` es único en la semilla, pero una fila
+      // añadida desde el panel puede repetirlo, y sin desempate el orden de dos
+      // campos empatados cambiaría entre dos peticiones y el formulario se
+      // reordenaría solo.
+      .order('codigo', { ascending: true });
+
+    const filas = desenvolver(respuesta, 'leer el catálogo de campos de inscripción') as Fila[];
+    return filas.map(aCampoInscripcion);
+  }
+
+  async guardar(usuarioId: string, planilla: PlanillaInscripcion): Promise<PlanillaInscripcion> {
+    const respuesta = await this.cliente
+      .from(TABLA_ASPIRANTES)
+      .update({ datos_planilla: planilla })
+      // El filtro explícito no es redundante con la RLS: `aspirantes_admin_all`
+      // deja a un administrador escribir cualquier fila, así que sin esto una
+      // petición suya escribiría en una ficha que no es la suya.
+      .eq('user_id', usuarioId)
+      .select('datos_planilla')
+      .single();
+
+    if (respuesta.error) throw this.traducirEscritura(respuesta.error);
+
+    // Se devuelve lo que quedó **en la base**, no lo que llegó. Es el patrón de
+    // las demás escrituras del proyecto y aquí tiene un motivo concreto: jsonb
+    // colapsa claves repetidas y normaliza números, así que devolver la entrada
+    // sería afirmar que la base guardó exactamente eso sin haberlo comprobado.
+    return objetoOpcional((respuesta.data as Fila | null)?.datos_planilla) ?? {};
+  }
+
+  /** Traduce el fallo de la escritura a un código que el cliente pueda accionar. */
+  private traducirEscritura(error: unknown): ErrorApi {
+    const mensaje = mensajeDe(error);
+
+    // El mismo predicado cubre las dos puertas —el `signUp` y esta escritura—
+    // porque comparten el `raise` de `validar_planilla()`. Ver
+    // `esPlanillaIncompleta` en `dominio/reglas-inscripciones.ts`.
+    if (esPlanillaIncompleta(mensaje)) {
+      return new ErrorApi(400, 'PLANILLA_INCOMPLETA', mensaje, {
+        contexto: 'guardar la planilla de inscripción',
+      });
+    }
+
+    const traducido = traducirError(error, 'guardar la planilla de inscripción');
+
+    // PostgREST no distingue «la fila no existe» de «la RLS no te deja verla»:
+    // las dos son `PGRST116` y salen como el mismo 404 genérico. Aquí **sí** se
+    // pueden distinguir, y con certeza: la política `aspirantes_update_own` exige
+    // `user_id = auth.uid()` y el filtro de arriba es ese mismo `user_id`, así
+    // que una escritura que no toca ninguna fila sólo puede significar una cosa:
+    // el llamante no tiene ficha.
+    //
+    // Y es un camino real, no teórico: `handle_new_user()` sólo crea la ficha si
+    // el alta trae la planilla de identidad completa, así que quien se registró
+    // como docente —o como aspirante con un campo mal escrito— no la tiene.
+    // Merece un código que lo diga en vez de un «no existe» que manda a buscar
+    // el problema al sitio equivocado.
+    if (traducido.codigo === 'NO_ENCONTRADO') {
+      return ErrorApi.noEncontrado(
+        'SIN_FICHA_DE_ASPIRANTE',
+        'Todavía no tienes una ficha de aspirante, así que no hay planilla que guardar. ' +
+          'La ficha se crea al inscribirte.',
+      );
+    }
+
+    return traducido;
+  }
+}
+
+/**
  * Los archivos de M5 sobre Supabase.
  *
  * **Toda escritura pasa por RPC.** `files_metadata` tiene `INSERT`, `UPDATE` y
@@ -3573,6 +3790,7 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     cuadrante: new CuadranteSupabase(cliente),
     secciones: new SeccionesSupabase(cliente),
     inscripciones: new InscripcionesSupabase(cliente),
+    planilla: new PlanillaSupabase(cliente),
     archivos: new ArchivosSupabase(cliente),
     aula: new AulaSupabase(cliente),
   };

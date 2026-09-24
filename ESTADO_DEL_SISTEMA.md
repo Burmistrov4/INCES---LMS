@@ -127,12 +127,12 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **402 / 402** aserciones en verde — **medido el 2026-09-22**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6 |
-| **Migraciones en el repositorio** | **20** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609220003_mod6_habilitar_modulo.sql` |
-| **Migraciones en la nube** | **20** registradas en `schema_migrations` — **las 20 del repositorio, ninguna pendiente**. Medido el 2026-09-24 con `contar-catalogo.mjs` |
-| **Verificación independiente del esquema en la nube** | **102 / 102** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-24**, ya con M5 y M6 aplicados. La cifra anterior (99/99) era del 2026-09-18 y **no cubría `202609210002`**, como su propia nota advertía |
-| **Libro mayor de migraciones (D10)** | **20** versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22) — **21 tablas** + **5 vistas**, con RLS activo en las 21 (ver §3) |
+| Validador SQL contra PostgreSQL real (pglite) | **437 / 437** aserciones en verde — **medido el 2026-09-24**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6 y el catálogo de M4 |
+| **Migraciones en el repositorio** | **21** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609240001_mod4_catalogo_inscripcion.sql` |
+| **Migraciones en la nube** | **21** registradas en `schema_migrations` — **las 21 del repositorio, ninguna pendiente**. Medido el 2026-09-24 con `contar-catalogo.mjs` |
+| **Verificación independiente del esquema en la nube** | **105 / 105** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-24**. Las tres nuevas son la tabla `inscripcion_campos`, la columna `aspirantes.datos_planilla` y la función `validar_planilla()`. La cifra anterior (102/102) era de esta misma jornada, antes del catálogo |
+| **Libro mayor de migraciones (D10)** | **21** versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 el 2026-09-24) — **22 tablas** + **5 vistas**, con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -233,15 +233,28 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veinte** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veintiuna** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**21 tablas** con RLS activo **en las 21**, **5 vistas** (`cursos` de D12, las
-tres del Módulo 3 y `v_ocupacion_secciones` de M4), **48 funciones**, **27
-triggers** y **43 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
+**22 tablas** con RLS activo **en las 22**, **5 vistas** (`cursos` de D12, las
+tres del Módulo 3 y `v_ocupacion_secciones` de M4), **49 funciones**, **28
+triggers** y **46 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
 lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
 `programs` como `CURSO_LIBRE`. **Recontado el 2026-09-24** con
-`supabase/contar-catalogo.mjs`; la cifra anterior era de antes de M6.
+`supabase/contar-catalogo.mjs`; la cifra anterior era de antes del catálogo de M4.
+
+> **El catálogo de M4 ya está contado, no sumado.** Recontado el **2026-09-24**
+> con `supabase/contar-catalogo.mjs` **después** de aplicar `202609240001`, la
+> aritmética cierra pieza por pieza: **+1 tabla** (`inscripcion_campos`), **+3
+> políticas RLS** (`inscripcion_campos_lectura_publica`, `_admin_escritura` y
+> `_admin_lectura`), **+1 función** (`validar_planilla`) y **+1 trigger**
+> (`inscripcion_campos_set_updated_at`). **Sin vistas nuevas** (siguen 5) y **sin
+> parámetros nuevos** (siguen 11). Nada se coló sin documentar.
+>
+> **La política de lectura pública es deliberada, no un descuido.** `anon` puede
+> leer el catálogo porque el aspirante **no tiene sesión** cuando el formulario se
+> pinta: se está registrando. No expone datos personales — son definiciones de
+> campo, no respuestas de nadie. Es el mismo criterio que `system_settings.es_publico`.
 
 > **M5 ya está contado, no sumado.** Recontado el **2026-09-18** con
 > `supabase/contar-catalogo.mjs` **después** de aplicar `202609210001`, la
@@ -253,7 +266,7 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 > nuevas** (siguen 5). Nada se coló sin documentar.
 
 > **Estas cifras están medidas, no estimadas.** Salen de `supabase/verificar-esquema.mjs`
-> (**102/102**, recontado el 2026-09-24, ya con M5 y M6 aplicados) y de
+> (**105/105**, recontado el 2026-09-24, ya con M5, M6 y el catálogo de M4 aplicados) y de
 > `supabase/contar-catalogo.mjs` (recuento directo al catálogo), ejecutados **después**
 > de aplicar. Es la lección de D11: cuando una migración se aplica, se vuelve a contar
 > en vez de confiar en lo que decía el documento.
@@ -606,7 +619,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `subjects` | **M2** | Banco global de materias, compartido entre programas |
 | `program_subjects` | **M2** | El pensum: qué materia va en qué programa y en qué período |
 | `profiles` | Fase 0 | Identidad y rol. Espejo de `auth.users` |
-| `aspirantes` | Fase 0 | Ficha de inscripción del aspirante |
+| `aspirantes` | Fase 0 → **M4** | Ficha de inscripción del aspirante. **M4 (`202609240001`) le añade `datos_planilla` (jsonb)**: la planilla extendida con la forma del catálogo, para que añadir un campo del CFS no exija una migración. El contrato con `AspiranteModel` siguen siendo las 15 columnas planas |
 | `sections` | Fase 0 → **M2** | Secciones abiertas. **Rediseñada en D13**: `program_id`, `subject_id`, `period_code`, `name`, `max_capacity` |
 | `enrollments` | Fase 0 | Matrículas y estados de cupo (M4) |
 | `system_modules` | **Fase 3** | Interruptores de módulos del cPanel |
@@ -618,6 +631,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `classrooms` | **M3** | Espacios del CFS: aulas, talleres **y zonas**. Una zona es una fila con `capacity = 0` (R-18). La migración no siembra ninguna a propósito; las **dos aulas marcadas `[SEMILLA]`** que hay hoy las crea `sembrar-datos.mjs` y se borran con `--limpiar` |
 | `teacher_duties` | **M3** | Guardias de custodia: docente + espacio + día/bloque, con o sin clase. `turno` es derivado |
 | `schedule_slots` | **M3** | El cuadrante: sección + docente + aula + día/bloque. El lapso se deriva de la sección |
+| `inscripcion_campos` | **M4** (`202609240001`) | **El catálogo de la planilla de inscripción.** Una fila por campo: tipo, `obligatorio`, orden, opciones, condición de visibilidad y a qué programa aplica. Es la fuente de verdad del formulario — la pantalla lo renderiza y el administrador marca obligatorio/opcional **sin tocar código**. Legible por `anon` a propósito: el aspirante no tiene sesión cuando se pinta el formulario |
 | `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
 
 ### Vistas

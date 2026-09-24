@@ -3088,6 +3088,396 @@ async function main() {
   check('el módulo usa el icono school', moduloM6?.icono === 'school', String(moduloM6?.icono));
   check('el módulo es de categoría academico', moduloM6?.categoria === 'academico', String(moduloM6?.categoria));
 
+  // ------------------------------- 20. Catálogo de inscripción (202609240001)
+  seccion('20. Catálogo de inscripción y datos_planilla (202609240001)');
+
+  // --- la semilla del catálogo
+  const campos = (
+    await db.query('select codigo, obligatorio, tipo from public.inscripcion_campos')
+  ).rows;
+  const obligatorios = campos.filter((c) => c.obligatorio);
+  check('el catálogo sembró los campos de la planilla física', campos.length >= 40, `hay ${campos.length}`);
+  check(
+    'hay campos obligatorios: sin ellos validar_planilla() pasaría siempre',
+    obligatorios.length > 0,
+    `hay ${obligatorios.length}`,
+  );
+  check(
+    'ningún código rompe el formato exigido',
+    (
+      await db.query(
+        "select count(*)::int as n from public.inscripcion_campos where codigo !~ '^[a-z][a-z0-9_]*$'",
+      )
+    ).rows[0].n === 0,
+  );
+  check(
+    'ningún tipo está fuera del CHECK',
+    campos.every((c) =>
+      ['texto', 'email', 'numero', 'fecha', 'seleccion', 'multiseleccion', 'booleano', 'tabla', 'rejilla'].includes(c.tipo),
+    ),
+  );
+
+  // --- la trampa del mapeo catálogo↔trigger
+  //  El catálogo desglosa nombres y apellidos (primer_nombre/segundo_nombre) pero
+  //  el trigger lee `nombres` y `apellidos`. Estos siete códigos SÍ coinciden
+  //  literalmente con claves de metadata; si alguno desapareciera del catálogo,
+  //  el formulario nuevo dejaría de mandar la clave y la ficha no se crearía,
+  //  sin error. Por eso se comprueban por nombre.
+  const codigos = new Set(campos.map((c) => c.codigo));
+  for (const c of [
+    'cedula',
+    'fecha_nac',
+    'sexo',
+    'telefono',
+    'direccion',
+    'nivel_educativo',
+    'curso_seleccionado',
+  ]) {
+    check(`el catálogo declara «${c}», que el trigger lee por ese nombre`, codigos.has(c));
+  }
+
+  // --- la columna
+  const colPlanilla = (
+    await db.query(
+      'select data_type, is_nullable, column_default from information_schema.columns ' +
+        "where table_schema='public' and table_name='aspirantes' and column_name='datos_planilla'",
+    )
+  ).rows[0];
+  check('aspirantes.datos_planilla existe y es jsonb', colPlanilla?.data_type === 'jsonb', String(colPlanilla?.data_type));
+  check('aspirantes.datos_planilla NO es nullable', colPlanilla?.is_nullable === 'NO', String(colPlanilla?.is_nullable));
+  check(
+    'aspirantes.datos_planilla arranca en {}',
+    String(colPlanilla?.column_default).includes("'{}'"),
+    String(colPlanilla?.column_default),
+  );
+
+  // --- la función
+  const vp = (
+    await db.query(
+      'select prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+        "where n.nspname='public' and p.proname='validar_planilla'",
+    )
+  ).rows[0];
+  check('validar_planilla() existe', Boolean(vp));
+  check(
+    'validar_planilla() es SECURITY DEFINER (quien dispara el trigger no lee el catálogo)',
+    vp?.prosecdef === true,
+  );
+
+  // --- validar_planilla() se comporta
+  const errVacio = await esperaError('una planilla vacía se rechaza', () =>
+    db.query("select public.validar_planilla('{}'::jsonb)"),
+  );
+  check('el error nombra los campos que faltan', /Faltan campos obligatorios/.test(String(errVacio?.message)));
+  check('el error de planilla incompleta es 23514', errVacio?.code === '23514', String(errVacio?.code));
+  await esperaError('una planilla que no es objeto se rechaza', () =>
+    db.query("select public.validar_planilla('[]'::jsonb)"),
+  );
+
+  const planillaCompleta = Object.fromEntries(obligatorios.map((c) => [c.codigo, 'x']));
+  await db.query('select public.validar_planilla($1::jsonb)', [JSON.stringify(planillaCompleta)]);
+  check('una planilla con todos los obligatorios pasa', true);
+
+  //  El anti-agujero: sin esto, un cliente «cumpliría» mandando [] o espacios.
+  const errArray = await esperaError('un array vacío NO cuenta como campo cumplido', () =>
+    db.query('select public.validar_planilla($1::jsonb)', [
+      JSON.stringify({ ...planillaCompleta, [obligatorios[0].codigo]: [] }),
+    ]),
+  );
+  check('el array vacío sale 23514', errArray?.code === '23514', String(errArray?.code));
+
+  const errEspacios = await esperaError('una cadena de espacios NO cuenta como cumplida', () =>
+    db.query('select public.validar_planilla($1::jsonb)', [
+      JSON.stringify({ ...planillaCompleta, [obligatorios[0].codigo]: '   ' }),
+    ]),
+  );
+  check('la cadena de espacios sale 23514', errEspacios?.code === '23514', String(errEspacios?.code));
+
+  // --- el trigger: la asimetría deliberada
+  //  UUIDs propios: los `3333…`/`4444…`/`5555…` ya están tomados en otras
+  //  secciones de este archivo, y reutilizarlos revienta con 23505 en
+  //  `auth.users` (pasó al escribir esta sección).
+  const VIEJO_ID = 'a0000000-0000-4000-8000-000000000001';
+  const NUEVO_OK = 'a0000000-0000-4000-8000-000000000002';
+  const NUEVO_MAL = 'a0000000-0000-4000-8000-000000000003';
+  //  `identidad` es función y no objeto porque cada usuario de prueba necesita
+  //  su PROPIA cédula: `profiles` tiene `unique (cedula)`, y el insert del perfil
+  //  ocurre ANTES de la validación de la planilla. Con la misma cédula en los
+  //  tres, el segundo y el tercero morían con 23505 (cédula duplicada) y ese
+  //  error enmascaraba el 23514 que estas aserciones quieren comprobar.
+  const identidad = (cedula) => ({
+    cedula,
+    nombres: 'Luis',
+    apellidos: 'Gomez',
+    fecha_nac: '1990-01-01',
+    sexo: 'M',
+    telefono: '04141111111',
+    direccion: 'Calle 1',
+    nivel_educativo: 'SECUNDARIO',
+    curso_seleccionado: 'Soldadura',
+  });
+
+  //  (a) cliente VIEJO (el formulario actual): no manda la clave.
+  await db.exec(
+    `insert into auth.users (id, email, raw_user_meta_data) values ` +
+      `('${VIEJO_ID}', 'viejo@inces.test', '${JSON.stringify(identidad('90000001'))}'::jsonb);`,
+  );
+  const fichaVieja = (
+    await db.query(`select datos_planilla from public.aspirantes where user_id = '${VIEJO_ID}'`)
+  ).rows[0];
+  check('un cliente SIN datos_planilla sigue creando la ficha (no hay regresión)', Boolean(fichaVieja));
+  check(
+    'y la deja en objeto vacío, no en NULL',
+    JSON.stringify(fichaVieja?.datos_planilla) === '{}',
+    JSON.stringify(fichaVieja?.datos_planilla),
+  );
+
+  //  (b) cliente NUEVO con planilla incompleta: el registro entero falla.
+  const errRegistro = await esperaError('una planilla incompleta aborta el registro', () =>
+    db.exec(
+      `insert into auth.users (id, email, raw_user_meta_data) values ` +
+        `('${NUEVO_MAL}', 'malo@inces.test', ` +
+        `'${JSON.stringify({ ...identidad('90000002'), datos_planilla: { primer_nombre: 'Luis' } })}'::jsonb);`,
+    ),
+  );
+  check('el registro con planilla incompleta sale 23514', errRegistro?.code === '23514', String(errRegistro?.code));
+  check(
+    'no quedó ficha huérfana del registro fallido',
+    (
+      await db.query(`select count(*)::int as n from public.aspirantes where user_id = '${NUEVO_MAL}'`)
+    ).rows[0].n === 0,
+  );
+
+  //  (c) cliente NUEVO con planilla completa: la ficha guarda el JSONB.
+  const planillaBuena = {
+    ...planillaCompleta,
+    primer_nombre: 'Luis',
+    primer_apellido: 'Gomez',
+    familiares: [{ cedula: '1', nombres: 'Ana', apellidos: 'B', parentesco: 'Madre' }],
+  };
+  await db.exec(
+    `insert into auth.users (id, email, raw_user_meta_data) values ` +
+      `('${NUEVO_OK}', 'nuevo@inces.test', ` +
+      `'${JSON.stringify({ ...identidad('90000003'), datos_planilla: planillaBuena })}'::jsonb);`,
+  );
+  const fichaNueva = (
+    await db.query(`select datos_planilla from public.aspirantes where user_id = '${NUEVO_OK}'`)
+  ).rows[0];
+  check('un cliente CON planilla completa crea la ficha', Boolean(fichaNueva));
+  check(
+    'la planilla llegó íntegra a la columna',
+    fichaNueva?.datos_planilla?.primer_nombre === 'Luis',
+    String(fichaNueva?.datos_planilla?.primer_nombre),
+  );
+  check(
+    'las tablas repetibles viajan como array',
+    Array.isArray(fichaNueva?.datos_planilla?.familiares) &&
+      fichaNueva.datos_planilla.familiares.length === 1,
+  );
+
+  // --- RLS del catálogo
+  const anonVe = await como('anon', null, () =>
+    db.query('select count(*)::int as n from public.inscripcion_campos'),
+  );
+  check('anon LEE el catálogo (el formulario se pinta sin sesión)', anonVe.rows[0].n >= 40, `ve ${anonVe.rows[0].n}`);
+
+  await como('anon', null, () =>
+    db.exec("update public.inscripcion_campos set obligatorio = false where codigo = 'cedula'"),
+  );
+  check(
+    'anon NO puede editar el catálogo',
+    (await db.query("select obligatorio from public.inscripcion_campos where codigo='cedula'")).rows[0]
+      .obligatorio === true,
+  );
+
+  // ------------------------------- 21. Guardia de escritura (202609240002)
+  seccion('21. Guardia de escritura de la planilla (202609240002)');
+
+  // --- el trigger existe y está cableado
+  const defTrigger = (
+    await db.query(
+      'select pg_get_triggerdef(t.oid) as def from pg_trigger t ' +
+        'join pg_class c on c.oid = t.tgrelid ' +
+        'join pg_namespace n on n.oid = c.relnamespace ' +
+        "where n.nspname = 'public' and c.relname = 'aspirantes' " +
+        "and t.tgname = 'aspirantes_validar_planilla'",
+    )
+  ).rows[0]?.def;
+
+  check('existe el trigger aspirantes_validar_planilla', Boolean(defTrigger), String(defTrigger));
+  // Sin el `OF datos_planilla` el trigger dispararía en CUALQUIER escritura de la
+  // fila, y una edición de teléfono revalidaría una planilla vacía legítima.
+  check(
+    'el trigger está limitado a la columna datos_planilla',
+    /datos_planilla/.test(String(defTrigger)),
+    String(defTrigger),
+  );
+  check(
+    'el trigger dispara en INSERT y en UPDATE',
+    /INSERT/.test(String(defTrigger)) && /UPDATE/.test(String(defTrigger)),
+    String(defTrigger),
+  );
+
+  const envoltorio = (
+    await db.query(
+      'select prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+        "where n.nspname = 'public' and p.proname = 'validar_planilla_guardada'",
+    )
+  ).rows[0];
+  check('existe el envoltorio validar_planilla_guardada()', Boolean(envoltorio));
+  // La lección de `202609180002`: un envoltorio `invoker` que delega en una
+  // función sin EXECUTE para el llamante deja el módulo inoperable con 42501.
+  check(
+    'el envoltorio es SECURITY DEFINER (lección de 202609180002)',
+    envoltorio?.prosecdef === true,
+    String(envoltorio?.prosecdef),
+  );
+
+  // --- LA ASERCIÓN QUE IMPORTA: el agujero, escrito como usuario real
+  //  Se escribe **como `authenticated` con los claims de un usuario**, no como el
+  //  dueño de las tablas. El dueño se salta la comprobación de privilegios y no
+  //  reproduce al usuario real: es exactamente el fallo que `202609180002`
+  //  documenta y por el que existió la sección 14.8 de este archivo.
+  //
+  //  Sin esta aserción, la guardia podría estar ausente y la batería seguiría
+  //  verde, porque el camino del `signUp` ya valida por su cuenta.
+  const planillaIncompleta = { primer_nombre: 'Luis' };
+
+  const errDirecto = await esperaError(
+    'un usuario autenticado NO puede escribir una planilla incompleta por UPDATE directo',
+    () =>
+      como('authenticated', VIEJO_ID, () =>
+        db.query('update public.aspirantes set datos_planilla = $1::jsonb where user_id = $2', [
+          JSON.stringify(planillaIncompleta),
+          VIEJO_ID,
+        ]),
+      ),
+  );
+  check(
+    'el rechazo de la escritura directa sale 23514',
+    errDirecto?.code === '23514',
+    String(errDirecto?.code),
+  );
+  check(
+    'el rechazo nombra los campos que faltan',
+    /Faltan campos obligatorios/.test(String(errDirecto?.message)),
+    String(errDirecto?.message),
+  );
+  check(
+    'la planilla no cambió tras el rechazo',
+    JSON.stringify(
+      (await db.query(`select datos_planilla from public.aspirantes where user_id = '${VIEJO_ID}'`))
+        .rows[0]?.datos_planilla,
+    ) === '{}',
+  );
+
+  // --- y el camino legítimo sigue abierto
+  await como('authenticated', VIEJO_ID, () =>
+    db.query('update public.aspirantes set datos_planilla = $1::jsonb where user_id = $2', [
+      JSON.stringify(planillaCompleta),
+      VIEJO_ID,
+    ]),
+  );
+  check('un usuario autenticado SÍ puede escribir su planilla completa', true);
+
+  // --- la asimetría sigue en pie: `{}` es «sin planilla», no una planilla vacía
+  await como('authenticated', VIEJO_ID, () =>
+    db.query("update public.aspirantes set datos_planilla = '{}'::jsonb where user_id = $1", [
+      VIEJO_ID,
+    ]),
+  );
+  check(
+    'el objeto vacío sigue permitido: es el «sin planilla» del formulario viejo',
+    JSON.stringify(
+      (await db.query(`select datos_planilla from public.aspirantes where user_id = '${VIEJO_ID}'`))
+        .rows[0]?.datos_planilla,
+    ) === '{}',
+  );
+
+  // --- una escritura que NO toca la planilla no la revalida
+  //  Es la mitad del `OF datos_planilla`: si el trigger disparara en toda la fila,
+  //  la ficha de todo el que se registró con el formulario viejo —planilla `{}`—
+  //  no se podría editar nunca más.
+  await como('authenticated', VIEJO_ID, () =>
+    db.query('update public.aspirantes set telefono = $1 where user_id = $2', [
+      '04149999999',
+      VIEJO_ID,
+    ]),
+  );
+  check(
+    'una edición que no toca la planilla no la revalida',
+    (await db.query(`select telefono from public.aspirantes where user_id = '${VIEJO_ID}'`)).rows[0]
+      ?.telefono === '04149999999',
+  );
+
+  // --- el alta directa: `aspirantes_insert_own` existe, así que también valida
+  //  Un usuario sin ficha —alguien registrado como docente, por ejemplo— podría
+  //  crearse la suya con `aspirantes_insert_own`. El insert también pasa por la
+  //  guardia, y sin él esta puerta quedaría abierta.
+  const SIN_FICHA = 'a0000000-0000-4000-8000-000000000004';
+  await db.exec(
+    `insert into auth.users (id, email, raw_user_meta_data) values ` +
+      `('${SIN_FICHA}', 'sinficha@inces.test', '{}'::jsonb);`,
+  );
+  check(
+    'el usuario de prueba quedó sin ficha de aspirante',
+    (
+      await db.query(`select count(*)::int as n from public.aspirantes where user_id = '${SIN_FICHA}'`)
+    ).rows[0].n === 0,
+  );
+
+  const errAlta = await esperaError(
+    'un usuario autenticado NO puede insertar su ficha con una planilla incompleta',
+    () =>
+      como('authenticated', SIN_FICHA, () =>
+        db.query(
+          'insert into public.aspirantes ' +
+            '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
+            ' nivel_educativo, curso_seleccionado, datos_planilla) ' +
+            'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)',
+          [
+            SIN_FICHA,
+            '91000001',
+            'Sin',
+            'Ficha',
+            '1990-01-01',
+            'M',
+            '04141111111',
+            'sinficha@inces.test',
+            'Calle 1',
+            'SECUNDARIO',
+            'Soldadura',
+            JSON.stringify(planillaIncompleta),
+          ],
+        ),
+      ),
+  );
+  check('el rechazo del alta directa sale 23514', errAlta?.code === '23514', String(errAlta?.code));
+
+  await como('authenticated', SIN_FICHA, () =>
+    db.query(
+      'insert into public.aspirantes ' +
+        '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
+        ' nivel_educativo, curso_seleccionado, datos_planilla) ' +
+        'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)',
+      [
+        SIN_FICHA,
+        '91000001',
+        'Sin',
+        'Ficha',
+        '1990-01-01',
+        'M',
+        '04141111111',
+        'sinficha@inces.test',
+        'Calle 1',
+        'SECUNDARIO',
+        'Soldadura',
+        JSON.stringify(planillaCompleta),
+      ],
+    ),
+  );
+  check('…y sí puede insertarla completa', true);
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +

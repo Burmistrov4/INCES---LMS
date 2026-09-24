@@ -32,6 +32,7 @@ import {
   ESTADOS_ANUNCIO,
   ESTADOS_ENTREGA,
   ESTADOS_TAREA,
+  TIPOS_CAMPO_INSCRIPCION,
 } from '../dominio/tipos.js';
 import {
   esquemaBarrido,
@@ -39,6 +40,7 @@ import {
   esquemaCrearAnuncio,
   esquemaCrearTarea,
   esquemaFirmarSubida,
+  esquemaPlanilla,
   rolSchema,
   tipoEntidadArchivoSchema,
   tipoTareaSchema,
@@ -1176,6 +1178,87 @@ const CuerpoReincorporar = z
   })
   .strict()
   .openapi('CuerpoReincorporar');
+
+// ------------------------------------------------- planilla de inscripción ---
+//
+// El catálogo y su contenido **no son simétricos a propósito**: los campos son un
+// contrato cerrado (tipo enumerado, orden, obligatoriedad) y la planilla es un
+// objeto abierto. El cliente no conoce los campos —los lee de
+// `GET /api/v1/inscripcion/campos` y dibuja el formulario con lo que recibe—, y
+// por eso la ampliación del formulario es una fila nueva en `inscripcion_campos`
+// y no un despliegue.
+//
+// **Aquí no se repite la regla de obligatoriedad.** Quién decide qué campos hacen
+// falta es `public.validar_planilla()`, invocada por el trigger
+// `aspirantes_validar_planilla` en cada escritura de `datos_planilla`. El backend
+// traduce su `23514` a `PLANILLA_INCOMPLETA` nombrando los que faltan. Zod sólo
+// comprueba que la planilla sea un objeto: una tercera copia de la lista (SQL,
+// Zod y formulario) se desincronizaría en cuanto el CFS marcara un campo como
+// obligatorio desde el panel, que es justo lo que el catálogo permite hacer.
+
+const CampoInscripcion = z
+  .object({
+    codigo: z.string().openapi({
+      description:
+        'Clave con la que el campo viaja dentro de la planilla ("primer_nombre"). Es la identidad del campo: renombrarlo es una migración de datos, no un cambio de etiqueta.',
+    }),
+    etiqueta: z.string().openapi({
+      description: 'Texto que ve el aspirante. Cambiarla NO toca los datos ya guardados.',
+    }),
+    grupo: z.string().openapi({
+      description:
+        'Agrupación visual ("Datos personales"). **No es un paso ni un índice**: el formulario agrupa por este valor y el orden de los grupos es el de aparición. Añadir un grupo es añadir filas, no tocar la pantalla.',
+    }),
+    tipo: z.enum(TIPOS_CAMPO_INSCRIPCION).openapi({
+      description:
+        '**No es cosmético**: decide el widget Y la forma del valor guardado. Un `numero` guarda un número, una `fecha` una cadena ISO, un `booleano` un booleano y una `multiseleccion` un arreglo. Enviar un tipo que no corresponda no lo detecta esta ruta —lo detecta quien lee la planilla—, así que el cliente debe respetarlo.',
+    }),
+    obligatorio: z.boolean().openapi({
+      description:
+        'Espejo informativo de la regla de la base, para que el formulario marque el campo **antes** de enviarlo y no dependa de un viaje de ida y vuelta para saber qué le falta. La autoridad sigue siendo el trigger: esto no decide nada.',
+    }),
+    orden: z.number().int().openapi({
+      description:
+        'Orden **global**, no por grupo: el renderizador puede ordenar sin conocer la lista de grupos. El catálogo ya viene ordenado por este campo.',
+    }),
+    opciones: z.record(z.unknown()).nullable().openapi({
+      description:
+        'Opciones del campo, transportadas **tal cual** desde la base. Su forma depende de `tipo` —lista cerrada para `seleccion`/`multiseleccion`, columnas para `tabla`, ítems para `rejilla`— y el backend no la interpreta, así que una forma nueva no exige tocarlo. `null` en los tipos que no tienen opciones.',
+    }),
+    fuente: z.string().nullable().openapi({
+      description:
+        'Origen **dinámico** de las opciones, o `null` si están incrustadas en `opciones`. Hoy el único valor es `"programas"`: la oferta formativa cambia y no puede quedar congelada en el catálogo, así que la pantalla consulta esa fuente en vivo.',
+    }),
+    condicion: z
+      .object({ campo: z.string(), igual: z.unknown() })
+      .nullable()
+      .openapi({
+        description:
+          'Visibilidad condicional: el campo se muestra —y se exige— sólo cuando `condicion.campo` vale `condicion.igual`. `null` = siempre visible. Afecta a la presentación, no a la existencia del campo.',
+      }),
+    ayuda: z.string().nullable().openapi({ description: 'Aclaración bajo el campo, o `null`.' }),
+  })
+  .openapi('CampoInscripcion');
+
+const RespuestaCamposInscripcion = z
+  .object({
+    campos: z.array(CampoInscripcion).openapi({
+      description:
+        'El catálogo completo de campos activos, ya ordenado. Es lo que el cliente necesita para dibujar el formulario sin conocerlo de antemano.',
+    }),
+  })
+  .openapi('RespuestaCamposInscripcion');
+
+const CuerpoPlanilla = esquemaPlanilla.openapi('CuerpoPlanilla');
+
+const RespuestaPlanilla = z
+  .object({
+    planilla: z.record(z.unknown()).openapi({
+      description:
+        'La planilla **tal como quedó guardada**, no un eco de lo enviado. `PUT` reemplaza el documento entero, así que esto es exactamente lo que devolvería una lectura posterior.',
+    }),
+  })
+  .openapi('RespuestaPlanilla');
 
 const parametrosListadoSecciones = z.object({
   busqueda: z.string().optional().openapi({
@@ -2843,6 +2926,67 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // La planilla de inscripción. Va bajo la etiqueta del módulo y no bajo la de
+  // sesión aunque una de las dos rutas viva en `/api/v1/yo`: la etiqueta agrupa
+  // por **asunto**, no por prefijo —igual que `/api/v1/mi-horario` cuelga de
+  // «Cuadrante»—, y quien busca «cómo se rellena el formulario» tiene que
+  // encontrar las dos juntas.
+  //
+  // **La visibilidad de las dos es opuesta, y es lo que las define.** El catálogo
+  // se lee **sin sesión**: un formulario de inscripción tiene que poder preguntar
+  // qué preguntar antes de que exista una cuenta, y exigir token ahí obligaría a
+  // crear el usuario para poder pintar el formulario —que es exactamente el orden
+  // que ADR-007 evita—. No expone nada de nadie: son **definiciones de campos**,
+  // no las respuestas de nadie, y es configuración del sistema igual que un
+  // parámetro marcado `es_publico`. La escritura, en cambio, sí exige sesión: sin
+  // usuario no hay fila en `aspirantes` que actualizar.
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/inscripcion/campos',
+    summary: 'Catálogo de campos de la planilla de inscripción',
+    description:
+      'Lo que hace que el formulario sea **conducido por datos**: el cliente lo lee y dibuja los campos, los grupos y la obligatoriedad con lo que recibe, sin conocerlos de antemano. **Público a propósito** — se necesita antes de tener cuenta, y son definiciones de campos, no respuestas de nadie. Sólo devuelve los campos activos, ya ordenados.',
+    responses: {
+      200: {
+        description: 'El catálogo de campos activos, ordenado.',
+        content: { 'application/json': { schema: RespuestaCamposInscripcion } },
+      },
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'put',
+    path: '/api/v1/yo/planilla',
+    summary: 'Guarda la planilla de inscripción del llamante',
+    description:
+      '**`PUT` y no `PATCH`: reemplaza la planilla entera.** El cliente manda el documento completo, y no tiene que saber qué había antes para decidir qué borrar —la misma decisión que en el pensum—. El usuario sale de la sesión, nunca del cuerpo: no se puede escribir la planilla de otro porque no hay dónde decir «de quién». La planilla **no se valida aquí**: la exige el trigger `aspirantes_validar_planilla`, que llama a `validar_planilla()` en la base. Esta ruta sólo traduce su `23514` a `PLANILLA_INCOMPLETA` **nombrando los campos que faltan**, que es el único sitio donde ese mensaje se puede convertir en algo accionable.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoPlanilla } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'La planilla quedó guardada, tal como se almacenó.',
+        content: { 'application/json': { schema: RespuestaPlanilla } },
+      },
+      400: error(
+        'La planilla viene vacía —reemplazaría el documento por nada—, o le faltan campos obligatorios del catálogo (PLANILLA_INCOMPLETA, con los nombres).',
+      ),
+      401: RESPUESTAS_ERROR[401],
+      404: error(
+        'Todavía no hay ficha de aspirante que actualizar (SIN_FICHA_DE_ASPIRANTE). La ficha la crea la inscripción, no esta ruta.',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   // ----------------------------------------------------------- archivos -----
   const archivosTag = { tags: ['Archivos'] };
 
@@ -3381,7 +3525,7 @@ export function construirDocumentoOpenApi() {
       {
         name: 'Inscripciones',
         description:
-          'Módulo 4: cupos, cola FIFO y ofertas con vencimiento. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito.',
+          'Módulo 4: cupos, cola FIFO, ofertas con vencimiento y la planilla de inscripción. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura de cupos pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito. **La planilla es la excepción de visibilidad**: `GET /api/v1/inscripcion/campos` es pública —el formulario necesita saber qué preguntar antes de que exista una cuenta— y `PUT /api/v1/yo/planilla` exige sesión. La obligatoriedad de la planilla la impone un trigger en la base, no esta API.',
       },
       {
         name: 'Archivos',

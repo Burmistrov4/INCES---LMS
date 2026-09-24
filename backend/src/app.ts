@@ -15,6 +15,7 @@ import { rutasAuth } from './http/rutas/auth.js';
 import { rutasCuadrante } from './http/rutas/cuadrante.js';
 import { rutasCurriculo } from './http/rutas/curriculo.js';
 import { rutasInscripciones } from './http/rutas/inscripciones.js';
+import { rutasPlanilla } from './http/rutas/planilla.js';
 import { rutasSalud } from './http/rutas/salud.js';
 import { rutasSecciones } from './http/rutas/secciones.js';
 import { rutasYo } from './http/rutas/yo.js';
@@ -173,6 +174,11 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   // sección, así que sin poder crearlas el motor de cupos no tiene sobre qué
   // operar. Son módulos distintos por alcance (M3) y por consumo (M4).
   rutasSecciones(app);
+  // El catálogo de la planilla va con las de M4, pero se registra aparte porque
+  // su visibilidad es la contraria: es la única ruta PÚBLICA del módulo —el
+  // formulario se pinta antes de que el aspirante tenga cuenta— mientras que
+  // todas las de abajo exigen sesión. Ver `rutas/planilla.ts`.
+  rutasPlanilla(app);
   rutasInscripciones(app);
   // M5 necesita el almacenamiento inyectado, así que recibe `depsRutas` — a
   // diferencia de M3 y M4, que no dependen de ningún servicio externo.

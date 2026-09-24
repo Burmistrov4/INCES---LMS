@@ -12,6 +12,7 @@ import type {
   ArchivoMetadata,
   Aula,
   CambiosModulo,
+  CampoInscripcion,
   ClaseCuadrante,
   DetallePrograma,
   EntradaAcceso,
@@ -33,6 +34,7 @@ import type {
   ParametroSistema,
   Perfil,
   Periodo,
+  PlanillaInscripcion,
   Programa,
   ProgramaConTotales,
   PublicacionTarea,
@@ -845,6 +847,63 @@ export interface PaginaOcupacion {
 }
 
 /**
+ * El catálogo de la planilla de inscripción y su escritura (Módulo 4).
+ *
+ * Es un puerto aparte de `PuertaInscripciones` aunque los dos sean M4, y la
+ * separación no es taxonómica: **la visibilidad es distinta**. El motor de cupos
+ * exige sesión en todas sus rutas —hay que ser alguien para pedir un asiento—,
+ * mientras que el catálogo tiene que leerse **sin sesión**, porque el formulario
+ * se pinta antes de que el aspirante tenga cuenta. Un puerto por preocupación
+ * deja ese contraste a la vista; meterlo en `PuertaInscripciones` lo escondería
+ * dentro de un conjunto de operaciones todas autenticadas.
+ *
+ * **La escritura no valida aquí.** `guardar` sólo traduce: la regla de qué campos
+ * son obligatorios vive en `inscripcion_campos` y la aplica
+ * `public.validar_planilla()` desde el trigger de `aspirantes`
+ * (`202609240002`). Comprobar los obligatorios en este puerto sería una segunda
+ * copia de la regla que se desviaría en cuanto el CFS marcara un campo desde el
+ * panel — y además sería una copia **evitable**: el cliente puede escribir esa
+ * columna por PostgREST con su propio token, así que una comprobación que sólo
+ * viviera aquí no protegería nada (ADR-003).
+ */
+export interface PuertaPlanilla {
+  /**
+   * Los campos **activos** del catálogo, ordenados por `orden`.
+   *
+   * Sin paginar a propósito: el catálogo de una planilla son decenas de filas y
+   * el formulario los necesita **todos** para poder pintarse. Paginarlos sería
+   * construir una máquina para un caso que el propio catálogo hace imposible.
+   *
+   * Los inactivos no salen. Un campo desactivado es un campo que el CFS decidió
+   * dejar de preguntar; devolverlo obligaría a la pantalla a filtrarlo y a
+   * acordarse de hacerlo.
+   */
+  campos(): Promise<CampoInscripcion[]>;
+
+  /**
+   * Guarda la planilla del llamante en `aspirantes.datos_planilla`.
+   *
+   * `usuarioId` se pasa **explícitamente** y no se deduce de la sesión, por la
+   * misma razón que en `misInscripciones` y `miHorario`: la política
+   * `aspirantes_admin_all` deja a un administrador escribir cualquier fila, así
+   * que «la mía» no se puede dejar al filtro de la base. Sin el parámetro, una
+   * petición de administrador escribiría en una fila arbitraria.
+   *
+   * Puede fallar con `PLANILLA_INCOMPLETA` (400) si falta algún campo que el
+   * catálogo marca obligatorio, y con `SIN_FICHA_DE_ASPIRANTE` (404) si el
+   * llamante no tiene fila en `aspirantes` — lo que le pasa a quien se registró
+   * como docente, porque el trigger sólo crea la ficha si el alta trae la
+   * planilla de identidad completa.
+   *
+   * Devuelve la planilla **tal como quedó guardada**, leída de vuelta de la
+   * columna. No es un eco de la entrada: jsonb colapsa claves repetidas y
+   * normaliza números, así que devolver lo que llegó sería afirmar que la base
+   * guardó exactamente eso sin haberlo comprobado.
+   */
+  guardar(usuarioId: string, planilla: PlanillaInscripcion): Promise<PlanillaInscripcion>;
+}
+
+/**
  * El aula virtual: tablón, trabajo de clase, entregas y calificaciones.
  *
  * **Quién ve qué y quién puede escribir lo decide la base, no la API.** Las
@@ -975,6 +1034,8 @@ export interface Repositorios {
   cuadrante: PuertaCuadrante;
   secciones: PuertaSecciones;
   inscripciones: PuertaInscripciones;
+  /** Catálogo de la planilla de inscripción y su escritura (M4). */
+  planilla: PuertaPlanilla;
   archivos: PuertaArchivos;
   aula: PuertaAula;
 }

@@ -546,6 +546,128 @@ export interface InscripcionDetallada extends Inscripcion {
   estudianteEmail?: string | null;
 }
 
+// --- Módulo 4: catálogo de la planilla de inscripción -----------------------
+
+/**
+ * Qué clase de control pinta el formulario para un campo.
+ *
+ * La unión es la del `check` de `inscripcion_campos.tipo` (`202609240001`). Se
+ * escribe a mano y no derivada de un arreglo `as const` porque el catálogo la
+ * usa como *entrada* de un `switch` en el renderizador, y ahí conviene que el
+ * compilador enumere los nueve casos.
+ *
+ * **`tipo` no es cosmético.** Decide qué widget se pinta y, con él, **qué forma
+ * tiene el valor que se guarda**: `seleccion` guarda una cadena, `multiseleccion`
+ * un arreglo, `tabla` un arreglo de objetos con las columnas de `opciones`, y
+ * `rejilla` un objeto ítem→valor. Pintar el widget equivocado no es un fallo
+ * estético: escribe un valor de forma equivocada en `datos_planilla`, que es la
+ * columna que después lee la exportación hacia HACER.
+ */
+export const TIPOS_CAMPO_INSCRIPCION = [
+  'texto',
+  'email',
+  'numero',
+  'fecha',
+  'seleccion',
+  'multiseleccion',
+  'booleano',
+  'tabla',
+  'rejilla',
+] as const;
+
+/**
+ * La unión se **deriva del arreglo**, igual que `TipoTarea` de `TIPOS_TAREA`, y
+ * no al revés. La consecuencia práctica es que `z.enum(TIPOS_CAMPO_INSCRIPCION)`
+ * compila y el documento OpenAPI no puede mentir sobre los tipos que la API
+ * acepta: si mañana una migración añadiera uno, el contrato lo recoge solo.
+ */
+export type TipoCampoInscripcion = (typeof TIPOS_CAMPO_INSCRIPCION)[number];
+
+export function esTipoCampoInscripcion(valor: unknown): valor is TipoCampoInscripcion {
+  return (
+    typeof valor === 'string' && (TIPOS_CAMPO_INSCRIPCION as readonly string[]).includes(valor)
+  );
+}
+
+/**
+ * El contenido de `inscripcion_campos.opciones`, que **no tiene una forma única**.
+ *
+ * Depende del `tipo` del campo, y son cuatro formas distintas:
+ *
+ *   · `seleccion` / `multiseleccion` → `{ opciones: [{ valor, etiqueta }] }`
+ *   · `tabla`      → `{ columnas: [{ codigo, etiqueta, tipo, obligatorio, opciones? }] }`
+ *   · `rejilla`    → `{ items: [{ valor, etiqueta }], etiqueta_desde, multiple }`
+ *
+ * Se transporta **tal cual**, sin normalizar a un esquema común, y esa es una
+ * decisión de diseño con una consecuencia deliberada: añadir una clave nueva a
+ * una de esas formas —o una forma nueva para un `tipo` nuevo— **no exige tocar
+ * el backend**. Forzarlas a un tipo con campos opcionales habría convertido cada
+ * ampliación del catálogo en un cambio de backend, que es justo lo que
+ * `datos_planilla` existe para evitar.
+ *
+ * Quien interpreta esta forma es el renderizador, que conoce el `tipo`.
+ */
+export type OpcionesCampoInscripcion = Record<string, unknown>;
+
+/**
+ * Visibilidad condicional de un campo, p. ej. `{ campo: 'pueblo_indigena', igual: true }`.
+ *
+ * Sólo afecta a la **presentación**: el campo existe siempre en el catálogo y su
+ * valor se puede guardar siempre. Es la forma que `202609240001` documenta en el
+ * comentario de la columna `condicion`.
+ */
+export interface CondicionCampoInscripcion {
+  campo: string;
+  igual: unknown;
+}
+
+/**
+ * Un campo del catálogo de la planilla de inscripción.
+ *
+ * Es la **fuente de verdad del formulario**: la pantalla lo renderiza y el
+ * administrador marca obligatorio/opcional en la tabla, sin tocar código. Por eso
+ * el backend lo expone entero en vez de una proyección «útil»: cualquier campo
+ * que se dejara fuera obligaría a un cambio de backend para que la pantalla
+ * pudiera pintarlo, y eso devolvería el problema que el catálogo resuelve.
+ */
+export interface CampoInscripcion {
+  /** Identificador estable del campo. Es también la clave en `datos_planilla`. */
+  codigo: string;
+  /** Texto que ve el aspirante. */
+  etiqueta: string;
+  /** Paso del formulario al que pertenece. Los grupos se ordenan por `orden`. */
+  grupo: string;
+  tipo: TipoCampoInscripcion;
+  obligatorio: boolean;
+  /** Orden **global**, no por grupo: el renderizador ordena sin conocer los grupos. */
+  orden: number;
+  /** Lista cerrada, columnas de una tabla o ítems de una rejilla. Ver el tipo. */
+  opciones: OpcionesCampoInscripcion | null;
+  /**
+   * Origen **dinámico** de las opciones, o `null` si están en `opciones`.
+   *
+   * Hoy el único valor es `'programas'`: la oferta formativa cambia y no puede
+   * quedar congelada dentro del catálogo. La pantalla consulta esa fuente en vivo.
+   */
+  fuente: string | null;
+  condicion: CondicionCampoInscripcion | null;
+  /** Aclaración para el aspirante, o `null`. */
+  ayuda: string | null;
+}
+
+/**
+ * La planilla rellena: código de campo → valor.
+ *
+ * **El backend no valida esta forma, y no es un olvido.** Quién decide qué
+ * campos son obligatorios es `inscripcion_campos`, que vive en la base, y la
+ * regla la aplica `public.validar_planilla()` — la misma función que dispara el
+ * trigger `handle_new_user()` y la guardia de escritura de `aspirantes`. Zod sólo
+ * comprueba que sea un objeto: repetir aquí la lista de obligatorios sería una
+ * **tercera** copia de la regla (SQL, Zod y formulario) y las tres se desviarían
+ * en cuanto el CFS marcara un campo como obligatorio desde el panel.
+ */
+export type PlanillaInscripcion = Record<string, unknown>;
+
 // --- Módulo 5: archivos (Cloudflare R2) -------------------------------------
 
 /**

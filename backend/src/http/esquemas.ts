@@ -781,6 +781,47 @@ export const esquemaReincorporar = z
   })
   .strict();
 
+/**
+ * La planilla de inscripción que se guarda con `PUT /api/v1/yo/planilla`.
+ *
+ * **Va envuelta en `{ planilla: … }` y no suelta, y no es un formalismo.** Si el
+ * cuerpo fuera la planilla misma no se podría usar `.strict()`: los códigos de
+ * campo son datos, no un contrato cerrado, y un `.strict()` sobre el objeto de
+ * dentro rechazaría cualquier campo que el CFS añadiera al catálogo. Envolviéndola
+ * hay un contrato fijo de una sola clave —y un `{"planilla": …, "extra": 1}` se
+ * rechaza con un 400 que nombra `extra`— mientras el contenido sigue siendo libre.
+ *
+ * **Zod NO comprueba qué campos son obligatorios, y es deliberado.** Esa lista
+ * vive en `inscripcion_campos` y la aplica `public.validar_planilla()` desde el
+ * trigger de `aspirantes`. Repetirla aquí sería una tercera copia de la regla
+ * —SQL, Zod y formulario— y bastaría con que el CFS marcara un campo como
+ * obligatorio desde el panel para que las tres dejaran de coincidir. Zod sólo
+ * comprueba la forma del sobre; el contenido lo juzga la base, que es la única
+ * que puede juzgarlo sin que se pueda esquivar.
+ *
+ * La guardia de «no vacía» **sí** es de la ruta, y es más estricta que la base a
+ * propósito. En la base, `{}` significa «sin planilla» y está permitido: es el
+ * estado de todo el que se registró con el formulario viejo, y por eso el trigger
+ * lo deja pasar. Pero esta ruta no crea: **reemplaza**. Un `{}` aquí borraría la
+ * planilla de alguien, y el cliente no tiene ningún camino legítimo que lo mande
+ * —con todos los campos en blanco, los obligatorios fallan antes—, así que un
+ * `{}` sólo puede venir de un error de programación o de una sonda. Rechazarlo
+ * convierte un borrado silencioso en un 400 que dice qué pasó.
+ */
+export const esquemaPlanilla = z
+  .object({
+    planilla: z
+      .record(z.unknown())
+      .refine((valor) => Object.keys(valor).length > 0, {
+        message:
+          'La planilla viene vacía. Esta ruta reemplaza la planilla existente, ' +
+          'así que un objeto sin ningún campo la borraría.',
+      }),
+  })
+  .strict();
+
+export type PlanillaEntrada = z.infer<typeof esquemaPlanilla>;
+
 // --- Módulo 5: archivos (Cloudflare R2) -------------------------------------
 
 export const esquemaIdArchivo = idDeRecurso('archivo');

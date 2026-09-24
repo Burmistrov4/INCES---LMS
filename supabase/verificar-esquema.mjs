@@ -6,7 +6,9 @@
  * sobre una tabla preexistente con otro diseño también "no falla". Este script
  * interroga el catálogo y responde a las preguntas que importan:
  *
- *   1. ¿Están las 17 tablas esperadas?
+ *   1. ¿Están TODAS las tablas esperadas? (la lista es la constante `esperadas`
+ *      de más abajo; el total NO se escribe aquí a propósito — decía «17» cuando
+ *      ya eran 22, que es justo el tipo de cifra que envejece sola)
  *   2. ¿Coinciden las columnas de `aspirantes` con el modelo Dart?
  *   3. ¿RLS activo en todas?
  *   4. ¿Existen los triggers que sostienen las invariantes (D8)?
@@ -20,6 +22,9 @@
  *      anti-duplicado?
  *   9. ¿Está el Módulo 5 desplegado — tabla `files_metadata` con RLS y escritura
  *      directa revocada, sus 3 RPC `security definer` y la semilla de límites?
+ *  10. ¿Está el catálogo de campos de la planilla (M4) y, sobre todo, está su
+ *      guardia de escritura? El catálogo sin la guardia es una validación que se
+ *      puede esquivar escribiendo la columna por PostgREST con el token propio.
  *
  * Uso: SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs
  */
@@ -89,6 +94,9 @@ const esperadas = [
   'config_audit_log',
   'enrollments',
   'files_metadata',
+  // El catálogo de campos de la planilla (M4, `202609240001`). Es configuración,
+  // no datos de ejemplo: por eso lo siembra una migración y no `sembrar-datos`.
+  'inscripcion_campos',
   // Las tres del Aula Virtual (M6). Las sembró `202609220001`, que hasta el
   // 2026-09-22 estaba sin aplicar en la nube: mientras tanto este control las
   // veía como «heredadas» y fallaba. No son andamiaje: son el módulo.
@@ -160,6 +168,10 @@ const requeridas = [
   'mision_ribaras',
   'discapacidad',
   'requires_legal_tutor',
+  // La planilla extendida (`202609240001`). Va en jsonb y no en columnas para que
+  // añadir un campo del CFS no exija una migración. El contrato con
+  // `AspiranteModel` siguen siendo las 15 columnas de arriba.
+  'datos_planilla',
 ];
 for (const columna of requeridas) {
   comprobar(`columna aspirantes.${columna}`, columnas.some((c) => c.column_name === columna));
@@ -171,7 +183,8 @@ const funciones = await consultar(
     "where n.nspname = 'public' and p.proname in " +
     "('is_admin', 'handle_new_user', 'link_pending_aspirante', 'proteger_modulo_critico', " +
     "'proteger_ultimo_admin', 'set_updated_at', 'apply_aspirante_auth_fields', " +
-    "'turno_de_bloque', 'dia_legible', 'exigir_agenda_libre', 'nombre_para_mostrar');",
+    "'turno_de_bloque', 'dia_legible', 'exigir_agenda_libre', 'nombre_para_mostrar', " +
+    "'validar_planilla', 'validar_planilla_guardada');",
 );
 const nombresFunciones = funciones.map((f) => f.proname);
 for (const fn of [
@@ -185,6 +198,11 @@ for (const fn of [
   'dia_legible',
   'exigir_agenda_libre',
   'nombre_para_mostrar',
+  // M4 (`202609240001`): valida la forma de `datos_planilla` contra el catálogo.
+  'validar_planilla',
+  // M4 (`202609240002`): el envoltorio que hace que la validación no se pueda
+  // esquivar escribiendo la columna por PostgREST con el token propio.
+  'validar_planilla_guardada',
 ]) {
   comprobar(`función public.${fn}()`, nombresFunciones.includes(fn));
 }
@@ -202,6 +220,9 @@ for (const trigger of [
   'system_settings_periodo_registrado',
   'teacher_duties_exigir_agenda',
   'schedule_slots_exigir_agenda',
+  // M4 (`202609240002`): la guardia de escritura de `aspirantes.datos_planilla`.
+  // Sin ella la validación era evitable en una petición HTTP (medido en la nube).
+  'aspirantes_validar_planilla',
 ]) {
   comprobar(`trigger ${trigger}`, nombresTriggers.includes(trigger));
 }

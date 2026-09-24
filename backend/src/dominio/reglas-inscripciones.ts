@@ -230,3 +230,35 @@ export function esRequiereReincorporacion(mensaje: string): boolean {
 export function esReincorporacionSinHistorial(mensaje: string): boolean {
   return /no existe una inscripci[oó]n previa del estudiante/i.test(mensaje);
 }
+
+/**
+ * ¿La planilla viene incompleta?
+ *
+ *   · «Faltan campos obligatorios en la planilla: estado, municipio, …»
+ *
+ * Es el `raise` de `public.validar_planilla()` (`202609240001`), que llega como
+ * `23514` —el mismo código que un `check` corriente— y que `traducirError`
+ * convierte en un `400 RESTRICCION_VIOLADA` con el mensaje genérico «Los datos no
+ * cumplen una regla del sistema».
+ *
+ * Ese mensaje genérico es el problema: **el texto de la base es el único sitio
+ * donde están los nombres de los campos que faltan**, y es justo lo que el
+ * aspirante necesita leer. Sin este predicado, la respuesta diría «algo no
+ * cumple una regla» y el usuario tendría que adivinar cuál de los trece campos
+ * obligatorios le falta.
+ *
+ * Se distingue por el texto porque es lo único que llega: cambiar el `errcode`
+ * habría exigido una migración nueva sobre una función ya aplicada, y una
+ * migración aplicada no se edita nunca. Misma técnica y mismo reparto que
+ * `esAcaparamientoDeMateria`.
+ *
+ * **El otro `raise` de `validar_planilla()` no necesita predicado propio.** El
+ * caso «la planilla no es un objeto JSON» es inalcanzable desde la API —Zod
+ * exige un objeto en el cuerpo de `PUT /api/v1/yo/planilla`— y sólo lo puede
+ * provocar un cliente que escriba la columna por PostgREST saltándose la ruta.
+ * Para ése, el `400 RESTRICCION_VIOLADA` genérico es suficiente: no hay ningún
+ * campo que nombrar porque el problema es la forma entera.
+ */
+export function esPlanillaIncompleta(mensaje: string): boolean {
+  return /faltan campos obligatorios en la planilla/i.test(mensaje);
+}

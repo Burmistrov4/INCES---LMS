@@ -45,7 +45,7 @@
     },
     {
       "name": "Inscripciones",
-      "description": "Módulo 4: cupos, cola FIFO y ofertas con vencimiento. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito."
+      "description": "Módulo 4: cupos, cola FIFO, ofertas con vencimiento y la planilla de inscripción. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura de cupos pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito. **La planilla es la excepción de visibilidad**: `GET /api/v1/inscripcion/campos` es pública —el formulario necesita saber qué preguntar antes de que exista una cuenta— y `PUT /api/v1/yo/planilla` exige sesión. La obligatoriedad de la planilla la impone un trigger en la base, no esta API."
     },
     {
       "name": "Archivos",
@@ -2192,6 +2192,137 @@
           "vencidas",
           "mensaje"
         ]
+      },
+      "CampoInscripcion": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "description": "Clave con la que el campo viaja dentro de la planilla (\"primer_nombre\"). Es la identidad del campo: renombrarlo es una migración de datos, no un cambio de etiqueta."
+          },
+          "etiqueta": {
+            "type": "string",
+            "description": "Texto que ve el aspirante. Cambiarla NO toca los datos ya guardados."
+          },
+          "grupo": {
+            "type": "string",
+            "description": "Agrupación visual (\"Datos personales\"). **No es un paso ni un índice**: el formulario agrupa por este valor y el orden de los grupos es el de aparición. Añadir un grupo es añadir filas, no tocar la pantalla."
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "texto",
+              "email",
+              "numero",
+              "fecha",
+              "seleccion",
+              "multiseleccion",
+              "booleano",
+              "tabla",
+              "rejilla"
+            ],
+            "description": "**No es cosmético**: decide el widget Y la forma del valor guardado. Un `numero` guarda un número, una `fecha` una cadena ISO, un `booleano` un booleano y una `multiseleccion` un arreglo. Enviar un tipo que no corresponda no lo detecta esta ruta —lo detecta quien lee la planilla—, así que el cliente debe respetarlo."
+          },
+          "obligatorio": {
+            "type": "boolean",
+            "description": "Espejo informativo de la regla de la base, para que el formulario marque el campo **antes** de enviarlo y no dependa de un viaje de ida y vuelta para saber qué le falta. La autoridad sigue siendo el trigger: esto no decide nada."
+          },
+          "orden": {
+            "type": "integer",
+            "description": "Orden **global**, no por grupo: el renderizador puede ordenar sin conocer la lista de grupos. El catálogo ya viene ordenado por este campo."
+          },
+          "opciones": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {},
+            "description": "Opciones del campo, transportadas **tal cual** desde la base. Su forma depende de `tipo` —lista cerrada para `seleccion`/`multiseleccion`, columnas para `tabla`, ítems para `rejilla`— y el backend no la interpreta, así que una forma nueva no exige tocarlo. `null` en los tipos que no tienen opciones."
+          },
+          "fuente": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Origen **dinámico** de las opciones, o `null` si están incrustadas en `opciones`. Hoy el único valor es `\"programas\"`: la oferta formativa cambia y no puede quedar congelada en el catálogo, así que la pantalla consulta esa fuente en vivo."
+          },
+          "condicion": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "campo": {
+                "type": "string"
+              },
+              "igual": {}
+            },
+            "required": [
+              "campo"
+            ],
+            "description": "Visibilidad condicional: el campo se muestra —y se exige— sólo cuando `condicion.campo` vale `condicion.igual`. `null` = siempre visible. Afecta a la presentación, no a la existencia del campo."
+          },
+          "ayuda": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Aclaración bajo el campo, o `null`."
+          }
+        },
+        "required": [
+          "codigo",
+          "etiqueta",
+          "grupo",
+          "tipo",
+          "obligatorio",
+          "orden",
+          "opciones",
+          "fuente",
+          "condicion",
+          "ayuda"
+        ]
+      },
+      "RespuestaCamposInscripcion": {
+        "type": "object",
+        "properties": {
+          "campos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CampoInscripcion"
+            },
+            "description": "El catálogo completo de campos activos, ya ordenado. Es lo que el cliente necesita para dibujar el formulario sin conocerlo de antemano."
+          }
+        },
+        "required": [
+          "campos"
+        ]
+      },
+      "RespuestaPlanilla": {
+        "type": "object",
+        "properties": {
+          "planilla": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "La planilla **tal como quedó guardada**, no un eco de lo enviado. `PUT` reemplaza el documento entero, así que esto es exactamente lo que devolvería una lectura posterior."
+          }
+        },
+        "required": [
+          "planilla"
+        ]
+      },
+      "CuerpoPlanilla": {
+        "type": "object",
+        "properties": {
+          "planilla": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "planilla"
+        ],
+        "additionalProperties": false
       },
       "Archivo": {
         "type": "object",
@@ -7357,6 +7488,113 @@
           },
           "403": {
             "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inscripcion/campos": {
+      "get": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Catálogo de campos de la planilla de inscripción",
+        "description": "Lo que hace que el formulario sea **conducido por datos**: el cliente lo lee y dibuja los campos, los grupos y la obligatoriedad con lo que recibe, sin conocerlos de antemano. **Público a propósito** — se necesita antes de tener cuenta, y son definiciones de campos, no respuestas de nadie. Sólo devuelve los campos activos, ya ordenados.",
+        "responses": {
+          "200": {
+            "description": "El catálogo de campos activos, ordenado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaCamposInscripcion"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/yo/planilla": {
+      "put": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Guarda la planilla de inscripción del llamante",
+        "description": "**`PUT` y no `PATCH`: reemplaza la planilla entera.** El cliente manda el documento completo, y no tiene que saber qué había antes para decidir qué borrar —la misma decisión que en el pensum—. El usuario sale de la sesión, nunca del cuerpo: no se puede escribir la planilla de otro porque no hay dónde decir «de quién». La planilla **no se valida aquí**: la exige el trigger `aspirantes_validar_planilla`, que llama a `validar_planilla()` en la base. Esta ruta sólo traduce su `23514` a `PLANILLA_INCOMPLETA` **nombrando los campos que faltan**, que es el único sitio donde ese mensaje se puede convertir en algo accionable.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoPlanilla"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "La planilla quedó guardada, tal como se almacenó.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaPlanilla"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La planilla viene vacía —reemplazaría el documento por nada—, o le faltan campos obligatorios del catálogo (PLANILLA_INCOMPLETA, con los nombres).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Todavía no hay ficha de aspirante que actualizar (SIN_FICHA_DE_ASPIRANTE). La ficha la crea la inscripción, no esta ruta.",
             "content": {
               "application/json": {
                 "schema": {

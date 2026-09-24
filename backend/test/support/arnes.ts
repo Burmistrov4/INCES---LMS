@@ -15,6 +15,7 @@ import type {
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
+  PuertaPlanilla,
   PuertaSecciones,
   Repositorios,
 } from '../../src/dominio/puertos.js';
@@ -34,6 +35,7 @@ import type {
   ArchivoMetadata,
   Anuncio,
   CambiosModulo,
+  CampoInscripcion,
   ClaseCuadrante,
   DetallePrograma,
   EntradaAcceso,
@@ -57,6 +59,7 @@ import type {
   ParametroSistema,
   Perfil,
   Periodo,
+  PlanillaInscripcion,
   Programa,
   PublicacionTarea,
   Rol,
@@ -627,6 +630,180 @@ export const INSCRIPCIONES_POR_DEFECTO: InscripcionFalsa[] = [
   { estudianteId: ID_ALUMNO, seccionId: ID_SECCION_SA, llegada: 1 },
 ];
 
+// --- planilla de inscripción (M4) -------------------------------------------
+
+/**
+ * Un campo del catálogo, con los valores por defecto del caso común.
+ *
+ * Existe para que las semillas de abajo se lean como una tabla y no como diez
+ * objetos de diez claves cada uno: lo que distingue a un campo de otro es el
+ * `tipo`, la obligatoriedad y las opciones, y son justo los tres que se escriben
+ * explícitos. Los cinco rellenos de aquí son los que valen para casi todo campo.
+ */
+function campoInscripcion(
+  campo: Pick<CampoInscripcion, 'codigo' | 'etiqueta' | 'grupo' | 'tipo' | 'orden'> &
+    Partial<CampoInscripcion>,
+): CampoInscripcion {
+  return {
+    obligatorio: false,
+    opciones: null,
+    fuente: null,
+    condicion: null,
+    ayuda: null,
+    ...campo,
+  };
+}
+
+/**
+ * El catálogo del arnés.
+ *
+ * **Cubre cinco de los nueve tipos a propósito** —`texto`, `seleccion`, `fecha`,
+ * `booleano` y `rejilla`—, porque el punto del formulario conducido por datos es
+ * que un `tipo` que la pantalla no sepa pintar sea un fallo, y una semilla de
+ * puros `texto` no ejercitaría ese camino. Los cuatro que faltan (`email`,
+ * `numero`, `multiseleccion`, `tabla`) se añaden desde la prueba que los
+ * necesita, con `camposInscripcion`: variar una fila es más honesto que fingir
+ * un catálogo de producción que aquí nadie lee.
+ *
+ * Los cuatro obligatorios están en el mismo grupo y en orden consecutivo para
+ * que la prueba de planilla incompleta pueda nombrarlos sin depender de qué
+ * campo se dejó fuera.
+ */
+export const CAMPOS_POR_DEFECTO: CampoInscripcion[] = [
+  campoInscripcion({
+    codigo: 'primer_nombre',
+    etiqueta: 'Primer nombre',
+    grupo: 'Datos personales',
+    tipo: 'texto',
+    orden: 10,
+    obligatorio: true,
+  }),
+  campoInscripcion({
+    codigo: 'primer_apellido',
+    etiqueta: 'Primer apellido',
+    grupo: 'Datos personales',
+    tipo: 'texto',
+    orden: 20,
+    obligatorio: true,
+  }),
+  campoInscripcion({
+    codigo: 'cedula',
+    etiqueta: 'Cédula de identidad',
+    grupo: 'Datos personales',
+    tipo: 'texto',
+    orden: 30,
+    obligatorio: true,
+    ayuda: 'Sin puntos ni guiones.',
+  }),
+  campoInscripcion({
+    codigo: 'nacionalidad',
+    etiqueta: 'Nacionalidad',
+    grupo: 'Datos personales',
+    tipo: 'seleccion',
+    orden: 40,
+    obligatorio: true,
+    opciones: {
+      opciones: [
+        { valor: 'V', etiqueta: 'Venezolano/a' },
+        { valor: 'E', etiqueta: 'Extranjero/a' },
+      ],
+    },
+  }),
+  campoInscripcion({
+    codigo: 'fecha_nacimiento',
+    etiqueta: 'Fecha de nacimiento',
+    grupo: 'Datos personales',
+    tipo: 'fecha',
+    orden: 50,
+  }),
+  campoInscripcion({
+    codigo: 'discapacidad',
+    etiqueta: '¿Tiene alguna diversidad funcional?',
+    grupo: 'Datos personales',
+    tipo: 'booleano',
+    orden: 60,
+  }),
+  campoInscripcion({
+    codigo: 'misiones',
+    etiqueta: 'Misiones a las que pertenece',
+    grupo: 'Programa',
+    tipo: 'rejilla',
+    orden: 70,
+    opciones: {
+      items: [
+        { valor: 'MISION_RIBAS', etiqueta: 'Misión Ribas' },
+        { valor: 'MISION_SUCRE', etiqueta: 'Misión Sucre' },
+      ],
+      multiple: true,
+    },
+  }),
+];
+
+/**
+ * La planilla con la que arranca el arnés: el alumno, vacía.
+ *
+ * Vacía y no rellena porque así la deja el trigger de alta (`datos_planilla`
+ * nace en `'{}'`), y **sólo el alumno**: el administrador y el docente no están
+ * en el mapa, que es exactamente lo que la ruta necesita para devolver un 404
+ * `SIN_FICHA_DE_ASPIRANTE` sin que la prueba tenga que preparar nada.
+ */
+export const PLANILLAS_POR_DEFECTO: Record<string, PlanillaInscripcion> = {
+  [ID_ALUMNO]: {},
+};
+
+/**
+ * Copia las planillas sin compartir referencias.
+ *
+ * Igual que con el pensum: un objeto anidado compartido entre el valor por
+ * defecto y el estado haría que una prueba que guarda una planilla contaminara
+ * la siguiente, y el arnés pasaría a depender del orden de ejecución.
+ */
+function clonarPlanillas(
+  origen: Record<string, PlanillaInscripcion>,
+): Record<string, PlanillaInscripcion> {
+  const copia: Record<string, PlanillaInscripcion> = {};
+  for (const [usuarioId, planilla] of Object.entries(origen)) {
+    copia[usuarioId] = { ...planilla };
+  }
+  return copia;
+}
+
+/**
+ * Copia el catálogo campo a campo, **incluidas las partes anidadas**.
+ *
+ * Aquí no basta un `{ ...campo }`: `opciones` y `condicion` son objetos, y una
+ * prueba que añadiera una opción a un `seleccion` para comprobar que la pantalla
+ * la pinta estaría mutando la semilla compartida y contaminando las siguientes.
+ * Es la misma razón por la que el pensum se clona en profundidad.
+ */
+function clonarCampos(campos: CampoInscripcion[]): CampoInscripcion[] {
+  return campos.map((campo) => ({
+    ...campo,
+    opciones: campo.opciones ? JSON.parse(JSON.stringify(campo.opciones)) : null,
+    condicion: campo.condicion ? { ...campo.condicion } : null,
+  }));
+}
+
+/**
+ * ¿Está el valor ausente o vacío, según la regla de `validar_planilla()`?
+ *
+ * Se replica la regla **de la base** y no una inventada, porque el doble tiene
+ * que comportarse como aquello a lo que sustituye: si aquí se aceptara un `''`
+ * que la base rechaza, la prueba de la ruta pasaría y la ruta fallaría en
+ * producción. La equivalencia es literal con el `where` de la función: falta la
+ * clave, es `null`, es una cadena en blanco, un arreglo vacío o un objeto vacío.
+ */
+function valorDeCampoVacio(planilla: PlanillaInscripcion, codigo: string): boolean {
+  if (!(codigo in planilla)) return true;
+
+  const valor = planilla[codigo];
+  if (valor === null || valor === undefined) return true;
+  if (typeof valor === 'string') return valor.trim() === '';
+  if (Array.isArray(valor)) return valor.length === 0;
+  if (typeof valor === 'object') return Object.keys(valor).length === 0;
+  return false;
+}
+
 // --- datos de ejemplo de M5 -------------------------------------------------
 
 /**
@@ -844,6 +1021,30 @@ export interface EstadoFalso {
   secciones: SeccionFalsa[];
   inscripciones: InscripcionFalsa[];
 
+  // --- M4: planilla de inscripción ---
+  /**
+   * Las filas de `inscripcion_campos`.
+   *
+   * Es el catálogo que hace conducido por datos al formulario, y el doble lo
+   * guarda **entero y mutable** —no una proyección— para que una prueba pueda
+   * variar un solo campo (marcarlo obligatorio, desactivarlo, cambiarle el tipo)
+   * y comprobar que la pantalla o la ruta reaccionan. Un doble que devolviera
+   * siempre la misma lista fija no podría probar eso, que es justamente lo que
+   * distingue a este formulario de uno escrito a mano.
+   */
+  camposInscripcion: CampoInscripcion[];
+
+  /**
+   * Las planillas guardadas, por id de usuario.
+   *
+   * **La clave es el id del usuario y no el de la ficha**, porque lo que la ruta
+   * recibe es la sesión: un usuario sin entrada aquí no tiene fila en
+   * `aspirantes` y la escritura da 404 `SIN_FICHA_DE_ASPIRANTE`. Es lo que le
+   * pasa a quien se registró como docente, y por eso el mapa y no una sola
+   * planilla: la ausencia de clave *es* el caso a probar.
+   */
+  planillas: Record<string, PlanillaInscripcion>;
+
   // --- M5 ---
   /**
    * Las filas de `files_metadata`.
@@ -939,6 +1140,16 @@ export interface OpcionesArnés {
   clases?: ClaseFalsa[];
   secciones?: SeccionFalsa[];
   inscripciones?: InscripcionFalsa[];
+  /** Catálogo de campos de la planilla. Por defecto, `CAMPOS_POR_DEFECTO`. */
+  camposInscripcion?: CampoInscripcion[];
+  /**
+   * Planillas iniciales por id de usuario.
+   *
+   * Por defecto sólo el alumno tiene ficha —con la planilla vacía, como la deja
+   * el trigger de alta—, y esa asimetría es la que permite probar el 404 sin
+   * inventar nada: el administrador no está en el mapa.
+   */
+  planillas?: Record<string, PlanillaInscripcion>;
   // --- M5 ---
   /** Filas de `files_metadata`. El bucket se siembra desde las `CONFIRMED`. */
   archivos?: ArchivoFalso[];
@@ -1128,6 +1339,8 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     clases: (opciones.clases ?? CLASES_POR_DEFECTO).map((clase) => ({ ...clase })),
     secciones: (opciones.secciones ?? SECCIONES_POR_DEFECTO).map((seccion) => ({ ...seccion })),
     inscripciones: (opciones.inscripciones ?? INSCRIPCIONES_POR_DEFECTO).map((i) => ({ ...i })),
+    camposInscripcion: clonarCampos(opciones.camposInscripcion ?? CAMPOS_POR_DEFECTO),
+    planillas: clonarPlanillas(opciones.planillas ?? PLANILLAS_POR_DEFECTO),
     archivos: (opciones.archivos ?? ARCHIVOS_POR_DEFECTO).map((a) => ({ ...a })),
     anuncios: (opciones.anuncios ?? ANUNCIOS_POR_DEFECTO).map((a) => ({ ...a })),
     tareas: (opciones.tareas ?? TAREAS_POR_DEFECTO).map((t) => ({ ...t })),
@@ -2473,6 +2686,64 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
+  /**
+   * El catálogo de campos y la planilla guardada.
+   *
+   * El doble reproduce **la regla de la base**, no una comodidad: la escritura
+   * exige los campos que el catálogo marca obligatorios y falla con
+   * `PLANILLA_INCOMPLETA` nombrando los que faltan, igual que la ruta traduce el
+   * `23514` de `validar_planilla()`. Si aquí se aceptara una planilla incompleta,
+   * la prueba de la ruta pasaría y la ruta fallaría en producción —el doble tiene
+   * que ser tan exigente como aquello a lo que sustituye, o la prueba no prueba.
+   */
+  const planilla: PuertaPlanilla = {
+    async campos() {
+      revisar('planilla.campos');
+
+      // **`estado.camposInscripcion` es el conjunto de campos ACTIVOS**: en el
+      // repositorio real el `where activo` y el `order by` los hace Postgres, así
+      // que aquí no hay un `activo` que filtrar —el tipo `CampoInscripcion` ni
+      // siquiera lo expone—. Se ordena igualmente para que una prueba que siembre
+      // la semilla en otro orden reciba lo mismo que en producción.
+      return [...estado.camposInscripcion].sort(
+        (a, b) => a.orden - b.orden || a.codigo.localeCompare(b.codigo),
+      );
+    },
+
+    async guardar(usuarioId, nueva) {
+      revisar('planilla.guardar');
+
+      // La ausencia de clave **es** la falta de ficha: el trigger de alta sólo
+      // crea la fila de `aspirantes` si el registro trae la identidad completa,
+      // así que un docente no la tiene.
+      if (!(usuarioId in estado.planillas)) {
+        throw new ErrorApi(
+          404,
+          'SIN_FICHA_DE_ASPIRANTE',
+          'Todavía no tienes una ficha de aspirante, así que no hay planilla que guardar. La ficha se crea al inscribirte.',
+          { contexto: 'guardar la planilla de inscripción' },
+        );
+      }
+
+      const faltan = estado.camposInscripcion
+        .filter((campo) => campo.obligatorio)
+        .filter((campo) => valorDeCampoVacio(nueva, campo.codigo))
+        .map((campo) => campo.codigo);
+
+      if (faltan.length > 0) {
+        throw new ErrorApi(
+          400,
+          'PLANILLA_INCOMPLETA',
+          `Faltan campos obligatorios en la planilla: ${faltan.join(', ')}.`,
+          { contexto: 'guardar la planilla de inscripción' },
+        );
+      }
+
+      estado.planillas[usuarioId] = { ...nueva };
+      return { ...estado.planillas[usuarioId] };
+    },
+  };
+
   /** Filtra y pagina la ocupación, con el mismo contrato que el repositorio real. */
   function listarOcupacionCon(
     opciones: { periodo?: string; programaId?: string; materiaId?: string; soloConCupo?: boolean; busqueda?: string; limite: number; desplazamiento: number },
@@ -3480,6 +3751,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     cuadrante,
     secciones,
     inscripciones,
+    planilla,
     archivos,
     aula,
   };

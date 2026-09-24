@@ -206,7 +206,21 @@ describe('documento OpenAPI generado (D6)', () => {
     }
   });
 
-  it('las sondas de salud son las únicas rutas públicas', () => {
+  it('sólo son públicas las rutas que tienen que serlo, y están todas declaradas', () => {
+    // Esta prueba es un **cerrojo, no un inventario**: cada vez que alguien quita
+    // el `security` de una ruta, la lista cambia y la prueba falla, obligando a
+    // que el cambio se vea en el `diff` junto a su justificación. El valor no está
+    // en que la lista sea exactamente ésta, sino en que **hacer pública una ruta
+    // sea una decisión explícita** y no un descuido.
+    //
+    // Las tres primeras se explican solas: las sondas de salud responden sin
+    // credenciales porque su consumidor es el orquestador, y `/openapi.json` lo
+    // leen los generadores de cliente. Las dos últimas son de alta y de
+    // inscripción, y comparten la misma razón: **hay que poder hacer algo antes
+    // de tener cuenta**. `activar` es el último paso de un registro que empieza
+    // sin sesión, y `campos` es lo que permite dibujar el formulario de
+    // inscripción —el que crea la cuenta— sin conocer los campos de antemano.
+    // Exigir token en cualquiera de las dos invertiría el orden.
     const documento = construirDocumentoOpenApi();
     const publicas: string[] = [];
     for (const [ruta, operaciones] of Object.entries(documento.paths ?? {})) {
@@ -216,7 +230,13 @@ describe('documento OpenAPI generado (D6)', () => {
       }
     }
     expect(publicas.sort()).toEqual(
-      ['get /openapi.json', 'get /salud', 'get /salud/profundo', 'post /api/v1/auth/activar'].sort(),
+      [
+        'get /api/v1/inscripcion/campos',
+        'get /openapi.json',
+        'get /salud',
+        'get /salud/profundo',
+        'post /api/v1/auth/activar',
+      ].sort(),
     );
   });
 
