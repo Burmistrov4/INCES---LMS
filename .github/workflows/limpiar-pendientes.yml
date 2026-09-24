@@ -1,0 +1,181 @@
+# El reloj de D9: el barrido de subidas abandonadas de M5.
+#
+# ── Por qué existe ───────────────────────────────────────────────────────────
+# Una URL prefirmada de `PUT` no puede imponer un tamaño máximo, y el ciclo de
+# M5 crea la fila `PENDING` **antes** de que el objeto exista. Si el cliente
+# sube y nunca confirma, quedan una fila `PENDING` para siempre y un objeto en
+# R2 que nadie reclama. Eso es D9.
+#
+# El barrido que lo limpia (`backend/scripts/limpiar-pendientes.mts`) existe
+# desde el 2026-09-19 y está verificado, pero **nadie lo pulsaba solo**. D9
+# quedó abierta «pendiente sólo del reloj», y `ESTADO_DEL_SISTEMA.md` nombraba
+# el bloqueante con todas las letras: *«el repo no tiene CI»*. Este flujo es ese
+# reloj.
+#
+# ── Por qué un cron en la nube y no una tarea de Windows ─────────────────────
+# `devops/README.md` §4.2 ya tenía la receta para el Programador de tareas, con
+# una pega que este proyecto sufre de verdad: *«la máquina no siempre está
+# encendida»*. Y el proyecto tiene **cortes eléctricos**. Una tarea local a las
+# 03:00 no se ejecuta si el equipo estaba apagado.
+#
+# Aquí el reloj vive en GitHub y **corre aunque el PC esté apagado**, que es
+# justo lo que hacía falta. El barrido es idempotente y el umbral es holgado
+# (24 h), así que una pasada perdida no deja nada a medias: la siguiente
+# recupera lo que falte.
+#
+# ── La puerta que se usa, y por qué ──────────────────────────────────────────
+# Se invoca **el script**, no `POST /api/v1/admin/archivos/limpiar`. No es un
+# detalle de gusto: la ruta exige un JWT de administrador, y un JWT de Supabase
+# **caduca en una hora**. Un cron tendría que guardar la contraseña de una
+# persona para pedir uno nuevo en cada ejecución, y esa contraseña no se puede
+# rotar sin romper la tarea. El script no pide sesión de nadie: le basta la
+# clave de servicio. El razonamiento completo está en `docs/CONFIGURACION_R2.md`
+# §3.7.
+#
+# ── ⚠ ESTO BORRA OBJETOS DE PRODUCCIÓN ───────────────────────────────────────
+# Sin la bandera `--confirmar` el script **no escribe nada** (su modo por
+# defecto es simulación). La bandera es lo que lo convierte en algo que borra.
+#
+# Por eso la asimetría es deliberada:
+#   · la ejecución **programada** barre (`--confirmar`) — es el reloj;
+#   · una ejecución **a mano** simula por defecto, y sólo borra si se pide.
+#
+# La receta original decía que una tarea así «se activa a mano y con el dueño
+# del sistema delante». Eso se cumple: **antes de la primera pasada real,
+# lánzalo a mano en simulación y lee lo que dice.**
+#
+# ── Estado mientras falten los secretos ──────────────────────────────────────
+# Este flujo necesita **seis secretos** (abajo, en el paso del barrido). Si no
+# están, el script sale con código 2 y el mensaje `FALTAN VARIABLES: …`. Es un
+# fallo **seguro**: sin credenciales no puede tocar nada. O sea que el flujo es
+# inerte hasta que se configuren, y no hay prisa por «desactivarlo».
+
+name: Barrido de pendientes (D9)
+
+on:
+  schedule:
+    # 03:17 en Venezuela (UTC-4) = 07:17 UTC. De madrugada, con el sitio quieto.
+    #
+    # El minuto es 17 y no 00 a propósito: GitHub avisa de que `schedule` se
+    # retrasa en las horas en punto, cuando la plataforma tiene más carga, y
+    # recomienda justo esto — elegir un minuto que no sea el cero.
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+    inputs:
+      barrido:
+        description: 'Qué mirar'
+        type: choice
+        default: pendientes
+        options:
+          - pendientes          # filas PENDING abandonadas (el barrido de D9)
+          - revisar-borrados    # filas DELETED con objeto residual
+          - huerfanos           # objetos del bucket sin fila (recorre el bucket)
+      escribir:
+        description: 'ESCRIBIR de verdad (borra objetos de R2). Sin marcar = simulación'
+        type: boolean
+        default: false
+
+# Dos barridos a la vez sobre el mismo bucket no aportan nada y complican la
+# lectura del registro. Se encolan en vez de solaparse.
+concurrency:
+  group: barrido-pendientes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  barrer:
+    name: Barrido de subidas abandonadas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      # Misma versión que `engines.node` del package.json, que es la que usa el
+      # proyecto en local.
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Las seis variables van al entorno del paso, no a un archivo: el runner
+      # es efímero y de un solo inquilino, pero escribir secretos en disco no
+      # hace falta y no se hace. El script las prefiere sobre `backend/.env`
+      # (que aquí no existe, y no pasa nada: desde el 2026-09-24 leerlo es
+      # opcional).
+      #
+      # Los NOMBRES de los secretos son exactamente los nombres de las
+      # variables; no hay traducción de por medio.
+      - name: Barrido
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+
+          QUE='${{ inputs.barrido }}'
+          ESCRIBIR='${{ inputs.escribir }}'
+
+          # La ejecución programada no trae `inputs`: ahí manda el reloj.
+          if [ '${{ github.event_name }}' = 'schedule' ]; then
+            QUE='pendientes'
+            ESCRIBIR='true'
+          fi
+          QUE="${QUE:-pendientes}"
+
+          ARGS=''
+          case "$QUE" in
+            pendientes)       ;;
+            revisar-borrados) ARGS='--revisar-borrados' ;;
+            huerfanos)        ARGS='--huerfanos' ;;
+            *) echo "Modo desconocido: $QUE"; exit 2 ;;
+          esac
+
+          if [ "$ESCRIBIR" = 'true' ]; then
+            ARGS="$ARGS --confirmar"
+          fi
+
+          echo "Modo    : $QUE"
+          echo "Escribe : $ESCRIBIR   (false = simulación, no borra nada)"
+          echo "Comando : node .../limpiar-pendientes.mts $ARGS"
+          echo
+
+          # `node` + el CLI de tsx, en vez de `npx`: `npx` puede intentar bajar
+          # tsx de la red y en un runner eso es un punto de fallo gratuito.
+          # Ya está instalado por `npm ci`.
+          #
+          # `--horas` y `--limite` NO se pasan a propósito: sus valores viven en
+          # `backend/src/dominio/almacenamiento.ts`, que es donde está la razón
+          # de que sean esos. Escribirlos aquí sería una segunda copia que algún
+          # día se quedaría corta — y la que se quedara corta borraría subidas
+          # en vuelo sin dar ningún error.
+          node node_modules/tsx/dist/cli.mjs scripts/limpiar-pendientes.mts $ARGS
+
+      - name: Resumen
+        if: always()
+        run: |
+          echo "### Barrido de pendientes (D9)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ '${{ github.event_name }}' = 'schedule' ]; then
+            echo "Ejecución **programada** — barre de verdad." >> "$GITHUB_STEP_SUMMARY"
+          elif [ '${{ inputs.escribir }}' = 'true' ]; then
+            echo "Ejecución **manual con escritura**." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Ejecución **manual en simulación** — no se borró nada." >> "$GITHUB_STEP_SUMMARY"
+          fi
