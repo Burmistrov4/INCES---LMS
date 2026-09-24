@@ -318,10 +318,30 @@ void main() {
       expect(porValor.visibleCon(const {'tipo': 'ALGO'}), isFalse);
     });
 
-    test('`igual: 1` cuenta como sí, para que una casilla marcada no la oculte', () {
-      final conUno = campo('detalle', condicion: const {'campo': 'dispara', 'igual': 1});
+    test('`1` y `true` son el mismo sí, en los dos lados de la comparación', () {
+      // El `igual` viene de un jsonb, así que puede llegar como `true` o como
+      // `1`; y el valor del formulario puede ser un `bool` o un `num`. Mirar sólo
+      // un lado —que fue el primer error de esta función— deja la pregunta de
+      // detalle invisible sin que nada falle, y eso se lee como «el catálogo no
+      // funciona» en vez de como una comparación mal escrita.
+      final catalogoUno = campo('detalle', condicion: const {'campo': 'dispara', 'igual': 1});
+      final catalogoBool = campo('detalle', condicion: const {'campo': 'dispara', 'igual': true});
 
-      expect(conUno.visibleCon(const {'dispara': true}), isTrue);
+      expect(catalogoUno.visibleCon(const {'dispara': true}), isTrue);
+      expect(catalogoUno.visibleCon(const {'dispara': 1}), isTrue);
+      expect(catalogoBool.visibleCon(const {'dispara': true}), isTrue);
+      expect(catalogoBool.visibleCon(const {'dispara': 1}), isTrue);
+    });
+
+    test('`0` y `false` son el mismo no, y un campo sin tocar no dispara nada', () {
+      final conCero = campo('detalle', condicion: const {'campo': 'dispara', 'igual': 0});
+
+      expect(conCero.visibleCon(const {'dispara': 0}), isTrue);
+      expect(conCero.visibleCon(const {'dispara': false}), isTrue);
+      // Un campo que el aspirante no ha tocado no está en el mapa: no ha dicho
+      // «no», así que no se presume.
+      expect(conCero.visibleCon(const {}), isFalse);
+      expect(conCero.visibleCon(const {'dispara': true}), isFalse);
     });
   });
 

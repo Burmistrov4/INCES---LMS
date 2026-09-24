@@ -145,12 +145,20 @@ class CondicionCampoInscripcion {
   bool seCumple(Map<String, dynamic> valores) {
     final actual = valores[campo];
 
-    // `true` y `1` se consideran el mismo sí a propósito. El catálogo guarda
-    // `igual` en jsonb y un `1` es una forma razonable de escribir «marcado»;
-    // tratarlos como distintos haría que la pregunta de detalle no apareciera
-    // nunca y el fallo se leería como «el catálogo no funciona».
-    if (igual == true) return actual == true || actual == 1;
-    if (igual == false) return actual == false || actual == 0;
+    // `true` y `1` se consideran el mismo sí, y `false` y `0` el mismo no. El
+    // catálogo guarda `igual` en jsonb, donde un `1` es una forma razonable de
+    // escribir «marcado»; tratarlos como distintos haría que la pregunta de
+    // detalle no apareciera nunca, y el fallo se leería como «el catálogo no
+    // funciona» en vez de como una comparación mal escrita.
+    //
+    // La comparación se hace en los DOS lados: da igual que el `1` venga del
+    // catálogo o del formulario. Mirar sólo un lado es el error que esta función
+    // ya tuvo una vez.
+    final esperaSi = igual == true || igual == 1;
+    if (esperaSi) return actual == true || actual == 1;
+
+    final esperaNo = igual == false || igual == 0;
+    if (esperaNo) return actual == false || actual == 0;
 
     return actual == igual;
   }
