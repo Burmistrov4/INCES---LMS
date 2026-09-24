@@ -101,18 +101,18 @@
 | **Módulo 5 (adaptador R2)** | `PuertaAlmacenamiento` sobre el SDK de S3: URLs prefirmadas y traducción de errores | ✅ **Completo**, verificado en vivo |
 | **Módulo 5 (rutas HTTP)** | Las 5 rutas de firma, confirmación y borrado (Capa 4) + el barrido de abandonadas como ruta de administración (2026-09-19) | ✅ **Completo** |
 | **Módulo 5 (frontend)** | Gestor documental (Capa 7) | ✅ **Construido y probado** (2026-09-19): el `GestorDocumentalPanel` orquesta los tres pasos —firmar, `PUT` directo a R2, confirmar— y está montado en el panel del docente (`teacherGuide`) y en el del aspirante (`taskSubmission`), con **19 pruebas de widget** propias. D16 (CORS) está resuelta, así que el navegador ya puede hablar con R2; **falta recorrer el ciclo una vez en un navegador real**, que es lo único que las pruebas de widget no pueden demostrar |
-| **Módulo 6 Aula Virtual (esquema)** | `m6_anuncios`, `m6_tareas`, `m6_entregas` + 8 RPC + RLS por columna | ✅ **Aplicado y verificado en local** (2026-09-22). ⚠️ `202609220001` y `202609220002` pendientes de aplicar a la nube |
+| **Módulo 6 Aula Virtual (esquema)** | `m6_anuncios`, `m6_tareas`, `m6_entregas` + 8 RPC + RLS por columna | ✅ **Aplicado y verificado en local** (2026-09-22) y **en la nube** (`202609220001` y `202609220002`, aplicadas el 2026-09-22) |
 | **Módulo 6 Aula Virtual (backend)** | Las 10 rutas del aula (tablón, trabajo, entregas, calificar, devolver, libro) con `exigirAula` | ✅ **Completo** |
 | **Módulo 6 Aula Virtual (frontend)** | Aula del alumno + **Centro de Mando del Docente**: `crear_anuncio_panel`, `crear_tarea_panel`, `libro_calificaciones_panel` | ✅ **Construido y probado** (2026-09-22): **10 pruebas de widget** nuevas, con dobles estrictos. El bucle docente→alumno es demostrable: publicar → sembrar entregas → entregar → calificar → devolver |
-| **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. ⚠️ Pendiente de aplicar a la nube |
+| **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. **Aplicado a la nube el 2026-09-22**; medido encendido el 2026-09-24 |
 | **Fase 7+** | M6 Asistencia, M7 Calificaciones, M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-22**
-(backend **540**, Flutter **456**, SQL **402**, esquema no re-ejecutable aquí);
-migraciones de M3 aplicadas y verificadas el **2026-09-17**, las dos de M4 y
-`202609210001` el **2026-09-18**. ⚠️ **Cuatro migraciones siguen sin aplicar a la
-nube** (`202609210002`, `202609220001`, `202609220002`, `202609220003`): hasta
-entonces los verificadores de nube darán un fallo (ver el aviso de abajo).
+(backend **540**, Flutter **456**, SQL **402**); migraciones de M3 aplicadas y
+verificadas el **2026-09-17**, las dos de M4 y `202609210001` el **2026-09-18**, y
+las **cuatro últimas** (`202609210002`, `202609220001`, `202609220002`,
+`202609220003`) el **2026-09-22**. **No queda ninguna migración pendiente en la
+nube**: el libro mayor tiene las 20 del repositorio.
 
 > **Cómo se midieron estas cifras:** con `node supabase/tests/medir-conteos.mjs`
 > (migraciones, OpenAPI y módulos sembrados) y con los corredores
@@ -129,10 +129,10 @@ entonces los verificadores de nube darán un fallo (ver el aviso de abajo).
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **402 / 402** aserciones en verde — **medido el 2026-09-22**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6 |
 | **Migraciones en el repositorio** | **20** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609220003_mod6_habilitar_modulo.sql` |
-| **Migraciones en la nube** | **16** registradas en `schema_migrations` (última medición fiable). ⚠️ **Faltan 4 por aplicar**: `202609210002`, `202609220001`, `202609220002` y `202609220003`. Hasta entonces la nube tiene `m5_archivos` y `m6_aula_virtual` apagados y **los verificadores de nube darán un fallo** (ver la nota de abajo) |
-| **Verificación independiente del esquema en la nube** | **99 / 99** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-18, antes de `202609210002`** |
-| **Libro mayor de migraciones (D10)** | 16 versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4 y M5 en la nube** | ✅ **Aplicadas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18) — **18 tablas** + **5 vistas**, con RLS activo en las 18 (ver §3) |
+| **Migraciones en la nube** | **20** registradas en `schema_migrations` — **las 20 del repositorio, ninguna pendiente**. Medido el 2026-09-24 con `contar-catalogo.mjs` |
+| **Verificación independiente del esquema en la nube** | **102 / 102** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-24**, ya con M5 y M6 aplicados. La cifra anterior (99/99) era del 2026-09-18 y **no cubría `202609210002`**, como su propia nota advertía |
+| **Libro mayor de migraciones (D10)** | **20** versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22) — **21 tablas** + **5 vistas**, con RLS activo en las 21 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -143,38 +143,56 @@ entonces los verificadores de nube darán un fallo (ver el aviso de abajo).
 | **Humo de integración del cuadrante (M3)** | **53 / 53** (`supabase/humo-cuadrante.mjs`), sin residuo — incluidos el mensaje real del trigger, la colisión cruzada y la RLS por rol |
 | **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
-| **Humo de extremo a extremo de la API contra la nube** | **25 / 25** (`backend/test-humo.mjs`) con la API real hablando con Supabase real. ⚠️ **No re-ejecutable en este entorno** (exige backend desplegado y credenciales). Incluye las aserciones de que **`m5_archivos` y `m6_aula_virtual` están encendidos** (⚠️ dará **23/25** hasta aplicar las 4 migraciones pendientes) |
+| **Humo de extremo a extremo de la API contra la nube** | **25 / 25** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — **re-ejecutado el 2026-09-24**. Se levanta el backend en local con `tsx` y el humo habla con la nube. Las dos aserciones que dependían de las migraciones pendientes —**`m5_archivos` y `m6_aula_virtual` encendidos**— **pasan**, así que la previsión de 23/25 ya no aplica |
 | Documento OpenAPI | OpenAPI 3.1.0 · **60 rutas · 68 operaciones · 108 esquemas** — **medido el 2026-09-22** con `medir-conteos.mjs`. Este documento decía 56/86 y estaba desviado: una versión anterior ya advertía de ese desfase y no se corrigió, que es exactamente la deriva que este script evita |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
-> **⚠️ Acción pendiente de una persona: aplicar 4 migraciones a la nube.**
-> El código está completo y verificado en local, pero las banderas viven en
-> PostgreSQL, así que **hasta que se apliquen a Supabase la nube sigue con
-> `m5_archivos` y `m6_aula_virtual` apagados**. Pendientes, en orden:
+> **✅ RESUELTO (2026-09-22 17:43–17:44): las 4 migraciones están aplicadas a la
+> nube.** Aquí vivía un aviso que pedía una acción humana —aplicar
+> `202609210002`, `202609220001`, `202609220002` y `202609220003`— y advertía de
+> que, hasta hacerlo, la nube tendría `m5_archivos` y `m6_aula_virtual` apagados
+> y los verificadores darían rojo. **Las cuatro se aplicaron el 2026-09-22** y el
+> libro mayor lo registra con su checksum. Se conserva la lista porque explica
+> qué hacía cada una y por qué el rojo era esperado y no una regresión:
 >
-> | # | Migración | Qué hace |
+> | # | Migración | Qué hacía |
 > | --- | --- | --- |
-> | 1 | `202609210002_mod5_habilitar_modulo.sql` | Enciende `m5_archivos` |
+> | 1 | `202609210002_mod5_habilitar_modulo.sql` | Encendía `m5_archivos` |
 > | 2 | `202609220001_mod6_aula_virtual.sql` | 3 tablas + 8 RPC + políticas (deja el módulo apagado) |
 > | 3 | `202609220002_mod6_fix_material_default.sql` | `CREATE OR REPLACE` de `m6_crear_tarea`: `p_puntos_maximos` por defecto `null` |
-> | 4 | `202609220003_mod6_habilitar_modulo.sql` | Enciende `m6_aula_virtual` |
+> | 4 | `202609220003_mod6_habilitar_modulo.sql` | Encendía `m6_aula_virtual` |
 >
-> Consecuencia visible mientras tanto: los verificadores que miden la nube
-> reportarán fallos, porque sus aserciones ya exigen los módulos encendidos.
+> **Medido el 2026-09-24, con tres señales independientes que coinciden:**
+> `schema_migrations` tiene **20** versiones —las 20 del repositorio—;
+> `system_modules` da **7 de 10 encendidos** (`m0`…`m5` y `m6_aula_virtual`); y
+> `m6_tareas`, `m6_anuncios` y `m6_entregas` existen y aceptan escritura.
 >
-> | Verificador | Qué fallará | Por qué no es un error del cambio |
-> | --- | --- | --- |
-> | `supabase/verificar-esquema.mjs` | «m0…m6 habilitados y m7…m8 apagados» | La aserción es correcta; lo que falta es la migración |
-> | `backend/test-humo.mjs` | «`m5_archivos` existe y está ENCENDIDO» y «`m6_aula_virtual` existe y está ENCENDIDO» → **23/25** | Igual: mide la nube, y la nube aún no las tiene |
+> **La lección, y es la misma que la del `flutter test` de unas líneas más abajo:
+> un aviso de «pendiente» envejece tan mal como una cifra, y en la dirección
+> peligrosa.** Este llevaba dos días pidiendo una acción ya hecha; quien lo leyera
+> y obedeciera habría reaplicado cuatro migraciones. La regla que ya está escrita
+> en `temas/lecciones.md` —«medir antes de afirmar»— vale igual para los avisos
+> que para los números: **una nota que dice «falta hacer X» hay que volver a
+> medirla, no volver a creerla.**
+
+> **✅ CORRECCIÓN (2026-09-24): los dos verificadores SÍ son ejecutables en este
+> entorno, y `test-humo.mjs` también.** El aviso anterior afirmaba que exigían
+> credenciales ausentes aquí. No es así: **`backend/.env` tiene
+> `SUPABASE_ACCESS_TOKEN`**, y lo único que faltaba era leerlo del archivo en vez
+> de esperarlo en el entorno. Los tres corrieron hoy:
 >
-> Se deja escrito porque un fallo rojo sin explicación se lee como una regresión, y
-> esto es lo contrario: es la comprobación funcionando. Aplicadas las migraciones,
-> los dos vuelven a verde sin tocar nada. **No los «arregles» bajando la aserción.**
+> ```bash
+> # los dos verificadores de esquema y catálogo, con el token del .env
+> SUPABASE_ACCESS_TOKEN="$(sed -n 's/^SUPABASE_ACCESS_TOKEN=//p' backend/.env | tr -d '\r')" \
+>   node supabase/verificar-esquema.mjs
+> ```
 >
-> Los dos verificadores además **no son ejecutables en este entorno**: exigen
-> `SUPABASE_ACCESS_TOKEN` y un backend desplegado. Quien los corra tiene que hacerlo
-> con credenciales reales.
+> Para `backend/test-humo.mjs` hace falta el backend escuchando, y eso **sí** es
+> local: se levanta con `tsx` y el humo habla con la nube. Dio **25/25**.
+>
+> Queda una precisión que no conviene perder: «no se puede en este entorno» es
+> una afirmación sobre el entorno, y esas caducan. Antes de repetirla, medirla.
 
 > **✅ CORRECCIÓN (2026-09-18, medida posterior el mismo día): `flutter test` SÍ se
 > puede ejecutar en este entorno.** El aviso anterior daba por imposible lo que sólo
@@ -215,14 +233,15 @@ entonces los verificadores de nube darán un fallo (ver el aviso de abajo).
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **dieciséis** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veinte** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**18 tablas** con RLS activo **en las 18**, **5 vistas** (`cursos` de D12, las
-tres del Módulo 3 y `v_ocupacion_secciones` de M4), **34 funciones**, **23
-triggers** y **37 políticas RLS**, más 9 módulos sembrados, **11 parámetros**, 1
+**21 tablas** con RLS activo **en las 21**, **5 vistas** (`cursos` de D12, las
+tres del Módulo 3 y `v_ocupacion_secciones` de M4), **48 funciones**, **27
+triggers** y **43 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
 lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
-`programs` como `CURSO_LIBRE`.
+`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-24** con
+`supabase/contar-catalogo.mjs`; la cifra anterior era de antes de M6.
 
 > **M5 ya está contado, no sumado.** Recontado el **2026-09-18** con
 > `supabase/contar-catalogo.mjs` **después** de aplicar `202609210001`, la
@@ -234,10 +253,10 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 > nuevas** (siguen 5). Nada se coló sin documentar.
 
 > **Estas cifras están medidas, no estimadas.** Salen de `supabase/verificar-esquema.mjs`
-> (**99/99**, recontado el 2026-09-18) y de `supabase/contar-catalogo.mjs` (recuento
-> directo al catálogo), ejecutados **después** de aplicar. Es la lección de D11: cuando
-> una migración se aplica, se vuelve a contar en vez de confiar en lo que decía el
-> documento.
+> (**102/102**, recontado el 2026-09-24, ya con M5 y M6 aplicados) y de
+> `supabase/contar-catalogo.mjs` (recuento directo al catálogo), ejecutados **después**
+> de aplicar. Es la lección de D11: cuando una migración se aplica, se vuelve a contar
+> en vez de confiar en lo que decía el documento.
 >
 > **Recontadas el 2026-09-18 tras M4**, y la aritmética cierra: **+1 vista**
 > (`v_ocupacion_secciones`), **+10 funciones** (los 2 helpers de cupo, las 6 RPC
@@ -406,6 +425,13 @@ queda en el historial ni se puede revisar en un diff.
 > No hay credenciales por defecto ni usuario semilla en el repositorio. La
 > contraseña la fijó el propio Lorenzo y sólo él la conoce: no está escrita en
 > ningún archivo del proyecto, ni debe estarlo.
+>
+> **El sembrado de datos no contradice esto** (`supabase/sembrar-datos.mjs`). Sus
+> cuentas son `@semilla.invalid` —`.invalid` es un TLD que la RFC 2606 reserva
+> para no existir nunca, así que no pueden recibir correo por accidente— y su
+> contraseña se **genera aleatoria en cada corrida y se imprime una sola vez**;
+> no se escribe en ningún archivo. Si hay que repetirla, `SEMILLA_PASSWORD=<clave>`
+> la fija; y `--limpiar --confirmar` borra las cuentas y todo lo sembrado.
 
 ### Cómo se aplicó, y por qué no con `supabase db push`
 
@@ -589,7 +615,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `teacher_invitations` | **Módulo 1** | Invitaciones de docentes por token (se guarda el hash) |
 | `auth_logs` | **Módulo 1** | Traza de acceso: IP, instante, `SUCCESS`/`FAILED` |
 | `academic_periods` | **M3** | Catálogo de lapsos. `sections.period_code` apunta aquí (R-12), así que `periodo_activo` ya no puede divergir en silencio |
-| `classrooms` | **M3** | Espacios del CFS: aulas, talleres **y zonas**. Una zona es una fila con `capacity = 0` (R-18). **Sin semilla a propósito** |
+| `classrooms` | **M3** | Espacios del CFS: aulas, talleres **y zonas**. Una zona es una fila con `capacity = 0` (R-18). La migración no siembra ninguna a propósito; las **dos aulas marcadas `[SEMILLA]`** que hay hoy las crea `sembrar-datos.mjs` y se borran con `--limpiar` |
 | `teacher_duties` | **M3** | Guardias de custodia: docente + espacio + día/bloque, con o sin clase. `turno` es derivado |
 | `schedule_slots` | **M3** | El cuadrante: sección + docente + aula + día/bloque. El lapso se deriva de la sección |
 | `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
@@ -1374,17 +1400,27 @@ cd supabase/tests && npm install && npm test
 cd backend
 npm run typecheck
 npm run lint
-npm test              # 478 pruebas, incluidas las del módulo R2, las de OpenAPI y las de M3, M4 y M5
+npm test
 npm run build
 
 # --- Contra la infraestructura REAL (lo que no ve ninguna prueba anterior) ---
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/verificar-esquema.mjs   # 99 comprobaciones
-SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs    # aplicar migraciones
-node supabase/crear-admin.mjs correo@dominio.com                    # primer admin
-node backend/test-humo.mjs                                          # 24 comprobaciones
-node supabase/humo-invitaciones.mjs                                 # 17 comprobaciones (--confirmar escribe)
-node supabase/humo-cuadrante.mjs --confirmar                        # 53 comprobaciones (escribe y purga)
-node supabase/humo-archivos.mjs --confirmar                         # 52 comprobaciones (exige el backend arriba y R2 con credenciales reales)
+# El token de la Management API vive en backend/.env: se lee de ahí en vez de
+# esperarlo exportado. Los dos verificadores de esquema/catálogo son de SOLO LECTURA.
+TOKEN="$(sed -n 's/^SUPABASE_ACCESS_TOKEN=//p' backend/.env | tr -d '\r')"
+SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/verificar-esquema.mjs   # 102 comprobaciones, 0 fallos (medido el 2026-09-24)
+SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/contar-catalogo.mjs     # recuento del catálogo, listo para pegar en §2
+SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/apply-migrations.mjs    # aplicar migraciones
+node supabase/crear-admin.mjs correo@dominio.com                     # primer admin
+node backend/test-humo.mjs                                           # 25 comprobaciones (exige el backend en 3001)
+node supabase/humo-invitaciones.mjs                                  # 17 comprobaciones (--confirmar escribe)
+node supabase/humo-cuadrante.mjs --confirmar                         # 53 comprobaciones (escribe y purga)
+node supabase/humo-archivos.mjs --confirmar                          # 52 comprobaciones (exige el backend arriba y R2 con credenciales reales)
+
+# --- Datos semilla persistentes de M4 y M6 (simulación por defecto) ---
+node supabase/sembrar-datos.mjs                                      # simula; no escribe
+node supabase/sembrar-datos.mjs --confirmar                          # siembra (idempotente: repetirlo no duplica)
+node supabase/sembrar-datos.mjs --limpiar                            # simula la limpieza
+node supabase/sembrar-datos.mjs --limpiar --confirmar                # borra todo lo sembrado
 
 # --- Mantenimiento de R2 (simulación por defecto; --confirmar para escribir) ---
 npx tsx backend/scripts/probe-r2-cors.mts                           # exit 0 = hay CORS; exit 1 = el navegador lo bloquearía
@@ -1394,21 +1430,86 @@ npx tsx backend/scripts/limpiar-pendientes.mts --huerfanos          # objetos qu
 node supabase/eliminar-cuenta.mjs correo@dominio.com                # inventario; añade --confirmar para borrar
 ```
 
+> **Los totales de pruebas ya no se escriben a mano en este bloque, a propósito.**
+> Aquí decía «478 pruebas» cuando la tabla de §2 ya medía 540: el mismo número
+> escrito en dos sitios se desincroniza, y el que envejece es siempre el que nadie
+> volvió a ejecutar. **La tabla de §2 manda**, y sus cifras llevan fecha de
+> medición. Los tres números que sí siguen arriba (102, 25, y los de cada humo)
+> son los que se midieron el **2026-09-24** y sólo cambian si cambia el código que
+> los produce.
+
+### Datos semilla de M4 y M6 (`sembrar-datos.mjs`)
+
+El sistema no tenía con qué demostrarse: `subjects`, `classrooms`, `sections`,
+`enrollments` y `schedule_slots` estaban a **cero**, y los cinco programas que
+existían eran todos `CURSO_LIBRE` — **ninguna `CARRERA`**, que es la única que
+exige pensum (Regla 1 de M2). **`supabase/sembrar-datos.mjs` deja la jerarquía
+mínima para que M4 y M6 tengan algo real que mostrar**, sin pasar por la interfaz.
+
+| Qué siembra | Cuánto |
+| --- | --- |
+| `programs` | 1 **CARRERA** (`SEM-AS-01`), activa |
+| `subjects` + `program_subjects` | 3 materias y su pensum |
+| `classrooms` | 2 aulas, marcadas `[SEMILLA]` |
+| `sections` | 1 sección abierta en el lapso vigente |
+| `profiles` | 1 docente + 3 estudiantes (cuentas de Auth reales) |
+| `enrollments` | 3 matrículas `ENROLLED` |
+| `schedule_slots` | 2 clases del docente en esa sección |
+| `m6_anuncios` / `m6_tareas` | 1 anuncio `PUBLICADO` y 1 tarea `BORRADOR` |
+
+**El cuadrante no es un extra.** M6 no pregunta «¿eres docente?» sino «¿dictas
+ESTA sección?», y eso sale de `m6_dicta_seccion()`, que lee `schedule_slots`. Sin
+una clase en el cuadrante, el Centro de Mando del Docente responde
+`SIN_PERMISO_EN_EL_AULA` aunque el docente y la sección existan. Un sembrado sin
+cuadrante no está a medias: parece roto.
+
+**Por qué la tarea va en `BORRADOR` y el anuncio en `PUBLICADO`.** La regla es
+«¿insertar así deriva otras filas que no voy a crear?». Un anuncio no deriva nada
+—publicar es sólo cambiar su estado—, así que puede sembrarse publicado. Una tarea
+publicada **sí** deriva: el RPC de publicación crea una entrega `ASIGNADA` por cada
+matrícula. Insertarla publicada a mano dejaría una tarea visible **sin entregas**,
+y el libro del docente se vería vacío en una tarea que figura como publicada. En
+`BORRADOR` es coherente, y el docente la publica desde el aula.
+
+**Lo que se inventa, dicho en voz alta.** Las migraciones se niegan a sembrar aulas
+y fechas de lapso porque sería fabricar dato institucional (`202609180001`). Este
+script **sí** inventa aulas, materias y el nombre de la carrera, porque es lo que
+se le pidió. Para que no se confunda con el real: los códigos llevan el prefijo
+`SEM-`, las aulas el sufijo `[SEMILLA]`, los correos son `@semilla.invalid` (TLD
+que la RFC 2606 reserva para no existir), y **no se inventan cédulas**:
+`profiles.cedula` queda en `NULL` a propósito. Todo lo inventado vive en un único
+bloque `SEMILLA` al principio del archivo.
+
+**Deshacerlo es una línea**, probada en ciclo completo —sembrar, limpiar,
+comprobar que la base volvió a su estado inicial, y volver a sembrar—:
+
+```bash
+node supabase/sembrar-datos.mjs --limpiar --confirmar
+```
+
+La purga va **por marcador**, no por id recordado, así que una corrida que muera a
+mitad no deja residuo que nadie sepa borrar. El orden de borrado respeta las FK
+`on delete restrict` y **la simetría de la Regla 1 de M2**: al sembrar, el programa
+se activa *después* de cargarle el pensum; al limpiar, se desactiva *antes* de
+vaciárselo. Si no, el trigger aborta el borrado del pensum — la primera limpieza
+real murió exactamente ahí.
+
 ### Las redes de seguridad, y qué cubre cada una
 
 | Red | Qué demuestra | Qué NO puede ver |
 | --- | --- | --- |
-| `flutter test` (365) | La lógica del cliente, **incluido el ciclo de tres pasos de M5** (16 pruebas del gateway con `http.Client` doblado + 12 del repositorio) | El SQL, la API, la red, **y el navegador**: que R2 acepte la firma o que el preflight de CORS pase no se prueba aquí |
-| `supabase/tests` (271) | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
-| `npm test` (478) | La API completa sobre dobles en memoria | La base real, las credenciales |
-| `verificar-esquema.mjs` (99) | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
-| `test-humo.mjs` (24) | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
+| `flutter test` | La lógica del cliente, **incluido el ciclo de tres pasos de M5** (16 pruebas del gateway con `http.Client` doblado + 12 del repositorio) | El SQL, la API, la red, **y el navegador**: que R2 acepte la firma o que el preflight de CORS pase no se prueba aquí |
+| `supabase/tests` | Las migraciones sobre PostgreSQL real: RLS y triggers | La API, el despliegue |
+| `npm test` | La API completa sobre dobles en memoria | La base real, las credenciales |
+| `verificar-esquema.mjs` | Que el esquema **desplegado** es el esperado | El comportamiento de la API |
+| `test-humo.mjs` | La cadena entera: API → GoTrue → Postgres, en la nube | Casos que no se le ocurran a nadie |
 | `humo-invitaciones.mjs` (17) | RLS con JWT reales y el ciclo invitar → activar | La pantalla de activación en un navegador |
 | `humo-cuadrante.mjs` (53) | El mensaje REAL del trigger, la colisión que cruza dos tablas y la RLS de las vistas por rol | El frontend de M3 |
 | `humo-archivos.mjs` (52) | Que **R2 acepte la firma**, que el `Content-Type` esté firmado (un `PUT` que miente se rechaza), el aislamiento A/B con RLS real, y que el límite de tamaño se lea en cada petición y la caché caduque | Que el objeto rechazado por tamaño se borrara de R2 (para firmar un `GET` la fila tendría que seguir `CONFIRMED`); eso lo fija el doble de almacén en `npm test` |
 | `probe-r2-cors.mts` | Que el **preflight** pase de verdad: un `OPTIONS` con `Origin` y `Access-Control-Request-Headers` reales, y las tres cabeceras de vuelta. Antes de D16 devolvía **403 sin ninguna**; ahora **204 con las tres**, y el script sale con `exit 0` | Que lo haga **un navegador** —la sonda pide el preflight a mano—, pero es lo más cerca que se puede estar sin uno, porque Node **no** aplica CORS |
 | `limpiar-pendientes.mts` | Que el barrido separe una subida abandonada de una **en vuelo** (filtra por `LastModified`), y que borre el objeto **antes** de la fila, para que un fallo deje la fila reencontrable | Nada automático: no tiene pruebas unitarias. Su verificación es la ejecución en simulación, y el camino de escritura se probó una vez con un objeto real y una fila retrocedida 48 h |
 | `eliminar-cuenta.mjs` | Que **se niegue a borrar la cuenta** si el borrado en R2 falla —probado forzando un fallo de firma: `exit 1` y las cuatro comprobaciones (`auth.users`, `profiles`, `files_metadata`, objeto) seguían intactas—, y que el inventario vea las claves ajenas a **`auth.users`**, no sólo las que apuntan a `profiles` | Que el usuario no tenga datos fuera del esquema; y no tiene pruebas, es un script de mantenimiento |
+| `sembrar-datos.mjs` | Que el sembrado sea **idempotente** —correrlo dos veces deja el mismo estado y no el doble de filas, medido en cuatro corridas seguidas— y que `--limpiar` **devuelva la base a su estado inicial**, comprobado contando antes y después. Y que lo sembrado **funcione**, no sólo exista: `m6_dicta_seccion()` responde `true` para el docente sembrado, el alumno ve el anuncio `PUBLICADO` y **no** ve la tarea en `BORRADOR` (**7/7** con sesiones reales) | Que el navegador lo pinte bien: la verificación habla con PostgREST y GoTrue, no con la interfaz. Tampoco recorre el flujo de negocio —crear, publicar, entregar, calificar—: eso es de los `humo-*` |
 
 > **`information_schema` miente por omisión, y un cero se lee como «no hay nada».**
 > El inventario de `eliminar-cuenta.mjs` preguntaba por las claves ajenas a

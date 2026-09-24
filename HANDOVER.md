@@ -1944,4 +1944,119 @@ subidos a `origin/main`.
 
 ---
 
+## 2026-09-24 (sesión 7) — datos semilla de M4 y M6, y tres afirmaciones que ya eran falsas
+
+Segundo frente de la hoja de ruta de Lorenzo, después del reloj de D9: **generar
+los datos semilla persistentes de M4 y M6 con un script `.mjs`**.
+
+### Se midió antes de escribir, y cambió el diseño
+
+La sonda de solo lectura contra la nube dijo esto, y no era lo que yo suponía:
+
+| Tabla | Antes |
+|---|---|
+| `subjects`, `classrooms`, `sections`, `enrollments`, `schedule_slots` | **0** — todo era genuinamente nuevo |
+| `programs` | **5**, y **los cinco `CURSO_LIBRE`** — **ninguna `CARRERA`** |
+| `academic_periods` | 1: `SA26-2`, y ya era el `periodo_activo` |
+| `profiles` | 1: el admin |
+
+Dos consecuencias. La carrera hay que **crearla** (y una carrera no se puede
+activar sin pensum: Regla 1 de M2, constraint trigger diferido). Y el lapso **no
+se inventa**: se lee de `system_settings.periodo_activo`, que es exactamente lo que
+la Regla 2 compara por igualdad.
+
+### `supabase/sembrar-datos.mjs`
+
+1 carrera + 3 materias + pensum, 2 aulas, 1 sección abierta, 1 docente, 3
+estudiantes, 3 matrículas `ENROLLED`, **2 clases en el cuadrante** y contenido de
+M6 (1 anuncio `PUBLICADO`, 1 tarea `BORRADOR`). Modo simulación por defecto;
+escribir exige `--confirmar`; `--limpiar` lo deshace.
+
+**El cuadrante va dentro porque sin él el sembrado parece roto.** M6 pregunta
+«¿dictas ESTA sección?» vía `m6_dicta_seccion()`, que lee `schedule_slots`. Sin una
+clase en el cuadrante, el Centro de Mando del Docente responde
+`SIN_PERMISO_EN_EL_AULA` con el docente y la sección existiendo. Es la dependencia
+M6→M3 que `humo-aula.mjs` ya documentaba.
+
+**La tarea va en `BORRADOR` y el anuncio en `PUBLICADO`, y no es arbitrario.** La
+regla es «¿insertar así deriva filas que no voy a crear?». Un anuncio no deriva
+nada. Una tarea publicada sí: el RPC crea una entrega `ASIGNADA` por matrícula.
+Insertarla publicada a mano habría dejado una tarea visible **sin entregas**, es
+decir un estado inconsistente que se lee como un fallo del sistema cuando es del
+sembrado.
+
+### Tres defectos, y los tres los encontró EJECUTAR, no leer
+
+1. **El `upsert` no sirve para `enrollments`.** El trigger
+   `exigir_seccion_unica_por_materia` es `BEFORE INSERT` y corre **antes** de que
+   Postgres evalúe el `ON CONFLICT`. En la segunda corrida, el `INSERT` redundante
+   dispara el trigger, que encuentra la sección ya sembrada y aborta con `23514`.
+   La exclusión `e.id <> new.id` del trigger no salva: el id del `INSERT`
+   redundante es nuevo. Lo encontró la prueba de idempotencia, que para eso está.
+   Se arregló buscando antes de insertar.
+2. **La Regla 1 de M2 es simétrica.** Al sembrar, el programa se activa *después*
+   de cargarle el pensum; al limpiar, hay que desactivarlo *antes* de vaciárselo.
+   Si no, `programs_exigir_pensum` aborta el borrado del pensum. Lo encontró la
+   **primera limpieza real**: la simulación no podía verlo, porque un `DELETE`
+   simulado no dispara triggers.
+3. **`or=()` de PostgREST usa PUNTO, no igualdad.** `subject_id.in.(…)` dentro de
+   `or=(…)`; escribir `subject_id=in.(…)` da `PGRST100`. El mismo filtro válido
+   para un `and` implícito no lo es dentro del árbol lógico.
+
+### Verificación
+
+- **11/11** comprobaciones estáticas del propio script, contra la base.
+- **7/7 en vivo, con sesiones reales**: el alumno sembrado entra con la contraseña
+  impresa, **ve** el anuncio `PUBLICADO`, **no ve** la tarea en `BORRADOR`, ve su
+  matrícula, y **`m6_dicta_seccion()` responde `true`** para el docente sembrado.
+  Eso último es lo que un `INSERT` no demuestra.
+- **Ciclo completo probado dos veces**: sembrar → limpiar → comprobar que la base
+  volvió a su estado inicial (5 programas `CURSO_LIBRE`, todo lo demás a 0) →
+  volver a sembrar. La purga va **por marcador**, no por id recordado.
+- **Idempotencia**: cuatro corridas seguidas, la segunda y siguientes no-op
+  (`0 nueva(s), 0 corregida(s)`).
+
+### Tres afirmaciones del documento que ya eran falsas
+
+Al recontar apareció deriva, y en la dirección peligrosa: el documento pedía una
+acción humana **ya hecha**.
+
+| El documento decía | La medición dice |
+|---|---|
+| «**Faltan 4 migraciones por aplicar a la nube**» y «no los verifiques hasta entonces» | **Están las 20 aplicadas**, las cuatro últimas el 2026-09-22 17:43–17:44 (`schema_migrations`). `system_modules` da 7 de 10 encendidos y `m6_*` existe y acepta escritura: tres señales independientes |
+| «`verificar-esquema.mjs` no es ejecutable en este entorno» | **Sí lo es**: `.env` tiene `SUPABASE_ACCESS_TOKEN`. Dio **102/102**, 0 fallos |
+| «`test-humo.mjs` no es re-ejecutable» y «dará 23/25» | **Sí se puede**: se levanta el backend con `tsx` y el humo habla con la nube. Dio **25/25**, y las dos aserciones que se preveían rojas (`m5_archivos` y `m6_aula_virtual` encendidos) **pasan** |
+
+La lección es la misma que la del `flutter test` de la sesión 4, y merece repetirse
+porque volvió a pasar: **«no se puede en este entorno» es una afirmación sobre el
+entorno, y ésas caducan.** Una nota que dice «falta hacer X» hay que volver a
+medirla, no volver a creerla.
+
+### Deriva documental corregida
+
+`ESTADO_DEL_SISTEMA.md`: la fila de migraciones en la nube, la de verificación
+independiente, la del libro mayor, la de migraciones aplicadas, la de `test-humo`,
+la del módulo 6 (esquema y bandera), el párrafo de cierre de la iteración, el
+recuento de §2 (18 → **21 tablas**), la fila de `classrooms` («sin semilla a
+propósito» → las dos `[SEMILLA]`), la nota de credenciales, y el bloque de recetas
+de §7 —donde además **se dejaron de escribir los totales de pruebas a mano**,
+porque decían 478 donde §2 medía 540, y un número escrito en dos sitios siempre
+envejece en el que nadie volvió a ejecutar. La tabla de §2 es la que manda.
+
+### Estado al cerrar
+
+| Suite | Resultado |
+|---|---|
+| `verificar-esquema.mjs` | ✅ **102/102** (medido hoy) |
+| `test-humo.mjs` (API → GoTrue → Postgres, nube real) | ✅ **25/25** (medido hoy) |
+| Migraciones en la nube | ✅ **20/20**, ninguna pendiente |
+| Datos semilla (11 estáticas + 7 en vivo) | ✅ verdes |
+| Backend (`npm run verify`) | ✅ 540/540 (sesión 6) |
+| Flutter en local (sandbox Windows) | ⛔ sigue sin poder correr — `ERROR_PIPE_BUSY`; el CI cubre |
+
+Commits de la sesión 7: `263706a` (el sembrado de M4 y M6) y el de esta corrección
+documental — subidos a `origin/main`.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
