@@ -59,7 +59,7 @@
  *
  * Códigos de salida: 0 correcto · 1 hubo errores · 2 faltan variables · 3 inesperado
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -76,8 +76,26 @@ import {
 } from '../src/dominio/almacenamiento.js';
 
 // --- cargar backend/.env manualmente (mismo patrón que las sondas de R2) ---
+//
+// La lectura del archivo es **opcional a propósito**: `backend/.env` es una
+// comodidad para el operador que corre esto en su máquina, no un requisito. En
+// CI —o en un contenedor, o en un `systemd`— las seis variables llegan
+// **inyectadas en el entorno** y el archivo no existe.
+//
+// Sin esta guarda el script moría con `ENOENT` **antes de leer una sola
+// variable**, porque `readFileSync` va en el nivel superior del módulo: no lo
+// cubre el `catch` de `principal()`. Medido el 2026-09-24 ejecutándolo en una
+// copia sin `.env` — el caso exacto de un runner de GitHub Actions.
+//
+// Las variables ya definidas en el entorno **ganan** sobre el archivo (ver la
+// guarda de abajo), así que inyectar credenciales no queda a merced de lo que
+// haya en disco.
 const AQUI = dirname(fileURLToPath(import.meta.url));
-for (const linea of readFileSync(resolve(AQUI, '..', '.env'), 'utf8').split('\n')) {
+const ARCHIVO_ENV = resolve(AQUI, '..', '.env');
+const contenidoEnv = existsSync(ARCHIVO_ENV)
+  ? readFileSync(ARCHIVO_ENV, 'utf8')
+  : '';
+for (const linea of contenidoEnv.split('\n')) {
   const t = linea.trim();
   if (!t || t.startsWith('#')) continue;
   const i = t.indexOf('=');
