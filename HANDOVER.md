@@ -2474,4 +2474,102 @@ estaba bien y el inventario no**.
 
 ---
 
+## Sesión 12 — Exportación hacia HACER: la nómina de una sección en CSV (2026-09-25)
+
+### Lo primero era cerrar lo anterior
+
+La sesión 11 dejó el trabajo **sólo en disco**. `269698d` se subió y **`Flutter CI` #20 lo
+verificó en verde**, así que la consolidación (la migración de la trampa condicional, el panel
+del catálogo, la auditoría) ya no vive en un solo equipo. La lección del `.git` dañado del
+2026-09-22 se cumple otra vez: **el commit local no es el respaldo, el push lo es.**
+
+### Lo construido: `202609250004` + la capa de cliente + el botón
+
+**La pregunta abierta se escribe, no se esconde.** No existe ninguna especificación de campos
+de HACER en el repositorio —la auditoría de M4 lo midió y la palabra «HACER» sólo aparece como
+comentario de consumidor futuro—, así que la vista **expone todo y no finge que esa respuesta
+llegó**: contexto académico (14 columnas) + identidad del aspirante (17) + los **29 campos de
+la planilla aplanados** + el `datos_planilla` crudo al final = **61 columnas**. La traducción
+con forma de HACER vive en **una sola capa de cliente** (`columnasExportacionHacer` +
+`csvDeExportacionHacer`), que es lo que cambia cuando la especificación llegue. Queda como
+**D17**, declarada en el estado: **preguntar, no programar**.
+
+- **`planilla_texto(jsonb, text)`**, `immutable` y **NO `security definer`** — y no puede
+  serlo: **no lee ninguna tabla**, así que no hay RLS que saltar, y marcarla `definer`
+  sugeriría lo contrario. Replica la semántica de «vacío» que ya tenía `validar_planilla()`
+  (ausente, `null`, cadena vacía, `[]`, `{}` → `NULL`; una lista se une con `" | "`).
+- **`v_exportacion_hacer` es `security_invoker`**, como todas las del proyecto. **Y se probó
+  como rol real**, que es lo que la hace portante y no decorativa: el alumno matriculado ve
+  **su** fila, el de la cola ve **cero** y `anon` recibe **42501**.
+- **El botón va por tarjeta, no en la cabecera.** El panel no tiene selector de sección: pinta
+  una tarjeta por sección y **la tarjeta es el contexto**. Un botón global tendría que
+  preguntar «¿cuál?» en un diálogo, que es un paso de más para algo que la pantalla ya sabe.
+- **El estado de carga se libera en cuanto vuelve la consulta**, antes de descargar. Si se
+  liberara al final, un fallo del navegador dejaría el botón girando para siempre. Hay una
+  prueba que lo fija.
+- El CSV es **RFC 4180 con CRLF fijo** y **no «sanea» fórmulas**: en este catálogo hay
+  teléfonos que empiezan por `+` de verdad y prefijarlos con un apóstrofo corrompería el dato
+  para HACER. La cabecera está **declarada a mano**, no derivada de la primera fila: una
+  sección sin matriculados devuelve cero filas, y un CSV sin cabecera no le sirve a nadie.
+
+### Lo que CI encontró, que es lo que más vale de la sesión
+
+**El primer push salió rojo: 671 pasan, 2 fallan.** Y las dos que fallaban eran **pruebas
+preexistentes**, no las 33 nuevas. El aviso lo decía todo, y hasta ahora se perdía entre la
+salida:
+
+```
+Offset(564.0, 698.0) is outside the bounds of the root of the render tree, Size(800.0, 600.0)
+```
+
+El aviso nuevo que explica la exportación **empujó la tarjeta de la sección unos 100 px hacia
+abajo**, y a 800×600 —la ventana por defecto de `flutter test`— el botón «Promover siguiente»
+quedó **fuera del viewport**. `tap` sobre un widget fuera de pantalla **no acierta**: no lanza,
+sólo avisa, así que `promoverSiguiente` nunca se llamó y la prueba se cayó más adelante
+culpando a la pantalla («No hay nadie en la cola.» no encontrado). Es la trampa del `Stepper`
+en otra pantalla, y la lección es la misma: **«está en el árbol» no es «es pulsable».**
+
+Arreglo: **un solo ayudante `pulsar(tester, boton)`** que hace `ensureVisible` +
+`pumpAndSettle` + `tap`, con el porqué escrito en su documentación para que nadie lo «limpie»
+por parecer un paso de más. **Y una lección de método: el rojo señalaba a la pantalla, no al
+cambio que lo causó** — leer el aviso de «would not hit test» fue lo que evitó diagnosticar al
+revés.
+
+**`Flutter CI` #22 (`4dc56c8`) sale `success`.** El #21 informó «**671 tests passed, 2
+failed**», o sea **673 pruebas** en la suite; con las dos arregladas, pasan las 673.
+
+### Lo que se midió, y lo que no
+
+| Qué | Resultado |
+| --- | --- |
+| Validador SQL (PGlite) | **492 / 492** — ejecutado aquí. La sección 22 es nueva: **+24 aserciones** |
+| Analizador local | **0 errores / 0 avisos / 0 informativos** sobre **167** archivos |
+| `flutter test` | **673 / 673** — **medido en CI** (`Flutter CI` #22, `success`), **no aquí** |
+| Aplicar `202609250004` a la nube | **NO** — hace falta el PAT |
+| `verificar-esquema.mjs` contra la nube | **NO** — misma dependencia |
+
+### Lo que queda, y depende de una persona
+
+1. **El PAT** (`SUPABASE_ACCESS_TOKEN=sbp_…`) para `apply-migrations.mjs --check` y aplicar.
+2. Después: **`contar-catalogo.mjs`** para confirmar la predicción (**+1 vista, +1 función**:
+   migraciones 25 → 26, vistas 4 → 5, funciones 52 → 53, y **sin tocar** tablas, triggers ni
+   políticas — es una **predicción**, no una medición) y **`verificar-esquema.mjs`** contra la
+   nube, cuyas aserciones nuevas no se ejercen sin esto.
+3. La **sonda viva** de `v_exportacion_hacer` contra la base real.
+4. **El orden importa: la migración ANTES del despliegue del frontend.** Al revés, el botón
+   falla y el administrador lee el mensaje genérico de servidor, que **no dice que falta una
+   migración**. No se le añadió a `AppException` una rama para el error de objeto ausente
+   **a ojo**: el código exacto que devuelve PostgREST para una vista que no está en su caché
+   de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda
+   declarada, no un arreglo imaginado.
+
+### Herramienta nueva, fuera del repo
+
+`C:/tmp/ci-check/ci-check.mjs` — lee el resultado de una corrida de GitHub Actions por la
+**API pública** (no hay `gh` instalado). Imprime los jobs, sus pasos y las **anotaciones del
+check-run**, que es donde vienen los fallos con archivo y línea. Fue lo que permitió
+diagnosticar el rojo sin permisos de administración.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*

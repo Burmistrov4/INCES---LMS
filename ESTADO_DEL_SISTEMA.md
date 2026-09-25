@@ -18,7 +18,8 @@
 > **5 vistas escritas, 4 aplicadas**). La que falta es `202609250004` —la vista de
 > exportación hacia HACER—, escrita y **ejercida por el validador SQL contra
 > PostgreSQL real**, pendiente de aplicar porque este entorno **no tiene el PAT** de
-> la Management API. **El estado por módulo que manda es el de §2 y §6**;
+> la Management API. **CI está en verde** (`Flutter CI` #22 sobre `4dc56c8`,
+> **673 / 673**). **El estado por módulo que manda es el de §2 y §6**;
 > este encabezado es un resumen y puede ir por detrás — de hecho iba por detrás en la
 > fecha, que arrastraba el 2026-09-17.
 >
@@ -135,7 +136,7 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 167 archivos** (`lib/` + `test/`) con el servidor de análisis real: **0 errores, 0 avisos, 0 informativos** |
-| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `499af9c`** (`Flutter CI` #17, `success`). Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto. **Esta entrega añade 33 pruebas —27 puras de la exportación + 6 de widget del botón— que NO se ejecutaron aquí**: la cifra nueva la mide **CI en el push**, no este documento. Lo que sí se midió localmente es que **compilan sin un solo aviso** |
+| `flutter test` | **673 / 673** en verde — **medido en CI** (`Flutter CI` #22 sobre `4dc56c8`, `success`), **no aquí**: desde la shell del agente la suite **no arranca** (tuberías nombradas), así que **CI es el verificador**. El `#21` sobre `bc614bd` informó «**671 tests passed, 2 failed**» — o sea **673** pruebas — y las dos que fallaban eran **preexistentes**: el aviso nuevo que explica la exportación empujó la tarjeta de la sección por debajo del pliegue a 800×600 y el `tap` dejó de acertar (`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`: la trampa del `Stepper`, en otra pantalla). Se arregló con un ayudante `pulsar()` que hace `ensureVisible` antes de pulsar. **Antes:** 632 / 632 el 2026-09-25 en la terminal del usuario, y `Flutter CI` #20 sobre `269698d` en verde |
 | **Exportación hacia HACER (M4)** | 🟡 **Escrita y probada, sin aplicar.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real. **En la nube no existe todavía.** **El orden importa: primero la migración, después el despliegue del frontend** — al revés, el botón falla, y el mensaje que vería el administrador sería el genérico de «servidor», que **no dice que falta una migración**. `AppException` no distingue el error de objeto ausente, y **no se le añadió una rama a ojo**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
 | `npm run verify` (backend) | **562 / 562** en verde (**22** archivos) — **medido el 2026-09-25** (Fase 3 de D14), typecheck y lint incluidos |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
