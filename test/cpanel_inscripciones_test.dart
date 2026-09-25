@@ -40,6 +40,22 @@ Finder botonFilled(String texto) =>
 Finder botonOutlined(String texto) =>
     find.ancestor(of: find.text(texto), matching: find.bySubtype<OutlinedButton>());
 
+/// Pulsa un botón que puede estar **por debajo del pliegue**.
+///
+/// No es un adorno, y CI lo demostró: a 800×600 —la ventana por defecto de
+/// `flutter test`— la tarjeta de una sección cae fuera del viewport (cabecera +
+/// métricas + los dos avisos), y `tap` sobre un widget fuera de pantalla **no
+/// acierta**. Lo dice con un «would not hit test» que se pierde entre la salida
+/// —`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`— y luego la
+/// prueba se cae más adelante culpando a la pantalla. Es la trampa del `Stepper`
+/// en otra pantalla, y la lección es la misma: **«está en el árbol» no es «es
+/// pulsable»**.
+Future<void> pulsar(WidgetTester tester, Finder boton) async {
+  await tester.ensureVisible(boton);
+  await tester.pumpAndSettle();
+  await tester.tap(boton);
+}
+
 void main() {
   group('CpanelInscripcionesPanel (ocupación del admin)', () {
     testWidgets('ocupación vacía muestra el panel vacío', (tester) async {
@@ -88,9 +104,7 @@ void main() {
       final repo = AdminInscripcionesRepository(gateway: fake);
       await montarPanel(tester, CpanelInscripcionesPanel(repositorio: repo));
 
-      await tester.tap(
-        botonFilled('Promover siguiente').at(0),
-      );
+      await pulsar(tester, botonFilled('Promover siguiente').at(0));
       await tester.pump();
       await cerrarAvisos(tester);
 
@@ -106,9 +120,7 @@ void main() {
       final repo = AdminInscripcionesRepository(gateway: fake);
       await montarPanel(tester, CpanelInscripcionesPanel(repositorio: repo));
 
-      await tester.tap(
-        botonFilled('Promover siguiente'),
-      );
+      await pulsar(tester, botonFilled('Promover siguiente'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -197,20 +209,16 @@ void main() {
       return (exportacion, selector);
     }
 
-    /// El botón de exportación de la tarjeta [indice], listo para pulsar.
+    /// El botón de exportación de la tarjeta [indice], pulsado.
     ///
-    /// `ensureVisible` **no es un adorno**: la tarjeta queda por debajo del
-    /// pliegue a 800×600 (cabecera + métricas + los dos avisos), y un `tap`
-    /// sobre un widget fuera del viewport no acierta — avisa con un «would not
-    /// hit test» que se pierde entre la salida y luego la prueba se cae más
-    /// adelante culpando a la pantalla. Es la misma trampa del `Stepper`, en
-    /// otra pantalla.
+    /// Va por [pulsar] porque la tarjeta queda **por debajo del pliegue**; ahí
+    /// está el porqué. El `pumpAndSettle` final deja que la descarga y su aviso
+    /// terminen antes de que la prueba mire.
     Future<void> pulsarExportar(WidgetTester tester, {int indice = 0}) async {
-      final boton =
-          botonOutlined('Exportar Planilla HACER (.csv)').at(indice);
-      await tester.ensureVisible(boton);
-      await tester.pumpAndSettle();
-      await tester.tap(boton);
+      await pulsar(
+        tester,
+        botonOutlined('Exportar Planilla HACER (.csv)').at(indice),
+      );
       await tester.pumpAndSettle();
     }
 
