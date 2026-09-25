@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../core/gateways/selector_archivos.dart';
 import '../../core/result.dart';
-import '../../models/exportacion_hacer.dart';
 import '../../models/inscripcion.dart';
 import '../../repositories/exportacion_hacer_repository.dart';
 import '../../repositories/inscripcion_repository.dart';
-import '../../services/selector_archivos_navegador.dart';
+import '../../services/hacer_export_service.dart';
 import '../../theme/inces_theme.dart';
 import '../../widgets/comunes.dart';
 import 'cpanel_inscripciones_cola_dialog.dart';
@@ -58,10 +57,15 @@ class CpanelInscripcionesPanel extends StatefulWidget {
 class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
   late final AdminInscripcionesRepository _repo =
       widget.repositorio ?? AdminInscripcionesRepository();
-  late final ExportacionHacerRepository _exportacion =
-      widget.exportacion ?? ExportacionHacerRepository();
-  late final SelectorDeArchivos _selector =
-      widget.selector ?? SelectorDeArchivosDelNavegador();
+
+  /// La exportación completa —consultar, serializar y entregar— vive en el
+  /// servicio, no aquí. El panel sólo traduce su desenlace a un aviso: la
+  /// secuencia no debería estar mezclada con `setState`, y así se puede probar
+  /// sin montar una pantalla.
+  late final HacerExportService _exportacion = HacerExportService(
+    repositorio: widget.exportacion,
+    selector: widget.selector,
+  );
 
   List<OcupacionSeccion> _secciones = const [];
   bool _cargando = true;
@@ -155,63 +159,69 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
 
   /// Descarga la nómina de una sección como CSV, listo para HACER.
   ///
-  /// El estado de carga se libera **en cuanto vuelve la consulta**, antes de
-  /// descargar. Si se liberara al final, un fallo del navegador dejaría el botón
-  /// girando para siempre — el fallo que la convención del proyecto prohíbe en
-  /// todos los demás paneles.
+  /// **El panel no exporta: traduce un desenlace a un aviso.** Consultar la
+  /// vista, serializar el archivo y entregarlo son tres pasos que viven en
+  /// [HacerExportService]; aquí sólo se convierte su resultado en el mensaje que
+  /// el administrador lee. Antes esa secuencia estaba escrita dentro de este
+  /// método, mezclada con `setState`, y por eso no se podía probar sin montar la
+  /// pantalla entera.
+  ///
+  /// **Sobre el estado de carga.** Se libera al volver la exportación completa,
+  /// no sólo la consulta. La convención del proyecto —que el botón nunca quede
+  /// girando para siempre— se conserva por otra vía: `descargarTexto` **no hace
+  /// trabajo de red** (crea el `Blob`, pulsa el enlace y revoca la URL, todo
+  /// local) y su único modo de fallo es lanzar, que el servicio captura y
+  /// convierte en [DescargaFallida]. Lo que de verdad hace girar el botón es la
+  /// espera de la red, y esa sigue cubierta. **Si algún día el servicio gana un
+  /// paso que espere a algo externo —una subida, un diálogo—, la bandera tendrá
+  /// que liberarse antes de ese paso y no después.**
   Future<void> _exportar(OcupacionSeccion o) async {
     setState(() => _exportando.add(o.seccionId));
 
-    final resultado = await _exportacion.deSeccion(o.seccionId);
+    final resultado = await _exportacion.exportarSeccion(
+      seccionId: o.seccionId,
+      periodo: o.periodo,
+      seccion: o.nombre,
+      materia: o.materiaNombre,
+    );
+
     if (!mounted) return;
     setState(() => _exportando.remove(o.seccionId));
 
+    // `switch` sobre un `sealed`: si el servicio gana un desenlace nuevo, esto
+    // deja de compilar en vez de dejar caer el caso al vacío.
     switch (resultado) {
-      case Failure(error: final fallo):
-        mostrarAviso(context, fallo.message, error: true);
+      case ConsultaFallida(mensaje: final mensaje):
+        mostrarAviso(context, mensaje, error: true);
 
-      case Success(value: final exportacion):
-        // Una sección sin matriculados no es un error: es una sección recién
-        // abierta. Se dice con esas palabras en vez de descargar un archivo con
-        // sólo la cabecera, que el administrador leería como «se exportó bien».
-        if (exportacion.vacia) {
-          mostrarAviso(
-            context,
-            'La sección «${o.nombre}» no tiene matriculados todavía: no hay '
-            'nómina que exportar.',
-          );
-          return;
-        }
-
-        final nombre = nombreArchivoHacer(
-          periodo: o.periodo,
-          seccion: o.nombre,
-          materia: o.materiaNombre,
+      case DescargaFallida():
+        // No se muestra el `toString()` del error del navegador: al
+        // administrador no le dice nada y no puede hacer nada con él.
+        mostrarAviso(
+          context,
+          'No se pudo descargar el archivo. Inténtalo de nuevo.',
+          error: true,
         );
 
-        try {
-          await _selector.descargarTexto(
-            nombre: nombre,
-            contenido: exportacion.aCsv(),
-          );
-          if (!mounted) return;
-          mostrarAviso(
-            context,
-            'Nómina exportada: ${exportacion.total} matriculado(s) en '
-            '«$nombre».',
-            exito: true,
-          );
-        } catch (_) {
-          // El fallo de la descarga no se traga, pero tampoco se muestra el
-          // `toString()` del error del navegador: al administrador no le dice
-          // nada y no puede hacer nada con él.
-          if (!mounted) return;
-          mostrarAviso(
-            context,
-            'No se pudo descargar el archivo. Inténtalo de nuevo.',
-            error: true,
-          );
-        }
+      // Una sección sin matriculados no es un error: es una sección recién
+      // abierta. Se dice con esas palabras en vez de descargar un archivo con
+      // sólo la cabecera, que el administrador leería como «se exportó bien».
+      case NadaQueExportar(seccion: final seccion):
+        mostrarAviso(
+          context,
+          'La sección «$seccion» no tiene matriculados todavía: no hay '
+          'nómina que exportar.',
+        );
+
+      case NominaDescargada(
+          nombreArchivo: final nombre,
+          matriculados: final total,
+        ):
+        mostrarAviso(
+          context,
+          'Nómina exportada: $total matriculado(s) en «$nombre».',
+          exito: true,
+        );
     }
   }
 

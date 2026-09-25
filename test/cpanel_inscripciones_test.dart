@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -290,16 +292,31 @@ void main() {
       final csv = selector.ultimoTextoDescargado!;
       final lineas = csv.split('\r\n');
 
-      // Cabecera + una fila + el salto final: tres trozos. El CSV termina en
-      // CRLF y no en LF suelto, como manda la RFC 4180.
+      // Cabecera + una fila + el salto final: tres trozos. El archivo termina
+      // en CRLF y no en LF suelto, como exige el sistema receptor.
       expect(lineas.length, 3);
       expect(csv.endsWith('\r\n'), isTrue);
-      expect(lineas.first.split(',').length, columnasExportacionHacer.length);
-      expect(lineas.first, startsWith('inscripcion_id,seccion_id,lapso'));
 
-      // Y la fila lleva los datos del matriculado, no sólo la cabecera.
+      // Y **empieza por los tres bytes del BOM**. Sin ellos, Excel abre el
+      // archivo con la codificación del sistema y la Ñ de «ÑÚÑEZ» sale rota; el
+      // `charset` del `Content-Type` no basta, porque el archivo queda guardado
+      // en disco sin ese encabezado. Se comprueba sobre los BYTES, que es lo que
+      // el programa que lo abra va a ver.
+      expect(utf8.encode(csv).take(3).toList(), [0xEF, 0xBB, 0xBF]);
+
+      // Separador de punto y coma, como pide HACER.
+      expect(lineas.first.split(';').length, columnasExportacionHacer.length);
+      expect(
+        lineas.first,
+        startsWith('${marcaOrdenDeBytes}inscripcion_id;seccion_id;lapso'),
+      );
+
+      // Y la fila lleva los datos del matriculado, no sólo la cabecera: la
+      // cédula cruda, el documento derivado con su relleno de ceros, y el
+      // nombre en mayúsculas.
       expect(csv, contains('V-12345678'));
-      expect(csv, contains('Alumna1 Del'));
+      expect(csv, contains('V012345678'));
+      expect(csv, contains('ALUMNA1 DEL'));
 
       expect(
         find.textContaining('Nómina exportada: 1 matriculado(s)'),
