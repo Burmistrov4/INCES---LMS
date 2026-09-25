@@ -2572,4 +2572,65 @@ diagnosticar el rojo sin permisos de administración.
 
 ---
 
+## Sesión 13 — 2026-09-25 (segunda mitad): la vista de exportación queda aplicada y probada
+
+> **Esta sesión cierra el pendiente que la Sesión 12 dejó abierto.** Lo de arriba se
+> conserva tal como se escribió —es el registro de lo que se sabía entonces—, pero **hay dos
+> afirmaciones suyas que ya no valen**, y se corrigen aquí, no allí:
+> 1. «Falta el PAT y no está en el repositorio ni en el entorno» — **falso**. El PAT estaba en
+>    `backend/.env` (gitignoreado) desde antes. El obstáculo nunca fue un secreto ausente:
+>    fue **una búsqueda incompleta**. Ver la corrección de §7 en `ESTADO_DEL_SISTEMA.md`.
+> 2. «La migración está escrita y sin aplicar» — **ya no**. Está aplicada.
+
+### Lo que se hizo, en orden, con lo medido
+
+| Paso | Resultado |
+| --- | --- |
+| `apply-migrations.mjs --check` | **1 pendiente, 0 con deriva** |
+| `apply-migrations.mjs` | `202609250004 … aplicada` · libro mayor **26 versiones** · el `do $$` interno pasó |
+| `contar-catalogo.mjs` | **22 tablas · 5 vistas · 53 funciones · 29 triggers · 46 políticas** — la predicción de la Sesión 12, **al dígito** |
+| `verificar-esquema.mjs` | **sin fallos** (incluye las nueve aserciones nuevas de la vista) |
+| Sonda viva (`C:/tmp/sonda-exportar/`) | **18/18**, purga verificada: **0 restos** |
+
+**Repositorio y nube alineados: 26/26 migraciones, 0 pendientes, 0 con deriva.** El orden de
+despliegue de la Sesión 12 **sigue vigente** aunque la migración ya esté aplicada en el
+entorno de desarrollo: cualquier otro entorno destino necesita la migración antes que el
+frontend.
+
+### La sonda viva, y por qué no bastaba con que la vista existiera
+
+Se creó una sección y **tres usuarios temporales**, se entró con **JWT reales** por *password
+grant* y la vista se leyó **por PostgREST** —el camino del cliente Flutter, **no** con la
+`service_role`, que salta la RLS y habría aprobado cualquier cosa—. Medido: el admin ve **4**
+filas; el estudiante matriculado **1** (la suya); el ajeno **0**, también sin filtro; `anon`
+recibe **401 `42501 permission denied for view v_exportacion_hacer`**. Ese último dato importa:
+**a `anon` lo frena el `GRANT`, no una política devolviendo cero filas** — dos mecanismos
+distintos, y el mensaje los separa.
+
+### Herramientas nuevas, fuera del repo
+
+- `C:/tmp/ci-check/ci-check.mjs` — lee una corrida de GitHub Actions por la **API pública**
+  (no hay `gh` instalado): jobs, pasos y **anotaciones del check-run** con archivo y línea.
+- `C:/tmp/sonda-exportar/` — `introspeccion.mjs` (políticas, privilegios y `reloptions` de la
+  nube, de sólo lectura), `sonda-exportacion-hacer.mjs` (la sonda de RLS con JWT reales),
+  `verificar-purga.mjs` y `modulos.mjs` (banderas de `system_modules`).
+
+### Avisos de «pendiente» que ya no lo estaban
+
+Al corregir los documentos aparecieron **tres** afirmaciones falsas del mismo tipo, y las tres
+habrían provocado trabajo inútil: (1) el PAT «ausente»; (2) `202609210002_mod5_habilitar_modulo.sql`
+«sin aplicar» —medido: **`m5_archivos` figura ENCENDIDO**, 7 de 10 módulos—; (3) «mandar las
+credenciales de R2» —están en `backend/.env` desde antes—. Lo que queda de M5 **no es un
+trámite, es una prueba**: el ciclo real de subida y descarga **en un navegador**.
+
+### Lo que sigue abierto
+
+**D17 sigue abierta y no se cierra por haber aplicado la vista**: ya funciona, pero sigue sin
+saberse si es la forma que HACER espera → **preguntar, no programar**. Y siguen sin verificarse
+en navegador real: el ciclo de M5, el de M6 y **la descarga del CSV**. D9: faltan los **seis
+secretos** en GitHub. **Cinco credenciales pendientes de rotar** — y las cinco viven juntas en
+`backend/.env`: PAT, `service_role`, R2 (clave y secreto) y Resend.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*

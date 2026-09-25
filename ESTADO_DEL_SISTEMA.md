@@ -14,11 +14,12 @@
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
 > `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
 > nube el mismo día**, así que el repositorio y el proyecto ya no divergen **en eso**.
-> **El repositorio va por delante en una migración: 26 escritas, 25 aplicadas** (y
-> **5 vistas escritas, 4 aplicadas**). La que falta es `202609250004` —la vista de
-> exportación hacia HACER—, escrita y **ejercida por el validador SQL contra
-> PostgreSQL real**, pendiente de aplicar porque este entorno **no tiene el PAT** de
-> la Management API. **CI está en verde** (`Flutter CI` #22 sobre `4dc56c8`,
+> **El repositorio y la nube ya están alineados: 26 migraciones escritas, 26
+> aplicadas** (y **5 vistas escritas, 5 aplicadas**). `202609250004` —la vista de
+> exportación hacia HACER— quedó **aplicada el 2026-09-25**: el esquema se
+> reverificó contra la nube y una **sonda viva con JWT reales** (18/18) comprobó lo
+> que de verdad importaba —que un estudiante **no** pueda descargarse la nómina del
+> centro—. **CI está en verde** (`Flutter CI` #22 sobre `4dc56c8`,
 > **673 / 673**). **El estado por módulo que manda es el de §2 y §6**;
 > este encabezado es un resumen y puede ir por detrás — de hecho iba por detrás en la
 > fecha, que arrastraba el 2026-09-17.
@@ -137,21 +138,22 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | --- | --- |
 | `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 167 archivos** (`lib/` + `test/`) con el servidor de análisis real: **0 errores, 0 avisos, 0 informativos** |
 | `flutter test` | **673 / 673** en verde — **medido en CI** (`Flutter CI` #22 sobre `4dc56c8`, `success`), **no aquí**: desde la shell del agente la suite **no arranca** (tuberías nombradas), así que **CI es el verificador**. El `#21` sobre `bc614bd` informó «**671 tests passed, 2 failed**» — o sea **673** pruebas — y las dos que fallaban eran **preexistentes**: el aviso nuevo que explica la exportación empujó la tarjeta de la sección por debajo del pliegue a 800×600 y el `tap` dejó de acertar (`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`: la trampa del `Stepper`, en otra pantalla). Se arregló con un ayudante `pulsar()` que hace `ensureVisible` antes de pulsar. **Antes:** 632 / 632 el 2026-09-25 en la terminal del usuario, y `Flutter CI` #20 sobre `269698d` en verde |
-| **Exportación hacia HACER (M4)** | 🟡 **Escrita y probada, sin aplicar.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real. **En la nube no existe todavía.** **El orden importa: primero la migración, después el despliegue del frontend** — al revés, el botón falla, y el mensaje que vería el administrador sería el genérico de «servidor», que **no dice que falta una migración**. `AppException` no distingue el error de objeto ausente, y **no se le añadió una rama a ojo**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
+| **Exportación hacia HACER (M4)** | ✅ **Escrita, aplicada y sondeada en vivo.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real, y desde el **2026-09-25 están en la nube** (26/26 migraciones, esquema reverificado sin fallos). La **sonda viva** (`C:/tmp/sonda-exportar/`, fuera del repo) creó una sección y tres usuarios temporales, entró con **JWT reales** por *password grant* y midió la RLS de verdad: el admin ve **4** filas, el estudiante matriculado ve **1** (la suya), el ajeno ve **0**, y `anon` recibe **401 `42501 permission denied for view`** — bloqueado por el `GRANT`, no por una política. La purga dejó **0 restos**. **Sigue abierto D17**: la vista expone lo que se puede exponer sin especificación. **El orden de despliegue sigue importando** —primero la migración, después el frontend— porque `AppException` **no distingue el error de objeto ausente**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
 | `npm run verify` (backend) | **562 / 562** en verde (**22** archivos) — **medido el 2026-09-25** (Fase 3 de D14), typecheck y lint incluidos |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **492 / 492** aserciones en verde — **medido el 2026-09-25** (tras cerrar la trampa condicional **y añadir §22, la exportación hacia HACER**). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
 | **Migraciones en el repositorio** | **26** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250004_v_exportacion_hacer.sql` |
-| **Migraciones en la nube** | **25** registradas en `schema_migrations`. El 2026-09-25 se re-midió con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva — **entonces**. Hoy el repositorio tiene **26**, así que **hay 1 pendiente: `202609250004`**, sin aplicar porque este entorno **no tiene el PAT**. La cifra de la nube **no se re-midió en esta entrega**: se arrastra la del 2026-09-25 |
+| **Migraciones en la nube** | **26** registradas en `schema_migrations` — **recontadas el 2026-09-25, no arrastradas**. La secuencia medida: `apply-migrations.mjs --check` dijo **1 pendiente, 0 con deriva**; se aplicó `202609250004`; el libro mayor cerró en **26 versiones**. **Repositorio y nube coinciden: 0 pendientes, 0 con deriva** |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
-| **Libro mayor de migraciones (D10)** | **25** versiones aplicadas con checksum SHA-256 válido (la **26.ª** espera el PAT) |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases) y la regla de los campos condicionales** el 2026-09-25) — **22 tablas** + **4 vistas** aplicadas (**5 escritas**: `v_exportacion_hacer` espera el PAT), con RLS activo en las 22 (ver §3) |
+| **Libro mayor de migraciones (D10)** | **26** versiones aplicadas con checksum SHA-256 válido. **Ya no queda ninguna esperando** |
+| **Sonda viva de `v_exportacion_hacer`** | ✅ 2026-09-25: **18/18**. Sección y tres usuarios **temporales** (admin + dos estudiantes), **JWT reales** por *password grant*, y la vista leída **por PostgREST** —el camino del cliente Flutter, no la `service_role`, que saltaría la RLS y aprobaría cualquier cosa—. El admin ve **4** filas; el matriculado **1** (la suya); el ajeno **0**, también sin filtro; `anon` recibe **401 `42501`**. El `left join` a `aspirantes` conserva la fila sin ficha, y la planilla vacía sale `NULL` y **no** `"null"`. Purga verificada: **0 restos**. `C:/tmp/sonda-exportar/` (fuera del repo) |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25) — **22 tablas** + **5 vistas** aplicadas, con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
-| **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
+| **Migración de M5 en la nube** | ✅ **Las dos aplicadas.** `202609210001_mod5_archivos.sql` — `files_metadata` + 3 RPC `security definer` + 2 parámetros — y `202609210002_mod5_habilitar_modulo.sql`, que enciende la bandera. (Este renglón decía «pendiente de aplicar» de la segunda; el libro mayor de **26 versiones** lo desmiente: `verificar-esquema.mjs` da `m5_archivos` como habilitado.) |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
 | **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
 | **Frontera de escritura de M5, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `files_metadata` → **42501**; `anon` no ejecuta las RPC; el propietario ve sólo lo suyo y el admin lo ve todo |
@@ -250,26 +252,25 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veinticinco** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veintiséis** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**22 tablas** con RLS activo **en las 22**, **4 vistas** (las tres del Módulo 3 y
-`v_ocupacion_secciones` de M4), **52 funciones**, **29 triggers** y **46 políticas
-RLS**, más 10 módulos sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 5
-cursos — que desde la migración de D12 viven dentro de `programs` como
-`CURSO_LIBRE`. **Recontado el 2026-09-25** con `supabase/contar-catalogo.mjs`.
+**22 tablas** con RLS activo **en las 22**, **5 vistas** (las tres del Módulo 3,
+`v_ocupacion_secciones` de M4 y `v_exportacion_hacer`), **53 funciones**, **29
+triggers** y **46 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
+lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
+`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-25** con
+`supabase/contar-catalogo.mjs`, después de aplicar `202609250004`.
 
-> **`202609250004` está escrita y probada, pero NO aplicada.** La vista
-> `v_exportacion_hacer` —la nómina de una sección, para HACER— existe en el
-> repositorio y **la ejerce el validador SQL contra PostgreSQL real** (§22, 24
-> aserciones), así que su corrección no es una promesa. Lo que falta es el paso a la
-> nube: `apply-migrations.mjs` necesita un **PAT** (`SUPABASE_ACCESS_TOKEN=sbp_…`)
-> que **no está en el repositorio ni en este entorno**. La aritmética esperada al
-> aplicarla es **+1 vista y +1 función** (`planilla_texto`) — migraciones **25 → 26**,
-> vistas **4 → 5**, funciones **52 → 53** — y **sin tocar** tablas, triggers ni
-> políticas. **Es una predicción, no una medición**: hay que recontar con
-> `contar-catalogo.mjs` después de aplicar, que es exactamente el error que produjo
-> D11.
+> **`202609250004` quedó aplicada el 2026-09-25, y la predicción se cumplió al
+> dígito.** Antes de aplicarla se escribió aquí la aritmética esperada —**+1 vista y
+> +1 función** (`planilla_texto`), migraciones **25 → 26**, vistas **4 → 5**,
+> funciones **52 → 53**, y **sin tocar** tablas, triggers ni políticas— justamente
+> porque D11 nació de dar por buena una cifra sin recontarla. El recuento posterior
+> dio **26 · 22 · 5 · 53 · 29 · 46**: exactamente eso, ni un objeto de más. La vista
+> la ejerce el validador SQL contra PostgreSQL real (§22, 24 aserciones) **y** la
+> sondea en vivo `C:/tmp/sonda-exportar/` (18/18) con JWT reales. **El PAT no era el
+> obstáculo que este documento decía**: ver la corrección de §7.
 
 > **`202609250002` aplicada el 2026-09-25.** Cierra D12 del todo: retira la vista
 > `public.cursos` —el andamiaje de transición— y deja a `resolver_programa_inscripcion()`
@@ -551,6 +552,44 @@ queda en el historial ni se puede revisar en un diff.
 consola), así que se usa `SUPABASE_ACCESS_TOKEN`, que es la variable que el
 propio CLI acepta para entornos no interactivos.
 
+> **✅ CORRECCIÓN (2026-09-25): el PAT SÍ está en `backend/.env`.** Una sección
+> posterior de este documento afirmaba que `apply-migrations.mjs` «necesita un PAT
+> que **no está en el repositorio ni en este entorno**», y con esa frase se dejó una
+> migración sin aplicar. Lo medido: **`backend/.env` guarda `SUPABASE_ACCESS_TOKEN`**
+> (44 caracteres, prefijo `sbp_…`) desde antes, y `.gitignore` lo cubre con `.env` y
+> `.env.*` — así que **nunca estuvo en el repositorio, pero sí en disco**. Con él
+> corrieron hoy `apply-migrations.mjs --check` (1 pendiente, 0 con deriva), la
+> aplicación de `202609250004`, `contar-catalogo.mjs` y `verificar-esquema.mjs`.
+>
+> **Y no había que buscar en un archivo oculto: estaba documentado a la vista.** El
+> propio `backend/.env.example` —versionado, plantilla vacía, sin secretos— declara
+> `SUPABASE_ACCESS_TOKEN` con su explicación completa y nombra `apply-migrations.mjs`
+> entre los cuatro scripts que lo necesitan. Ese bloque entró en el repositorio el
+> **2026-09-13** (`364d32b`) y no se ha tocado desde entonces: llevaba **doce días**
+> diciendo dónde estaba el token cuando se escribió lo contrario. La afirmación falsa
+> no salió de un archivo mal mirado, sino de **no mirar el que lo decía**.
+>
+> **El obstáculo nunca fue un secreto ausente: fue una búsqueda incompleta.** Y lo
+> que lo hace peor es que **este mismo documento ya lo había corregido** — la nota
+> del 2026-09-24 unas líneas más arriba dice, literalmente, «`backend/.env` tiene
+> `SUPABASE_ACCESS_TOKEN`». Una sección posterior volvió a escribir lo contrario, y
+> de las dos versiones la que se creyó fue la nueva. **Una nota que dice «falta X»
+> hay que volver a medirla, no volver a creerla** — y eso vale para el documento
+> que contiene la nota, no sólo para el código.
+>
+> ```bash
+> # El token se lee del archivo en el momento de usarlo: no se copia a otro sitio,
+> # no se imprime, no entra en el repo.
+> SUPABASE_ACCESS_TOKEN="$(sed -n 's/^SUPABASE_ACCESS_TOKEN=//p' backend/.env | tr -d '\r')" \
+>   node supabase/apply-migrations.mjs --check
+> ```
+>
+> **Y `backend/.env` guarda más credenciales de las que este documento nombraba**:
+> además del PAT, contiene **`SUPABASE_SERVICE_ROLE_KEY`** —la clave que **salta la
+> RLS**—, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` y `RESEND_API_KEY`. Es el
+> material exacto que hay que tener presente al hablar de rotación de credenciales:
+> **están todas en un solo archivo gitignoreado**, y ninguna debe salir de ahí.
+
 ### Hallazgo: la conexión directa no es alcanzable desde esta red
 
 El host directo de la base de datos resuelve **sólo a IPv6**:
@@ -725,14 +764,16 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 ### Vistas
 
 > **`cursos` ya no está.** Fue la vista de compatibilidad de D12 hasta el
-> 2026-09-25; `202609250002` la retiró. Quedan **cuatro** vistas **en la nube**, todas
+> 2026-09-25; `202609250002` la retiró. Quedan **cinco** vistas **en la nube**, todas
 > de módulo y todas `security_invoker`. La RLS de la oferta formativa no se pierde con
 > ella: la aplicaba `programs` —la vista era `security_invoker` justo para eso—, y
 > sigue aplicándose.
 >
-> **La quinta está escrita y espera el PAT.** `v_exportacion_hacer`
-> (`202609250004`) es la vista de exportación hacia HACER; **en la nube todavía no
-> existe** (ver §2).
+> **La quinta llegó el 2026-09-25.** `v_exportacion_hacer` (`202609250004`) está
+> **aplicada** y sondeada en vivo: la RLS la atraviesa como debía, y un estudiante
+> con sesión **no** descarga la nómina del centro (ver §2; la sonda, con JWT reales, está en
+> `C:/tmp/sonda-exportar/`, fuera del repo — **no** es una sección del validador: el
+> validador corre contra PGlite y no alcanza la nube).
 
 | Vista | Origen | Propósito |
 | --- | --- | --- |
@@ -740,13 +781,15 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `v_cuadrante_guardias` | **M3** | Las guardias con su aula y su día legible. `security_invoker` |
 | `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
 | `v_ocupacion_secciones` | **M4** | Ocupación real de cada sección con su `cupo_efectivo`, `cupos_ocupados` y `oferta_vigente`. `security_invoker` |
-| `v_exportacion_hacer` | **M4** (`202609250004`) | Una fila por inscripción **`ENROLLED`** de una sección: contexto académico + identidad del aspirante + los **29 campos de la planilla aplanados** + el `datos_planilla` crudo al final (**61 columnas**). `security_invoker`. **Escrita, no aplicada** |
+| `v_exportacion_hacer` | **M4** (`202609250004`) | Una fila por inscripción **`ENROLLED`** de una sección: contexto académico + identidad del aspirante + los **29 campos de la planilla aplanados** + el `datos_planilla` crudo al final (**61 columnas**). `security_invoker`. **Aplicada el 2026-09-25** y sondeada en vivo |
 
 > **Las tres vistas de M3 llevan `security_invoker`, y no es un detalle.** Sin
 > él corren con los privilegios de su dueño y **se saltan la RLS de las tablas
 > base**: un estudiante vería el cuadrante de todo el centro, que es justo el
-> dato que las políticas existen para acotar. `verificar-esquema.mjs` comprueba
-> las cuatro de la nube y, desde `202609250004`, también la quinta.
+> dato que las políticas existen para acotar. `verificar-esquema.mjs` cubre las
+> **cinco** de la nube, y sobre `v_exportacion_hacer` comprueba además que exista,
+> que sea `relkind = v`, que lleve `security_invoker` y que declare nueve columnas
+> clave.
 
 ### Funciones y triggers
 
@@ -808,7 +851,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `schedule_slots` | El docente ve las suyas; el estudiante ve **las de su sección** (vía `enrollments`); `anon` no tiene `GRANT` | **Solo admin** |
 | `v_cuadrante_clases`, `v_cuadrante_guardias`, `v_periodo_vigente` *(vistas)* | Heredan la RLS de las tablas base gracias a `security_invoker` | — es una proyección |
 | `v_ocupacion_secciones` *(vista, M4)* | Autenticados (lectura). `anon` no tiene `GRANT` | — es una proyección. Cuenta **sólo `ENROLLED`** con funciones `definer` y expone la columna **`oferta_vigente`** (asiento comprometido). Una vista `invoker` que contara `enrollments` directo mostraría a cada alumno **sólo su propia fila** |
-| `v_exportacion_hacer` *(vista, M4, `202609250004`)* | Autenticados (lectura). `anon` no tiene `GRANT` — **`42501`, medido en §22** | — es una proyección. **Un alumno ve exactamente su fila** (hereda `enrollments_read_own` por ser `security_invoker`) y **el que está en la cola ve cero**, porque la vista filtra por `ENROLLED`. El nombre del docente se resuelve con `nombre_para_mostrar()` —**no** relajando `profiles_read_own`—, así que no expone cédula ni correo (R-14). **Escrita, no aplicada** |
+| `v_exportacion_hacer` *(vista, M4, `202609250004`)* | Autenticados (lectura). `anon` no tiene `GRANT`: recibe **401 `42501 permission denied for view v_exportacion_hacer`** — **medido en vivo el 2026-09-25**, y es el `GRANT` quien lo bloquea, no una política devolviendo cero filas | — es una proyección. **Medido con JWT reales** (sonda `C:/tmp/sonda-exportar/`, 18/18): el admin ve **4** filas, **un alumno ve exactamente la suya** (hereda `enrollments_read_own` por ser `security_invoker`) y **un alumno ajeno ve cero**, también sin filtro — no puede barrer el centro. El que está **en la cola** no aparece, porque la vista filtra por `ENROLLED`. El nombre del docente se resuelve con `nombre_para_mostrar()` —**no** relajando `profiles_read_own`—, así que no expone cédula ni correo (R-14). **Aplicada y sondeada** |
 
 > **«Sin política» no es lo mismo que «política que devuelve vacío».** Para un
 > estudiante, `teacher_duties` no tiene ninguna política: es la diferencia entre
@@ -1429,7 +1472,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ✅ **Resuelta del todo (2026-09-25)** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). El **cliente** ya manda el uuid y lee `programs` directamente (`80432c1`, Fase 2). Y `202609250002` **retira la tolerancia transitoria por nombre** —que existía para no romper a un cliente desplegado que nunca llegó a estarlo— y **borra la vista `cursos`**, con lo que cierra D12. Un valor que no es uuid sale **23503** |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 | **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
-| **D17** | **No existe la especificación de campos que espera HACER.** El MVP dice que el LMS **alimenta** a HACER, pero nadie ha escrito qué columnas, en qué orden y con qué formato las espera la plataforma del INCES | 🟡 **Abierta y declarada, no escondida.** `AUDITORIA_M4.md` lo midió: en el repositorio la palabra «HACER» **sólo aparece como comentario de consumidor futuro**. `202609250004` se escribió con esa pregunta **abierta en el encabezado de la migración**: expone contexto + identidad + la planilla aplanada + el `datos_planilla` crudo (**61 columnas**), y **no finge que la respuesta llegó**. La capa que cambia cuando la especificación llegue es **una sola**: `columnasExportacionHacer` + `csvDeExportacionHacer` en Dart, más el `select` de la vista. `datos_planilla` viaja al final justo para que **ningún campo sea irrecuperable** mientras tanto. **Qué falta**: preguntar a HACER — no programar |
+| **D17** | **No existe la especificación de campos que espera HACER.** El MVP dice que el LMS **alimenta** a HACER, pero nadie ha escrito qué columnas, en qué orden y con qué formato las espera la plataforma del INCES | 🟡 **Abierta y declarada, no escondida.** `AUDITORIA_M4.md` lo midió: en el repositorio la palabra «HACER» **sólo aparece como comentario de consumidor futuro**. `202609250004` se escribió con esa pregunta **abierta en el encabezado de la migración**: expone contexto + identidad + la planilla aplanada + el `datos_planilla` crudo (**61 columnas**), y **no finge que la respuesta llegó**. Está **aplicada y sondeada desde el 2026-09-25**, y eso **no cierra D17**: la vista ya funciona, pero sigue sin saberse si es la forma que HACER espera. La capa que cambia cuando la especificación llegue es **una sola**: `columnasExportacionHacer` + `csvDeExportacionHacer` en Dart, más el `select` de la vista. `datos_planilla` viaja al final justo para que **ningún campo sea irrecuperable** mientras tanto. **Qué falta**: preguntar a HACER — no programar |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1753,10 +1796,14 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    del fragmento. Es la mitad de interfaz que el humo no cubre.
 2. ~~Aplicar las dos migraciones de M2 a la nube~~ — **hecho** el 2026-09-15:
    el libro mayor marca 10/10 y la verificación independiente del esquema da 81/81.
-3. **Mandar las credenciales de Cloudflare R2** cuando quiera que las subidas
-   funcionen de verdad desde el navegador. El módulo está construido, probado **y
-   encendido en local**; lo único que falta para que lo esté también en la nube es
-   aplicar `202609210002_mod5_habilitar_modulo.sql`.
+3. **Verificar las subidas de R2 en un navegador real.** ~~Mandar las credenciales
+   de Cloudflare R2~~ y ~~aplicar `202609210002_mod5_habilitar_modulo.sql`~~:
+   **las dos cosas ya están hechas.** Las credenciales están en `backend/.env`
+   (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `R2_BUCKET`),
+   y la migración está aplicada —medido el 2026-09-25: **`m5_archivos` figura
+   ENCENDIDO** en `system_modules`, con **7 de 10** módulos encendidos—. Lo que
+   queda **no es un trámite, es una prueba**: el ciclo completo de subida y descarga
+   **en un navegador real**, que sigue sin verificarse.
 4. **Arrancar el frontend con puerto fijo** contra la nube:
 
    ```bash
