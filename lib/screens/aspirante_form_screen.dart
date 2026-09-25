@@ -1,91 +1,194 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 
 import '../core/errors/app_exception.dart';
 import '../models/aspirante_model.dart';
+import '../models/inscripcion_campo.dart';
 import '../models/registro_resultado.dart';
 import '../repositories/aspirante_repository.dart';
-import '../screens/registro_exitoso_screen.dart';
+import '../repositories/planilla_repository.dart';
 import '../services/auth_service.dart';
+import '../widgets/campos_planilla/campo_planilla.dart';
+import '../widgets/campos_planilla/estilos_campo.dart';
+import 'registro_exitoso_screen.dart';
 
+/// Los campos del representante legal, por su código del catálogo.
+///
+/// Se nombran aquí y **no** se deducen del grupo del catálogo («Representante
+/// legal») a propósito: el nombre de un grupo es texto que el CFS puede
+/// renombrar desde el panel, y el día que lo renombrara la regla de edad se
+/// caería en silencio, sin que nada avisara. El código de un campo, en cambio,
+/// es su identidad: renombrarlo es una migración de datos.
+///
+/// Que esta lista exista es deuda asumida, la misma que ya asume
+/// `sintetizarClavesPlanas` y que ya asumía `AuthService._validarPlanilla`.
+const List<String> _codigosDelRepresentante = [
+  'numero_identidad_tutor',
+  'nombre_tutor',
+  'parentesco_tutor',
+  'telefono_tutor',
+  'correo_tutor',
+];
+
+/// El formulario de inscripción, **conducido por el catálogo**.
+///
+/// La pantalla no conoce los campos. Los lee de `inscripcion_campos` a través de
+/// [PlanillaRepository] y los pinta: un paso por grupo del catálogo, en el orden
+/// que el catálogo declare. Añadir una pregunta al formulario es insertar una
+/// fila; reordenarlo es cambiar `orden`; añadir un paso es añadir un `grupo`.
+///
+/// Antes de esto la pantalla era lo contrario: 1137 líneas con cada campo
+/// escrito a mano, sus validaciones y sus cuatro pasos cableados. La planilla de
+/// papel tiene 44 campos y el formulario cubría 18, así que la distancia entre
+/// lo que el CFS pide y lo que el sistema pregunta sólo se podía cerrar
+/// desplegando código. Ahora se cierra con un `insert`.
+///
+/// **Lo que esta pantalla sigue sabiendo, y por qué.** El catálogo describe
+/// *qué* preguntar; no describe ni la contraseña (que no es un dato de la
+/// planilla, es la credencial de la cuenta), ni la regla de edad del
+/// representante legal (que es una condición sobre la edad, y la columna
+/// `condicion` del catálogo compara un campo contra otro). Esas dos cosas viven
+/// aquí, con el motivo escrito al lado.
 class AspiranteFormScreen extends StatefulWidget {
-  const AspiranteFormScreen({super.key});
+  const AspiranteFormScreen({
+    super.key,
+    this.planillaRepository,
+    this.aspiranteRepository,
+    this.authService,
+  });
+
+  /// Inyectables para las pruebas.
+  ///
+  /// Sin esto la pantalla instancia el gateway real, que va por HTTP, y ninguna
+  /// prueba podría montarla sin red. Es el mismo patrón que ya usan los paneles
+  /// del cPanel (`repositorio:`), y por el mismo motivo: un widget que sólo se
+  /// puede montar contra producción no se prueba.
+  final PlanillaRepository? planillaRepository;
+  final AspiranteRepository? aspiranteRepository;
+  final AuthService? authService;
 
   @override
   State<AspiranteFormScreen> createState() => _AspiranteFormScreenState();
 }
 
 class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
-  static const int _ultimoPaso = 3;
+  late final PlanillaRepository _planillaRepo;
+  late final AspiranteRepository _aspiranteRepo;
+  late final AuthService _authService;
+
+  /// La planilla en curso: código de campo → valor.
+  ///
+  /// **Una sola fuente de verdad.** Los campos bajan su valor por `valor` y lo
+  /// suben por `onCambio`; nadie guarda una copia. Por eso una pregunta que se
+  /// oculta y se vuelve a mostrar conserva lo que el aspirante había escrito: el
+  /// dato nunca vivió en el widget.
+  final PlanillaInscripcion _valores = {};
+
+  /// Errores por campo, para pintarlos **bajo el campo que falla**.
+  ///
+  /// Un `SnackBar` dice que algo falló; esto dice cuál. Con 44 campos, la
+  /// diferencia entre las dos cosas es la diferencia entre poder corregir y
+  /// tener que adivinar.
+  final Map<String, String> _errores = {};
+
+  /// Un `Form` por paso, y no uno solo para toda la pantalla.
+  ///
+  /// El `Stepper` deja en el árbol el contenido de **todos** los pasos a la vez
+  /// (sólo cambia cuál se ve). Con un `Form` único, `validate()` validaría
+  /// también los campos que el aspirante todavía no ha visto: un correo mal
+  /// escrito en el paso 4 bloquearía el «Continuar» del paso 1, y el error
+  /// estaría en una pantalla que no se está mirando. Acotado por paso, cada
+  /// validación mira exactamente lo que el aspirante tiene delante.
+  final Map<int, GlobalKey<FormState>> _clavesDePaso = {};
+
+  CatalogoInscripcion? _catalogo;
+  List<GrupoPlanilla> _grupos = const [];
 
   int _currentStep = 0;
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  final AspiranteRepository _aspiranteRepo = AspiranteRepository();
-  final AuthService _authService = AuthService();
+  bool _cargandoCatalogo = true;
 
-  late TextEditingController _nombresController;
-  late TextEditingController _apellidosController;
-  late TextEditingController _cedulaController;
-  late TextEditingController _telefonoController;
-  late TextEditingController _correoController;
-  late TextEditingController _domicilioController;
-  late TextEditingController _nivelEducativoController;
-  late TextEditingController _fechaNacimientoController;
-  late TextEditingController _numeroIdentidadTutorController;
-  late TextEditingController _nombreTutorController;
-  late TextEditingController _telefonoTutorController;
-  late TextEditingController _correoTutorController;
-  late TextEditingController _misionEstudianteController;
-  late TextEditingController _passwordController;
-  late TextEditingController _passwordConfirmController;
+  /// Por qué no se pudo leer el catálogo, si no se pudo.
+  ///
+  /// **No se degrada a un formulario vacío.** Un catálogo vacío y uno que no se
+  /// pudo leer pintan lo mismo —una pantalla sin campos—, y sólo el `Result` del
+  /// repositorio los distingue. Mostrar un formulario vacío ante un fallo de red
+  /// haría creer que la inscripción no tiene preguntas.
+  String? _errorCatalogo;
 
-  String _parentescoSeleccionado = '';
-  String _sexoSeleccionado = '';
-  String _tipoDiscapacidad = '';
-  String _cursoSeleccionado = '';
-  bool _tieneDiscapacidad = false;
-  bool _tieneMision = false;
-  bool _obscurePassword = true;
-  bool _obscureConfirm = true;
-
-  List<String> _cursosDisponibles = [];
-
-  /// Aviso no bloqueante cuando el catálogo de cursos vino de respaldo local.
+  bool _cargandoCursos = true;
+  List<String> _cursosDisponibles = const [];
   String? _avisoCursos;
 
-  /// Carga inicial del catálogo (distinta del envío del formulario).
-  bool _cargandoCursos = true;
-
-  /// Envío en curso. **No** debe reemplazar el formulario por un spinner:
-  /// eso hacía perder todo lo escrito si algo fallaba.
+  /// Envío en curso. **No** reemplaza el formulario por un spinner: eso hacía
+  /// perder todo lo escrito si algo fallaba.
   bool _enviando = false;
 
-  DateTime? _selectedFechaNacimiento;
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _passwordConfirmController =
+      TextEditingController();
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   @override
   void initState() {
     super.initState();
-    _nombresController = TextEditingController();
-    _apellidosController = TextEditingController();
-    _cedulaController = TextEditingController();
-    _telefonoController = TextEditingController();
-    _correoController = TextEditingController();
-    _domicilioController = TextEditingController();
-    _nivelEducativoController = TextEditingController();
-    _fechaNacimientoController = TextEditingController();
-    _numeroIdentidadTutorController = TextEditingController();
-    _nombreTutorController = TextEditingController();
-    _telefonoTutorController = TextEditingController();
-    _correoTutorController = TextEditingController();
-    _misionEstudianteController = TextEditingController();
-    _passwordController = TextEditingController();
-    _passwordConfirmController = TextEditingController();
-    _cargarDatosIniciales();
+    _planillaRepo = widget.planillaRepository ?? PlanillaRepository();
+    _aspiranteRepo = widget.aspiranteRepository ?? AspiranteRepository();
+    _authService = widget.authService ?? AuthService();
+    _cargarCatalogo();
+    _cargarCursos();
   }
 
-  Future<void> _cargarDatosIniciales() async {
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _passwordConfirmController.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Carga
+  // ---------------------------------------------------------------------------
+
+  Future<void> _cargarCatalogo() async {
+    setState(() {
+      _cargandoCatalogo = true;
+      _errorCatalogo = null;
+    });
+
+    final resultado = await _planillaRepo.obtenerCatalogo();
+    if (!mounted) return;
+
+    setState(() {
+      final catalogo = resultado.valueOrNull;
+
+      if (catalogo == null || catalogo.campos.isEmpty) {
+        _catalogo = null;
+        _grupos = const [];
+        _clavesDePaso.clear();
+        _errorCatalogo = catalogo == null
+            ? 'No pudimos cargar el formulario de inscripción. Revisa tu '
+                'conexión y vuelve a intentarlo.'
+            : 'El formulario de inscripción llegó vacío. Avisa al CFS: el '
+                'catálogo de campos no está publicado.';
+      } else {
+        _catalogo = catalogo;
+        _grupos = catalogo.grupos;
+        _errorCatalogo = null;
+        // Un `Form` por paso, más uno para la confirmación. Se crean aquí y no
+        // en `build` para no mutar el estado durante la construcción.
+        _clavesDePaso.clear();
+        for (var i = 0; i <= _grupos.length; i++) {
+          _clavesDePaso[i] = GlobalKey<FormState>();
+        }
+      }
+
+      _cargandoCatalogo = false;
+    });
+  }
+
+  Future<void> _cargarCursos() async {
     setState(() {
       _cargandoCursos = true;
       _avisoCursos = null;
@@ -110,145 +213,240 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _nombresController.dispose();
-    _apellidosController.dispose();
-    _cedulaController.dispose();
-    _telefonoController.dispose();
-    _correoController.dispose();
-    _domicilioController.dispose();
-    _nivelEducativoController.dispose();
-    _fechaNacimientoController.dispose();
-    _numeroIdentidadTutorController.dispose();
-    _nombreTutorController.dispose();
-    _telefonoTutorController.dispose();
-    _correoTutorController.dispose();
-    _misionEstudianteController.dispose();
-    _passwordController.dispose();
-    _passwordConfirmController.dispose();
-    super.dispose();
-  }
+  // ---------------------------------------------------------------------------
+  // El catálogo, leído como reglas
+  // ---------------------------------------------------------------------------
 
-  Future<void> _selectDate() async {
-    final now = DateTime.now();
-    final minDate = DateTime(now.year - 80, now.month, now.day);
-    final maxDate = DateTime(now.year - 15, now.month, now.day);
+  /// El índice del paso de confirmación: el último.
+  int get _pasoConfirmacion => _grupos.length;
 
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedFechaNacimiento ?? DateTime(now.year - 20),
-      firstDate: minDate,
-      lastDate: maxDate,
-      helpText: 'Fecha de nacimiento',
-    );
+  /// ¿Algún campo del catálogo pide sus opciones a otra fuente?
+  ///
+  /// Hoy sí —`curso_seleccionado` declara `fuente: 'programas'`—, y mientras sea
+  /// así el formulario no puede pintarse sin la oferta formativa. Se pregunta en
+  /// vez de darlo por hecho para que el día que el CFS deje de usar `fuente`, el
+  /// formulario no siga esperando una petición que ya no hace falta.
+  bool get _necesitaCursos =>
+      _catalogo?.campos.any((campo) => campo.tieneFuenteExterna) ?? false;
 
-    if (picked != null) {
-      setState(() {
-        _selectedFechaNacimiento = picked;
-        _fechaNacimientoController.text =
-            DateFormat('dd/MM/yyyy').format(picked);
-      });
+  List<CampoInscripcion> _camposDePaso(int paso) =>
+      paso >= 0 && paso < _grupos.length ? _grupos[paso].campos : const [];
+
+  /// El paso que contiene ese campo, o `null` si el catálogo no lo tiene.
+  int? _pasoDeCampo(String codigo) {
+    for (var i = 0; i < _grupos.length; i++) {
+      if (_grupos[i].campos.any((campo) => campo.codigo == codigo)) return i;
     }
+    return null;
   }
 
-  bool _validarPaso(int step) {
-    switch (step) {
-      case 0:
-        return _nombresController.text.trim().isNotEmpty &&
-            _apellidosController.text.trim().isNotEmpty &&
-            _cedulaController.text.trim().isNotEmpty &&
-            _selectedFechaNacimiento != null &&
-            _sexoSeleccionado.isNotEmpty;
-      case 1:
-        return _telefonoController.text.trim().isNotEmpty &&
-            _correoController.text.trim().isNotEmpty &&
-            _domicilioController.text.trim().isNotEmpty &&
-            _nivelEducativoController.text.trim().isNotEmpty;
-      case 2:
-        return _cursoSeleccionado.isNotEmpty &&
-            (!_tieneDiscapacidad || _tipoDiscapacidad.isNotEmpty) &&
-            (!_esMenorDeEdad() ||
-                (_numeroIdentidadTutorController.text.trim().isNotEmpty &&
-                    _nombreTutorController.text.trim().isNotEmpty &&
-                    _parentescoSeleccionado.isNotEmpty &&
-                    _telefonoTutorController.text.trim().isNotEmpty &&
-                    _correoTutorController.text.trim().isNotEmpty));
-      case 3:
-        return _passwordController.text.length >= 8 &&
-            _passwordController.text == _passwordConfirmController.text;
-      default:
-        return true;
+  bool _esMenorDeEdad() {
+    final crudo = _valores['fecha_nac'];
+    if (crudo is! String) return false;
+    return AspiranteModel.esMenorDeEdadCon(DateTime.tryParse(crudo));
+  }
+
+  /// ¿Hay que exigir este campo con los valores actuales?
+  ///
+  /// Es `obligatorioCon` del catálogo **más una regla que el catálogo no puede
+  /// expresar**: los datos del representante legal. Ahí la condición es la
+  /// EDAD, y la columna `condicion` compara un campo contra otro, así que no
+  /// sirve. La autoridad es `requires_legal_tutor`, que el trigger calcula en
+  /// SQL desde `fecha_nac`.
+  ///
+  /// Se replica aquí por el mismo motivo por el que ya lo replica
+  /// `AuthService._validarPlanilla`: sin esto, un aspirante menor de edad
+  /// recorre diez pasos y se entera al final, con un mensaje del servidor.
+  bool _hayQueExigirlo(CampoInscripcion campo) {
+    if (_esMenorDeEdad() && _codigosDelRepresentante.contains(campo.codigo)) {
+      return true;
     }
+    return campo.obligatorioCon(_valores);
   }
 
-  /// Mensaje de por qué el paso actual no permite avanzar.
-  String _motivoPasoInvalido(int step) {
-    switch (step) {
-      case 0:
-        return 'Completa nombres, apellidos, cédula, fecha de nacimiento y sexo.';
-      case 1:
-        return 'Completa teléfono, correo, domicilio y nivel educativo.';
-      case 2:
-        if (_cursoSeleccionado.isEmpty) {
-          return 'Selecciona la propuesta formativa a cursar.';
-        }
-        if (_tieneDiscapacidad && _tipoDiscapacidad.isEmpty) {
-          return 'Indica el tipo de discapacidad.';
-        }
-        return 'El aspirante es menor de edad: completa los datos del '
-            'representante legal.';
-      case 3:
-        if (_passwordController.text.length < 8) {
-          return 'La contraseña debe tener al menos 8 caracteres.';
-        }
-        return 'Las contraseñas no coinciden.';
-      default:
-        return 'Revisa los datos del formulario.';
+  /// Los campos del paso que hay que exigir y aún están vacíos.
+  List<CampoInscripcion> _faltantesDelPaso(int paso) {
+    final faltan = <CampoInscripcion>[];
+    for (final campo in _camposDePaso(paso)) {
+      if (!campo.visibleCon(_valores)) continue;
+      if (!_hayQueExigirlo(campo)) continue;
+      if (valorDeCampoVacio(_valores[campo.codigo])) faltan.add(campo);
     }
+    return faltan;
   }
 
-  AspiranteModel _construirModelo() {
+  // ---------------------------------------------------------------------------
+  // Estado del formulario
+  // ---------------------------------------------------------------------------
+
+  void _cambiarValor(CampoInscripcion campo, Object? valor) {
+    setState(() {
+      // `null` y vacío se guardan igual —sin la clave—, para que el mapa tenga
+      // una sola forma de decir «sin respuesta». Un `false` o un `0` **no** son
+      // vacío: son respuestas, y borrarlas sería borrar lo que el aspirante
+      // contestó.
+      if (valorDeCampoVacio(valor)) {
+        _valores.remove(campo.codigo);
+      } else {
+        _valores[campo.codigo] = valor;
+      }
+      _errores.remove(campo.codigo);
+    });
+  }
+
+  /// Las opciones de un campo con `fuente`, resueltas.
+  ///
+  /// Hoy el único valor es `'programas'`. Una `fuente` desconocida devuelve
+  /// `null` y el campo cae a las opciones del catálogo —que no tiene—, así que
+  /// se vería vacío. Es preferible eso a inventar opciones que no existen.
+  List<OpcionCampo>? _opcionesDeFuente(CampoInscripcion campo) {
+    if (campo.fuente != 'programas') return null;
+    return [
+      for (final curso in _cursosDisponibles)
+        OpcionCampo(valor: curso, etiqueta: curso),
+    ];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validación
+  // ---------------------------------------------------------------------------
+
+  bool _validarPaso(int paso) {
+    final esConfirmacion = paso == _pasoConfirmacion;
+
+    if (!esConfirmacion) {
+      final faltan = _faltantesDelPaso(paso);
+      if (faltan.isNotEmpty) {
+        setState(() {
+          for (final campo in faltan) {
+            _errores[campo.codigo] = 'Campo obligatorio';
+          }
+        });
+        _mostrarError(
+          'Faltan datos obligatorios: '
+          '${faltan.map((campo) => campo.etiqueta.toLowerCase()).join(', ')}.',
+        );
+        return false;
+      }
+    }
+
+    // Los validadores del propio renderizador: el formato del correo, el del
+    // número, y la obligatoriedad de los tipos que la declaran. Es un segundo
+    // paso y no el primero porque el catálogo es la autoridad sobre *qué* es
+    // obligatorio —y cubre tipos que no tienen validador, como la rejilla y la
+    // tabla—, mientras que el renderizador es la autoridad sobre *la forma* del
+    // valor.
+    final formatoOk = _clavesDePaso[paso]?.currentState?.validate() ?? true;
+
+    if (!formatoOk) {
+      _mostrarError(
+        esConfirmacion
+            ? 'La contraseña debe tener al menos 8 caracteres y coincidir con '
+                'la confirmación.'
+            : 'Revisa los campos marcados en rojo antes de continuar.',
+      );
+    }
+
+    return formatoOk;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Construcción del envío
+  // ---------------------------------------------------------------------------
+
+  /// La planilla que se envía: sólo lo visible y sólo lo respondido.
+  ///
+  /// **Un campo oculto no se manda**, aunque el aspirante lo haya rellenado y
+  /// después lo haya ocultado al cambiar la respuesta de la que depende. Si se
+  /// mandara, `datos_planilla` guardaría una contradicción —un
+  /// `tipo_discapacidad` junto a un `discapacidad: false`— y nadie sabría
+  /// después cuál de las dos cosas es la respuesta.
+  ///
+  /// **Un campo vacío tampoco**: la base lo trata igual (`validar_planilla()`
+  /// usa esta misma regla) y así la metadata no engorda con claves que no dicen
+  /// nada.
+  PlanillaInscripcion _construirPlanilla() {
+    final catalogo = _catalogo;
+    if (catalogo == null) return <String, dynamic>{};
+
+    return {
+      for (final campo in catalogo.campos)
+        if (campo.visibleCon(_valores) &&
+            !valorDeCampoVacio(_valores[campo.codigo]))
+          campo.codigo: _valores[campo.codigo],
+    };
+  }
+
+  /// El modelo que consume [AuthService], con las claves planas ya sintetizadas.
+  ///
+  /// **La síntesis ocurre aquí, en el controlador de la vista**, y es la pieza
+  /// que no se puede saltar: el catálogo pide el nombre desglosado
+  /// (`primer_nombre` + `segundo_nombre`) y el trigger de PostgreSQL lee
+  /// `nombres` ya concatenado. Son vocabularios distintos y el mapeo no es 1 a 1.
+  /// Si esto se olvidara, el trigger dejaría `v_nombres` en NULL, la condición
+  /// `v_es_aspirante` fallaría y **la ficha no se crearía, sin error**: el
+  /// aspirante vería «registro exitoso» y no tendría ficha.
+  AspiranteModel _construirModelo(PlanillaInscripcion planilla) {
+    final planas = sintetizarClavesPlanas(planilla);
+
+    String? texto(String clave) {
+      final valor = planas[clave];
+      if (valor == null) return null;
+      final limpio = valor.toString().trim();
+      return limpio.isEmpty ? null : limpio;
+    }
+
     return AspiranteModel(
-      nombres: _nombresController.text.trim(),
-      apellidos: _apellidosController.text.trim(),
-      cedula: _cedulaController.text.trim(),
-      fechaNacimiento: _selectedFechaNacimiento,
-      sexo: _sexoSeleccionado,
-      telefono: _telefonoController.text.trim(),
-      email: _correoController.text.trim().toLowerCase(),
-      direccion: _domicilioController.text.trim(),
-      nivelEducativo: _nivelEducativoController.text.trim(),
-      cursoSeleccionado: _cursoSeleccionado,
-      numeroIdentidadTutor: _numeroIdentidadTutorController.text.trim(),
-      nombreTutor: _nombreTutorController.text.trim(),
-      parentescoTutor: _parentescoSeleccionado,
-      telefonoTutor: _telefonoTutorController.text.trim(),
-      correoTutor: _correoTutorController.text.trim(),
-      discapacidad: _tieneDiscapacidad,
-      tipoDiscapacidad: _tieneDiscapacidad ? _tipoDiscapacidad : null,
-      misionRibaras:
-          _tieneMision ? _misionEstudianteController.text.trim() : null,
+      nombres: texto('nombres') ?? '',
+      apellidos: texto('apellidos') ?? '',
+      cedula: texto('cedula') ?? '',
+      fechaNacimiento: DateTime.tryParse(texto('fecha_nac') ?? ''),
+      sexo: texto('sexo') ?? '',
+      telefono: texto('telefono') ?? '',
+      // El correo de la cuenta **no** viaja en la metadata —lo pone
+      // `auth.users`—, pero el modelo sí lo necesita: `AuthService` lo usa para
+      // el prechequeo de duplicados y para la pantalla de éxito. Se lee de la
+      // planilla, que es donde el aspirante lo escribió.
+      email: (planilla['email'] ?? '').toString().trim().toLowerCase(),
+      direccion: texto('direccion') ?? '',
+      nivelEducativo: texto('nivel_educativo') ?? '',
+      cursoSeleccionado: texto('curso_seleccionado') ?? '',
+      discapacidad: planas['discapacidad'] == true,
+      tipoDiscapacidad: _listaATexto(planilla['tipo_discapacidad']),
+      numeroIdentidadTutor: texto('numero_identidad_tutor'),
+      nombreTutor: texto('nombre_tutor'),
+      parentescoTutor: texto('parentesco_tutor'),
+      telefonoTutor: texto('telefono_tutor'),
+      correoTutor: texto('correo_tutor'),
+      datosPlanilla: planilla,
     );
+  }
+
+  /// Una multiselección viaja al trigger como texto.
+  ///
+  /// El catálogo guarda `tipo_discapacidad` como lista y el trigger lo lee con
+  /// `->>`, que sobre una lista devuelve su JSON (`["FISICA_MANO"]`) — que no es
+  /// lo que nadie quiere leer en una columna de texto. La planilla completa
+  /// conserva la lista; la columna plana recibe el texto.
+  static String? _listaATexto(Object? valor) {
+    if (valor is List) {
+      final partes = valor
+          .map((elemento) => elemento.toString().trim())
+          .where((elemento) => elemento.isNotEmpty);
+      return partes.isEmpty ? null : partes.join(', ');
+    }
+    final texto = valor?.toString().trim();
+    return texto == null || texto.isEmpty ? null : texto;
   }
 
   Future<void> _enviarFormulario() async {
     if (_enviando) return;
-
-    if (!_validarPaso(_ultimoPaso)) {
-      _mostrarError(_motivoPasoInvalido(_ultimoPaso));
-      return;
-    }
-
-    // El Form sólo valida los campos visibles; el paso de confirmación incluye
-    // las contraseñas, que se validan aparte con _validarPaso.
-    if (_currentStep != _ultimoPaso && !_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_validarPaso(_pasoConfirmacion)) return;
 
     setState(() => _enviando = true);
 
-    final modelo = _construirModelo();
+    final planilla = _construirPlanilla();
+    final modelo = _construirModelo(planilla);
 
     // Registro de punta a punta: el trigger de PostgreSQL crea el perfil y la
     // ficha de aspirante de forma atómica dentro del propio signUp.
@@ -280,13 +478,14 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   }
 
   void _manejarErrorRegistro(AppException error) {
-    // Si el problema es de datos de identidad, devolvemos al aspirante al paso
-    // correspondiente en vez de dejarlo atascado en la confirmación.
+    // Si el problema es de identidad, se devuelve al aspirante al paso donde
+    // está el campo, en vez de dejarlo atascado en la confirmación mirando un
+    // mensaje sobre un dato que no tiene delante.
     if (error.type == AppErrorType.duplicado) {
       final esCedula = (error.code == 'CEDULA_DUPLICADA') ||
           error.message.toLowerCase().contains('cédula');
       if (esCedula) {
-        setState(() => _currentStep = 0);
+        setState(() => _currentStep = _pasoDeCampo('cedula') ?? 0);
       }
     }
 
@@ -319,231 +518,41 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   // Construcción de la UI
   // ---------------------------------------------------------------------------
 
-  Widget _buildStepContent(int step) {
-    switch (step) {
-      case 0:
-        return _buildDatosPersonales();
-      case 1:
-        return _buildUbicacionContacto();
-      case 2:
-        return _buildFormacionMisiones();
-      case 3:
-        return _buildConfirmacion();
-      default:
-        return const SizedBox.shrink();
-    }
-  }
+  /// El contenido de un paso que es un grupo del catálogo.
+  Widget _construirGrupo(GrupoPlanilla grupo) {
+    final visibles = [
+      for (final campo in grupo.campos)
+        if (campo.visibleCon(_valores)) campo,
+    ];
 
-  Widget _buildDatosPersonales() {
-    return Column(
-      children: [
-        _buildNombreCampo(),
-        const SizedBox(height: 12),
-        _buildApellidoCampo(),
-        const SizedBox(height: 12),
-        _buildCedulaCampo(),
-        const SizedBox(height: 12),
-        _buildFechaNacimientoCampo(),
-        const SizedBox(height: 12),
-        _buildSexoCampo(),
-      ],
-    );
-  }
+    final pideFuenteExterna = visibles.any((campo) => campo.tieneFuenteExterna);
 
-  Widget _buildApellidoCampo() {
-    return TextFormField(
-      controller: _apellidosController,
-      textCapitalization: TextCapitalization.words,
-      decoration:
-          _inputDecoration(label: 'Apellidos', icon: Icons.person_outline),
-      validator: (value) => value!.trim().isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildNombreCampo() {
-    return TextFormField(
-      controller: _nombresController,
-      textCapitalization: TextCapitalization.words,
-      decoration:
-          _inputDecoration(label: 'Nombres', icon: Icons.person_outline),
-      validator: (value) => value!.trim().isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildCedulaCampo() {
-    return TextFormField(
-      controller: _cedulaController,
-      decoration: _inputDecoration(
-        label: 'Cédula de Identidad / Pasaporte',
-        icon: Icons.badge_outlined,
-      ),
-      keyboardType: TextInputType.number,
-      validator: (value) => value!.trim().isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildFechaNacimientoCampo() {
-    return TextFormField(
-      controller: _fechaNacimientoController,
-      readOnly: true,
-      onTap: _selectDate,
-      decoration: _inputDecoration(
-        label: 'Fecha de Nacimiento',
-        icon: Icons.calendar_today,
-      ).copyWith(
-        suffixIcon: IconButton(
-          icon: const Icon(Icons.date_range_outlined, size: 20),
-          onPressed: _selectDate,
-        ),
-      ),
-      validator: (value) => value!.isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildSexoCampo() {
-    return DropdownButtonFormField<String>(
-      decoration: _inputDecoration(label: 'Sexo', icon: Icons.person_outline),
-      initialValue: _sexoSeleccionado.isEmpty ? null : _sexoSeleccionado,
-      items: const [
-        DropdownMenuItem(value: 'F', child: Text('Femenino')),
-        DropdownMenuItem(value: 'M', child: Text('Masculino')),
-        DropdownMenuItem(value: 'Otro', child: Text('Otro')),
-      ],
-      onChanged: (value) => setState(() => _sexoSeleccionado = value ?? ''),
-      validator: (value) =>
-          value == null || value.isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildUbicacionContacto() {
-    return Column(
-      children: [
-        _buildTelefonoCampo(),
-        const SizedBox(height: 12),
-        _buildCorreoCampo(),
-        const SizedBox(height: 12),
-        _buildDomicilioCampo(),
-        const SizedBox(height: 12),
-        _buildNivelEducativoCampo(),
-      ],
-    );
-  }
-
-  Widget _buildTelefonoCampo() {
-    return TextFormField(
-      controller: _telefonoController,
-      decoration: _inputDecoration(
-        label: 'Teléfono Móvil',
-        icon: Icons.phone_outlined,
-      ),
-      keyboardType: TextInputType.phone,
-      validator: (value) => value!.trim().isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildCorreoCampo() {
-    return TextFormField(
-      controller: _correoController,
-      decoration: _inputDecoration(
-        label: 'Correo Electrónico',
-        icon: Icons.email_outlined,
-      ),
-      keyboardType: TextInputType.emailAddress,
-      autocorrect: false,
-      validator: (value) {
-        final text = value?.trim() ?? '';
-        if (text.isEmpty) return 'Campo obligatorio';
-        if (!RegExp(r'^[\w\.\-\+]+@[\w\-]+(\.[\w\-]+)+$').hasMatch(text)) {
-          return 'Ingresa un correo válido';
-        }
-        return null;
-      },
-    );
-  }
-
-  Widget _buildDomicilioCampo() {
-    return TextFormField(
-      controller: _domicilioController,
-      maxLines: 2,
-      decoration: _inputDecoration(label: 'Domicilio', icon: Icons.home_outlined),
-      validator: (value) => value!.trim().isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  /// Opciones del nivel educativo, en **fuente única**.
-  ///
-  /// `items` y `selectedItemBuilder` tienen que tener la misma longitud: si se
-  /// duplican los literales, el día que alguien añada una opción a uno solo, el
-  /// desplegable revienta en tiempo de ejecución. Con una sola lista, no puede
-  /// divergir.
-  static const List<String> _nivelesEducativos = [
-    'Primario',
-    'Secundario',
-    'Técnico',
-    'No aplicable',
-  ];
-
-  Widget _buildNivelEducativoCampo() {
-    return DropdownButtonFormField<String>(
-      decoration: _inputDecoration(
-        label: 'Nivel Educativo',
-        icon: Icons.school_outlined,
-      ),
-      // Medido conduciendo el asistente a 375 px: el campo mide 257 px y su
-      // ranura interior queda en 165 px. Sin `isExpanded`, el `DropdownButton`
-      // NO envuelve su `IndexedStack` en `Expanded` (dropdown.dart:1653) y éste
-      // toma el ancho de su ítem **más largo** —«No aplicable», 193,8 px—, así
-      // que la `Row` desborda 29 px y empuja el ícono del desplegable fuera de
-      // la vista. No depende de lo seleccionado: el `IndexedStack` mide a todos
-      // los ítems, de modo que revienta incluso con el campo vacío. El
-      // desplegable de «Propuesta Formativa a Cursar» ya usa `isExpanded`.
-      isExpanded: true,
-      // `isExpanded` quita el desborde, pero el texto **se parte**: a 165 px
-      // «No aplicable» necesita dos líneas (48 px) y la caja mide 24, así que
-      // el campo mostraría «No» —que se lee como una negación— en vez de la
-      // opción elegida. El recorte tiene que ser explícito, no accidental.
-      //
-      // Y se recorta **sólo la vista cerrada**: el menú abierto conserva los
-      // ítems de `items`, que envuelven y se leen completos. Recortar también
-      // el menú cambiaría algo que no se ha medido como roto.
-      selectedItemBuilder: (context) => [
-        for (final nivel in _nivelesEducativos)
-          Text(nivel, maxLines: 1, overflow: TextOverflow.ellipsis),
-      ],
-      initialValue: _nivelEducativoController.text.isEmpty
-          ? null
-          : _nivelEducativoController.text,
-      items: [
-        for (final nivel in _nivelesEducativos)
-          DropdownMenuItem(value: nivel, child: Text(nivel)),
-      ],
-      onChanged: (value) =>
-          setState(() => _nivelEducativoController.text = value ?? ''),
-      validator: (value) =>
-          value == null || value.isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
-
-  Widget _buildFormacionMisiones() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (_avisoCursos != null) ...[
-          _buildAvisoCursos(),
+        if (pideFuenteExterna && _avisoCursos != null) ...[
+          _construirAvisoCursos(),
           const SizedBox(height: 16),
         ],
-        _buildCursoDropdown(),
-        const SizedBox(height: 16),
-        _buildMisionCheckbox(),
-        const SizedBox(height: 16),
-        _buildDiscapacidadCheckbox(),
-        const SizedBox(height: 16),
-        _buildTutorSection(),
+        for (final campo in visibles)
+          CampoPlanilla(
+            // La clave ata el estado al **código** del campo y no a su posición.
+            // Cuando una pregunta condicional aparece, los campos de debajo
+            // cambian de sitio; sin clave, Flutter reutilizaría el estado del
+            // que estaba en esa posición y el aspirante vería el texto de otra
+            // pregunta en el campo nuevo.
+            key: ValueKey('campo-${campo.codigo}'),
+            campo: campo,
+            valor: _valores[campo.codigo],
+            opciones: campo.tieneFuenteExterna ? _opcionesDeFuente(campo) : null,
+            error: _errores[campo.codigo],
+            onCambio: (valor) => _cambiarValor(campo, valor),
+          ),
       ],
     );
   }
 
-  Widget _buildAvisoCursos() {
+  Widget _construirAvisoCursos() {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -568,7 +577,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
             ),
           ),
           TextButton(
-            onPressed: _cargandoCursos ? null : _cargarDatosIniciales,
+            onPressed: _cargandoCursos ? null : _cargarCursos,
             child: const Text('Reintentar'),
           ),
         ],
@@ -576,321 +585,27 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
-  Widget _buildCursoDropdown() {
-    return DropdownButtonFormField<String>(
-      decoration: _inputDecoration(
-        label: 'Propuesta Formativa a Cursar',
-        icon: Icons.book_outlined,
-      ),
-      initialValue: _cursoSeleccionado.isEmpty ? null : _cursoSeleccionado,
-      isExpanded: true,
-      items: _cursosDisponibles
-          .map((curso) => DropdownMenuItem(value: curso, child: Text(curso)))
-          .toList(),
-      // Medido a 375 px: la ranura del campo mide 165 px y «Higiene y
-      // Manipulación de Alimentos» pide `intrH@165 = 96` (4 líneas). Con
-      // `softWrap` el texto se parte, pero la caja mide 24 px de alto, así que
-      // las líneas 2 a 4 quedan fuera y el aspirante **no puede leer el curso
-      // que acaba de elegir**. Recortar en silencio no lanza, de modo que
-      // ninguna auditoría de `RenderFlex` lo ve: por eso el recorte tiene que
-      // ser explícito y de una sola línea.
-      selectedItemBuilder: (BuildContext context) {
-        return _cursosDisponibles.map<Widget>((String curso) {
-          return Text(
-            curso,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          );
-        }).toList();
-      },
-      onChanged: (value) => setState(() => _cursoSeleccionado = value ?? ''),
-      validator: (value) =>
-          value == null || value.isEmpty ? 'Campo obligatorio' : null,
-    );
-  }
+  /// El resumen del paso final, construido desde el catálogo.
+  ///
+  /// Antes era una lista de once `MapEntry` escrita a mano que nombraba cada
+  /// campo; con el catálogo eso sería una segunda lista que mantener en paralelo
+  /// y que se desviaría en cuanto el CFS añadiera un campo. Aquí se recorre el
+  /// catálogo en su orden y se muestra lo que tenga respuesta.
+  Widget _construirResumen() {
+    final catalogo = _catalogo;
+    final filas = <MapEntry<String, String>>[];
 
-  Widget _buildMisionCheckbox() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Checkbox(
-              value: _tieneMision,
-              onChanged: (value) => setState(() => _tieneMision = value ?? false),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('Poseo misión educativa', style: GoogleFonts.inter()),
-            ),
-          ],
-        ),
-        if (_tieneMision) ...[
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _misionEstudianteController,
-            maxLines: 2,
-            decoration: _inputDecoration(
-              label: 'Descripción de misión',
-              icon: Icons.flag,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
+    if (catalogo != null) {
+      final ordenados = [...catalogo.campos]
+        ..sort((a, b) => a.orden.compareTo(b.orden));
 
-  Widget _buildDiscapacidadCheckbox() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Checkbox(
-              value: _tieneDiscapacidad,
-              onChanged: (value) =>
-                  setState(() => _tieneDiscapacidad = value ?? false),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('Tiene discapacidad', style: GoogleFonts.inter()),
-            ),
-          ],
-        ),
-        if (_tieneDiscapacidad) ...[
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            decoration: _inputDecoration(
-              label: 'Tipo de discapacidad',
-              icon: Icons.accessible,
-            ),
-            initialValue: _tipoDiscapacidad.isEmpty ? null : _tipoDiscapacidad,
-            items: const [
-              DropdownMenuItem(value: 'Visual', child: Text('Visual')),
-              DropdownMenuItem(value: 'Auditiva', child: Text('Auditiva')),
-              DropdownMenuItem(value: 'Motriz', child: Text('Motriz')),
-              DropdownMenuItem(value: 'Cognitiva', child: Text('Cognitiva')),
-            ],
-            onChanged: (value) =>
-                setState(() => _tipoDiscapacidad = value ?? ''),
-            validator: (value) => _tieneDiscapacidad &&
-                    (value == null || value.isEmpty)
-                ? 'Indica el tipo de discapacidad'
-                : null,
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildTutorSection() {
-    if (!_esMenorDeEdad()) {
-      return const SizedBox.shrink();
+      for (final campo in ordenados) {
+        if (!campo.visibleCon(_valores)) continue;
+        final texto = textoDeValor(campo, _valores[campo.codigo]);
+        if (texto.isEmpty) continue;
+        filas.add(MapEntry(campo.etiqueta, texto));
+      }
     }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE0E7FF),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF6366F1)),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.info_outline,
-                  color: Color(0xFF3730A3), size: 20),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'El aspirante es menor de edad: el representante legal es '
-                  'obligatorio.',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: const Color(0xFF312E81),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Datos del Representante Legal',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _numeroIdentidadTutorController,
-          decoration: _inputDecoration(
-            label: 'Cédula del Tutor',
-            icon: Icons.badge_outlined,
-          ),
-          keyboardType: TextInputType.number,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _nombreTutorController,
-          textCapitalization: TextCapitalization.words,
-          decoration: _inputDecoration(
-            label: 'Nombre Completo del Tutor',
-            icon: Icons.person_outline,
-          ),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue:
-              _parentescoSeleccionado.isEmpty ? null : _parentescoSeleccionado,
-          decoration: _inputDecoration(
-            label: 'Parentesco',
-            icon: Icons.family_restroom,
-          ),
-          items: const [
-            DropdownMenuItem(value: 'Padre', child: Text('Padre')),
-            DropdownMenuItem(value: 'Madre', child: Text('Madre')),
-            DropdownMenuItem(value: 'Tío/a', child: Text('Tío/a')),
-            DropdownMenuItem(value: 'Abuelo/a', child: Text('Abuelo/a')),
-            DropdownMenuItem(value: 'Padrino/a', child: Text('Padrino/a')),
-          ],
-          onChanged: (value) =>
-              setState(() => _parentescoSeleccionado = value ?? ''),
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _telefonoTutorController,
-          decoration: _inputDecoration(
-            label: 'Teléfono del Tutor',
-            icon: Icons.phone_outlined,
-          ),
-          keyboardType: TextInputType.phone,
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _correoTutorController,
-          decoration: _inputDecoration(
-            label: 'Correo del Tutor',
-            icon: Icons.email_outlined,
-          ),
-          keyboardType: TextInputType.emailAddress,
-          autocorrect: false,
-        ),
-      ],
-    );
-  }
-
-  bool _esMenorDeEdad() {
-    final fecha = _selectedFechaNacimiento;
-    if (fecha == null) return false;
-    final hoy = DateTime.now();
-    final edad = hoy.year - fecha.year;
-    final cumpleYaPaso = hoy.month > fecha.month ||
-        (hoy.month == fecha.month && hoy.day >= fecha.day);
-    return edad - (cumpleYaPaso ? 0 : 1) < 18;
-  }
-
-  Widget _buildConfirmacion() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildResumen(),
-        const SizedBox(height: 24),
-        Text(
-          'Crea tu contraseña de acceso',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Con tu cédula o correo y esta contraseña entrarás al aula virtual.',
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            color: const Color(0xFF64748B),
-          ),
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: _inputDecoration(
-            label: 'Contraseña (mínimo 8 caracteres)',
-            icon: Icons.lock_outline,
-          ).copyWith(
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                size: 20,
-                color: const Color(0xFF64748B),
-              ),
-              onPressed: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
-            ),
-          ),
-          validator: (value) {
-            final texto = value ?? '';
-            if (texto.isEmpty) return 'Campo obligatorio';
-            if (texto.length < 8) return 'Mínimo 8 caracteres';
-            return null;
-          },
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _passwordConfirmController,
-          obscureText: _obscureConfirm,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: _inputDecoration(
-            label: 'Confirmar contraseña',
-            icon: Icons.lock_reset_outlined,
-          ).copyWith(
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscureConfirm
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                size: 20,
-                color: const Color(0xFF64748B),
-              ),
-              onPressed: () =>
-                  setState(() => _obscureConfirm = !_obscureConfirm),
-            ),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) return 'Campo obligatorio';
-            if (value != _passwordController.text) {
-              return 'Las contraseñas no coinciden';
-            }
-            return null;
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildResumen() {
-    final filas = <MapEntry<String, String>>[
-      MapEntry('Nombres', _nombresController.text),
-      MapEntry('Apellidos', _apellidosController.text),
-      MapEntry('Cédula', _cedulaController.text),
-      MapEntry(
-        'Fecha de nacimiento',
-        _selectedFechaNacimiento != null
-            ? DateFormat('dd/MM/yyyy').format(_selectedFechaNacimiento!)
-            : '—',
-      ),
-      MapEntry('Teléfono', _telefonoController.text),
-      MapEntry('Correo', _correoController.text),
-      MapEntry('Domicilio', _domicilioController.text),
-      MapEntry('Nivel educativo', _nivelEducativoController.text),
-      MapEntry('Propuesta formativa', _cursoSeleccionado),
-      if (_tieneDiscapacidad) MapEntry('Discapacidad', _tipoDiscapacidad),
-      if (_esMenorDeEdad())
-        MapEntry('Representante legal', _nombreTutorController.text),
-    ];
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -929,7 +644,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                   ),
                   Expanded(
                     child: Text(
-                      fila.value.isEmpty ? '—' : fila.value,
+                      fila.value,
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         color: const Color(0xFF0F172A),
@@ -945,33 +660,117 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
-  InputDecoration _inputDecoration({
-    required String label,
-    required IconData icon,
-  }) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
-      prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 20),
-      filled: true,
-      fillColor: const Color(0xFFF8FAFC),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+  Widget _construirConfirmacion() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _construirResumen(),
+        const SizedBox(height: 24),
+        Text(
+          'Crea tu contraseña de acceso',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Con tu cédula o correo y esta contraseña entrarás al aula virtual.',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _passwordController,
+          obscureText: _obscurePassword,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: decoracionDeCampo(
+            etiqueta: 'Contraseña (mínimo 8 caracteres)',
+            icono: Icons.lock_outline,
+          ).copyWith(
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                size: 20,
+                color: const Color(0xFF64748B),
+              ),
+              onPressed: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
+            ),
+          ),
+          validator: (value) {
+            final texto = value ?? '';
+            if (texto.isEmpty) return 'Campo obligatorio';
+            if (texto.length < 8) return 'Mínimo 8 caracteres';
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _passwordConfirmController,
+          obscureText: _obscureConfirm,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: decoracionDeCampo(
+            etiqueta: 'Confirmar contraseña',
+            icono: Icons.lock_reset_outlined,
+          ).copyWith(
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureConfirm
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                size: 20,
+                color: const Color(0xFF64748B),
+              ),
+              onPressed: () =>
+                  setState(() => _obscureConfirm = !_obscureConfirm),
+            ),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) return 'Campo obligatorio';
+            if (value != _passwordController.text) {
+              return 'Las contraseñas no coinciden';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _construirErrorDeCatalogo(String mensaje) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                size: 44,
+                color: Color(0xFFB45309),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                mensaje,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(fontSize: 14, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _cargarCatalogo,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFDC2626)),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     );
   }
 
@@ -989,29 +788,36 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
       body: Column(
         children: [
           if (_enviando) const LinearProgressIndicator(minHeight: 3),
-          Expanded(
-            child: _cargandoCursos
-                ? const Center(child: CircularProgressIndicator())
-                : AbsorbPointer(
-                    // Bloquea la interacción durante el envío sin desmontar el
-                    // formulario: los datos escritos nunca se pierden.
-                    absorbing: _enviando,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) =>
-                          _buildStepper(constraints),
-                    ),
-                  ),
-          ),
+          Expanded(child: _construirCuerpo()),
         ],
       ),
     );
   }
 
-  Widget _buildStepper(BoxConstraints constraints) {
+  Widget _construirCuerpo() {
+    // El catálogo es lo que define el formulario: sin él no hay nada que pintar.
+    // La oferta formativa sólo bloquea si algún campo la pide.
+    if (_cargandoCatalogo || (_necesitaCursos && _cargandoCursos)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final error = _errorCatalogo;
+    if (error != null) return _construirErrorDeCatalogo(error);
+
+    return AbsorbPointer(
+      // Bloquea la interacción durante el envío sin desmontar el formulario: los
+      // datos escritos nunca se pierden.
+      absorbing: _enviando,
+      child: LayoutBuilder(
+        builder: (context, constraints) => _construirStepper(constraints),
+      ),
+    );
+  }
+
+  Widget _construirStepper(BoxConstraints constraints) {
     final maxWidth = constraints.maxWidth > 800 ? 800.0 : constraints.maxWidth;
-    final padding = isSmallScreen
-        ? const EdgeInsets.all(16)
-        : const EdgeInsets.all(32);
+    final padding =
+        isSmallScreen ? const EdgeInsets.all(16) : const EdgeInsets.all(32);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final borderColor =
         isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
@@ -1033,100 +839,89 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
               ),
             ],
           ),
-          child: Form(
-            key: _formKey,
-            child: Stepper(
-              type: StepperType.vertical,
-              currentStep: _currentStep,
-              physics: const ClampingScrollPhysics(),
-              onStepContinue: () {
-                if (_currentStep < _ultimoPaso) {
-                  if (_validarPaso(_currentStep)) {
-                    setState(() => _currentStep += 1);
-                  } else {
-                    _mostrarError(_motivoPasoInvalido(_currentStep));
-                  }
-                } else {
-                  _enviarFormulario();
+          child: Stepper(
+            type: StepperType.vertical,
+            currentStep: _currentStep,
+            physics: const ClampingScrollPhysics(),
+            onStepContinue: () {
+              if (_currentStep < _pasoConfirmacion) {
+                if (_validarPaso(_currentStep)) {
+                  setState(() => _currentStep += 1);
                 }
-              },
-              onStepCancel: () {
-                if (_currentStep > 0) {
-                  setState(() => _currentStep -= 1);
-                }
-              },
-              controlsBuilder: (context, details) {
-                final esUltimo = details.stepIndex == _ultimoPaso;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 20),
-                  // Wrap y no Row: en móvil angosto el botón principal baja a
-                  // la línea siguiente en lugar de desbordar.
-                  child: Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    children: [
-                      if (details.stepIndex > 0)
-                        TextButton(
-                          onPressed:
-                              _enviando ? null : details.onStepCancel,
-                          child: const Text('Atrás'),
-                        ),
-                      FilledButton(
-                        onPressed: _enviando ? null : details.onStepContinue,
-                        child: _enviando
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(
-                                esUltimo
-                                    ? 'Finalizar inscripción'
-                                    : 'Continuar',
-                              ),
+              } else {
+                _enviarFormulario();
+              }
+            },
+            onStepCancel: () {
+              if (_currentStep > 0) {
+                setState(() => _currentStep -= 1);
+              }
+            },
+            controlsBuilder: (context, details) {
+              final esUltimo = details.stepIndex == _pasoConfirmacion;
+              return Padding(
+                padding: const EdgeInsets.only(top: 20),
+                // Wrap y no Row: en móvil angosto el botón principal baja a la
+                // línea siguiente en lugar de desbordar.
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    if (details.stepIndex > 0)
+                      TextButton(
+                        onPressed: _enviando ? null : details.onStepCancel,
+                        child: const Text('Atrás'),
                       ),
-                    ],
-                  ),
-                );
-              },
-              steps: [
+                    FilledButton(
+                      onPressed: _enviando ? null : details.onStepContinue,
+                      child: _enviando
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              esUltimo
+                                  ? 'Finalizar inscripción'
+                                  : 'Continuar',
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
+            steps: [
+              // Un paso por grupo del catálogo, en su orden. El título es el
+              // nombre del grupo: el CFS lo controla desde la tabla.
+              for (var i = 0; i < _grupos.length; i++)
                 Step(
                   title: Text(
-                    'Datos Personales',
+                    _grupos[i].nombre,
                     style: GoogleFonts.inter(fontWeight: FontWeight.bold),
                   ),
-                  content: _buildStepContent(0),
-                  isActive: _currentStep >= 0,
-                  state: _currentStep > 0
+                  content: Form(
+                    key: _clavesDePaso[i],
+                    child: _construirGrupo(_grupos[i]),
+                  ),
+                  isActive: _currentStep >= i,
+                  state: _currentStep > i
                       ? StepState.complete
                       : StepState.indexed,
                 ),
-                Step(
-                  title: const Text('Ubicación y Contacto'),
-                  content: _buildStepContent(1),
-                  isActive: _currentStep >= 1,
-                  state: _currentStep > 1
-                      ? StepState.complete
-                      : StepState.indexed,
+              // Y el paso que no viene del catálogo, porque la contraseña no es
+              // un dato de la planilla: es la credencial de la cuenta.
+              Step(
+                title: const Text('Confirmación y Contraseña'),
+                content: Form(
+                  key: _clavesDePaso[_pasoConfirmacion],
+                  child: _construirConfirmacion(),
                 ),
-                Step(
-                  title: const Text('Formación y Misiones'),
-                  content: _buildStepContent(2),
-                  isActive: _currentStep >= 2,
-                  state: _currentStep > 2
-                      ? StepState.complete
-                      : StepState.indexed,
-                ),
-                Step(
-                  title: const Text('Confirmación y Contraseña'),
-                  content: _buildStepContent(3),
-                  isActive: _currentStep >= 3,
-                ),
-              ],
-            ),
+                isActive: _currentStep >= _pasoConfirmacion,
+              ),
+            ],
           ),
         ),
       ),

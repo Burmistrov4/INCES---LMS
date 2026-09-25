@@ -42,14 +42,20 @@ class CampoPlanilla extends StatelessWidget {
   /// falla.
   final String? error;
 
-  /// La clave de estado del campo.
+  /// La clave de estado del **widget de dentro**, la que guarda el valor.
   ///
   /// No es cosmética. Cuando una pregunta condicional aparece o desaparece, los
   /// campos de debajo **cambian de posición** en la lista, y sin clave Flutter
   /// reutilizaría el estado del `FormField` que había en esa posición: el
   /// aspirante vería el texto de otra pregunta en el campo nuevo. Con la clave
   /// atada al código del campo, el estado viaja con el campo y no con el hueco.
-  Key get claveDeEstado => ValueKey('campo-${campo.codigo}');
+  ///
+  /// Y lleva un prefijo **distinto** al que le pone quien monta este widget
+  /// (`campo-`), a propósito: dos claves iguales a distinta profundidad no son
+  /// un error para Flutter —no son hermanas—, pero dejan `find.byKey` devolviendo
+  /// dos elementos y vuelven ambigua cualquier prueba que busque un campo. Una
+  /// prueba que tiene que desambiguar a mano es una prueba que se escribe mal.
+  Key get claveDeEstado => ValueKey('entrada-${campo.codigo}');
 
   @override
   Widget build(BuildContext context) {
@@ -294,7 +300,7 @@ class _Numero extends StatelessWidget {
   }
 }
 
-class _Fecha extends StatelessWidget {
+class _Fecha extends StatefulWidget {
   const _Fecha({
     super.key,
     required this.campo,
@@ -310,7 +316,50 @@ class _Fecha extends StatelessWidget {
   final String etiqueta;
   final String? error;
 
-  DateTime? get _fecha => DateTime.tryParse(valor?.toString() ?? '');
+  @override
+  State<_Fecha> createState() => _FechaState();
+}
+
+/// La fecha es el **único** campo que tiene estado propio, y no por gusto.
+///
+/// Es el único cuyo valor cambia desde fuera del widget: lo elige un calendario,
+/// no el teclado. Y un `TextFormField` **no** propaga un `initialValue` que
+/// cambie —su `didUpdateWidget` sólo reacciona a un controlador distinto
+/// (`text_form_field.dart:394`), y `_initialValue` es `late final`, capturado en
+/// `initState`—. Sin controlador propio, el aspirante elegía una fecha y el
+/// campo se quedaba **vacío**: el dato viajaba bien y no se veía nada, que es la
+/// peor forma de fallar porque parece que el calendario no funcionó.
+class _FechaState extends State<_Fecha> {
+  late final TextEditingController _controlador;
+
+  @override
+  void initState() {
+    super.initState();
+    _controlador = TextEditingController(text: _comoTexto(widget.valor));
+  }
+
+  @override
+  void didUpdateWidget(_Fecha oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.valor != oldWidget.valor) {
+      final texto = _comoTexto(widget.valor);
+      if (_controlador.text != texto) _controlador.text = texto;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controlador.dispose();
+    super.dispose();
+  }
+
+  DateTime? get _fecha => DateTime.tryParse(widget.valor?.toString() ?? '');
+
+  /// El valor guardado (`YYYY-MM-DD`) como se le enseña al aspirante.
+  static String _comoTexto(Object? valor) {
+    final fecha = DateTime.tryParse(valor?.toString() ?? '');
+    return fecha == null ? '' : DateFormat('dd/MM/yyyy').format(fecha);
+  }
 
   /// El rango del selector.
   ///
@@ -330,7 +379,7 @@ class _Fecha extends StatelessWidget {
       initialDate: _fecha ?? DateTime(hoy.year - 20),
       firstDate: DateTime(hoy.year - 80, hoy.month, hoy.day),
       lastDate: DateTime(hoy.year - 15, hoy.month, hoy.day),
-      helpText: etiqueta,
+      helpText: widget.etiqueta,
     );
 
     if (elegida != null) {
@@ -340,30 +389,30 @@ class _Fecha extends StatelessWidget {
       final anio = elegida.year.toString().padLeft(4, '0');
       final mes = elegida.month.toString().padLeft(2, '0');
       final dia = elegida.day.toString().padLeft(2, '0');
-      onCambio('$anio-$mes-$dia');
+      widget.onCambio('$anio-$mes-$dia');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final fecha = _fecha;
-
     return TextFormField(
+      controller: _controlador,
       readOnly: true,
       onTap: () => _elegir(context),
-      initialValue: fecha == null ? '' : DateFormat('dd/MM/yyyy').format(fecha),
       decoration: decoracionDeCampo(
-        etiqueta: etiqueta,
-        icono: iconoDeCampo(campo.codigo),
-        ayuda: campo.ayuda,
-        error: error,
+        etiqueta: widget.etiqueta,
+        icono: iconoDeCampo(widget.campo.codigo),
+        ayuda: widget.campo.ayuda,
+        error: widget.error,
         sufijo: IconButton(
           icon: const Icon(Icons.date_range_outlined, size: 20),
           onPressed: () => _elegir(context),
         ),
       ),
       validator: (texto) =>
-          campo.obligatorio && (texto ?? '').trim().isEmpty ? 'Campo obligatorio' : null,
+          widget.campo.obligatorio && (texto ?? '').trim().isEmpty
+              ? 'Campo obligatorio'
+              : null,
     );
   }
 }

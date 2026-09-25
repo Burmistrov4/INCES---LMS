@@ -40,6 +40,21 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
   /// Código devuelto por `precheck`.
   String precheckResultado = 'OK';
 
+  /// La metadata que recibió `registrarConPassword`, si la hubo.
+  ///
+  /// Se guarda **entera** y no un resumen: es la única forma de comprobar de
+  /// punta a punta lo que el formulario manda a `auth.users` —que `nombres` y
+  /// `apellidos` viajan ya sintetizados, que `datos_planilla` va, y que
+  /// `mision_ribaras` **no** va—. Comprobar eso en el modelo por separado no
+  /// probaría que la pantalla lo llama bien.
+  Map<String, dynamic>? ultimaMetadata;
+
+  /// El correo con el que se llamó a `registrarConPassword`.
+  String? ultimoEmailRegistro;
+
+  /// La contraseña con la que se llamó a `registrarConPassword`.
+  String? ultimaPasswordRegistro;
+
   String? emailDeCedula;
   String? rolDelPerfil;
 
@@ -98,6 +113,9 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
     Map<String, dynamic>? metadata,
   }) async {
     llamadas.add('registrarConPassword');
+    ultimoEmailRegistro = email;
+    ultimaPasswordRegistro = password;
+    ultimaMetadata = metadata;
     _lanzarSi(errorAlRegistrar);
     return sesionRegistro;
   }

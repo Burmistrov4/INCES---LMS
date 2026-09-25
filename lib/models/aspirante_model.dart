@@ -1,3 +1,5 @@
+import 'inscripcion_campo.dart';
+
 class AspiranteModel {
   final String? id;
 
@@ -26,6 +28,21 @@ class AspiranteModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  /// La planilla completa, tal como el aspirante la rellenó.
+  ///
+  /// **Por qué existe además de las columnas de arriba.** Las columnas son el
+  /// contrato que ya consumen HACER y los paneles; la planilla es el resto del
+  /// formulario —los 44 campos del catálogo—, que no tiene columnas propias y
+  /// que hasta ahora se perdía. Sin esto, exportar a HACER obligaría a volver a
+  /// teclearlo todo, que es justamente la brecha medida.
+  ///
+  /// Viaja en `raw_user_meta_data` y el trigger `handle_new_user()` la copia a
+  /// `aspirantes.datos_planilla` en la misma transacción. Es **la única clave
+  /// que dispara `validar_planilla()`**: si no viene, el trigger no valida, que
+  /// es la asimetría deliberada que permitió desplegar la migración sin romper
+  /// al formulario viejo.
+  final PlanillaInscripcion? datosPlanilla;
+
   AspiranteModel({
     this.id,
     this.userId,
@@ -48,6 +65,7 @@ class AspiranteModel {
     this.telefonoTutor,
     this.correoTutor,
     bool requiresLegalTutor = false,
+    this.datosPlanilla,
     this.createdAt,
     this.updatedAt,
   }) : requiresLegalTutor =
@@ -84,6 +102,7 @@ class AspiranteModel {
       telefonoTutor: json['telefono_tutor'] as String?,
       correoTutor: json['correo_tutor'] as String?,
       requiresLegalTutor: json['requires_legal_tutor'] as bool? ?? false,
+      datosPlanilla: _parsePlanilla(json['datos_planilla']),
       createdAt: _parseDate(json['created_at'] ?? json['createdAt']),
       updatedAt: _parseDate(json['updated_at'] ?? json['updatedAt']),
     );
@@ -117,6 +136,7 @@ class AspiranteModel {
       'telefono_tutor': telefonoTutor,
       'correo_tutor': correoTutor,
       'requires_legal_tutor': requiresLegalTutor,
+      if (datosPlanilla != null) 'datos_planilla': datosPlanilla,
     };
   }
 
@@ -125,6 +145,20 @@ class AspiranteModel {
   /// El trigger `handle_new_user()` lee exactamente estas claves para crear el
   /// perfil y la ficha de aspirante en una sola transacción. **No incluye
   /// `rol`**: el rol lo fija el servidor para impedir auto-promoción.
+  ///
+  /// **`mision_ribaras` ya no se envía**, y es a propósito. El catálogo pide la
+  /// rejilla `misiones` (20 casillas, cada una con su «desde») y ese dato viaja
+  /// dentro de `datos_planilla`; seguir mandando además el texto libre del
+  /// formulario viejo sería guardar lo mismo dos veces con dos formas distintas,
+  /// y el día que discreparan no habría forma de saber cuál manda. El trigger lo
+  /// tolera sin cambios: `v_mision` es nullable y **no** forma parte de la
+  /// condición `v_es_aspirante`, así que su ausencia no impide crear la ficha.
+  /// El campo y `toJson()` se conservan para leer la columna y para las
+  /// escrituras de administración.
+  ///
+  /// **`datos_planilla` es la clave que dispara la validación.** Es la única que
+  /// hace que el trigger llame a `validar_planilla()`; sin ella no valida, que
+  /// es lo que permite que un cliente antiguo siga funcionando.
   Map<String, dynamic> toMetadata() {
     return {
       'cedula': cedula,
@@ -136,8 +170,6 @@ class AspiranteModel {
       'direccion': direccion,
       'nivel_educativo': nivelEducativo,
       'curso_seleccionado': cursoSeleccionado,
-      if (misionRibaras != null && misionRibaras!.isNotEmpty)
-        'mision_ribaras': misionRibaras,
       'discapacidad': discapacidad,
       if (discapacidad && tipoDiscapacidad != null)
         'tipo_discapacidad': tipoDiscapacidad,
@@ -151,12 +183,25 @@ class AspiranteModel {
         'telefono_tutor': telefonoTutor,
       if (correoTutor != null && correoTutor!.isNotEmpty)
         'correo_tutor': correoTutor,
+      if (datosPlanilla != null) 'datos_planilla': datosPlanilla,
     };
   }
 
   bool get esMenorDeEdad => _esMenorDeEdad(fechaNacimiento);
 
   String get nombreCompleto => '$nombres $apellidos';
+
+  /// Lee `datos_planilla`, que puede llegar como mapa o como el texto JSON que
+  /// devuelve PostgREST en algunas proyecciones.
+  ///
+  /// Un valor con otra forma se descarta en vez de reventar: la planilla es un
+  /// dato accesorio de la ficha, y no poder leerla no debe impedir mostrar el
+  /// aspirante.
+  static PlanillaInscripcion? _parsePlanilla(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
 
   static DateTime? _parseDate(dynamic value) {
     if (value == null || value is! String || value.isEmpty) return null;
@@ -174,6 +219,15 @@ class AspiranteModel {
 
   /// Cálculo de mayoría de edad alineado con el CHECK de la base de datos:
   /// `fecha_nac > (current_date - interval '18 years')`.
+  ///
+  /// Es `static` **a propósito**: el formulario necesita preguntar lo mismo
+  /// —para saber si los datos del representante legal son obligatorios— antes de
+  /// que exista un [AspiranteModel], y la alternativa era una segunda copia de
+  /// esta cuenta en la pantalla. Dos copias de una regla de edad se desvían en
+  /// el borde exacto de los 18 años, que es justo donde importa.
+  static bool esMenorDeEdadCon(DateTime? fechaNacimiento) =>
+      _esMenorDeEdad(fechaNacimiento);
+
   static bool _esMenorDeEdad(DateTime? fechaNacimiento) {
     if (fechaNacimiento == null) return false;
     final hoy = DateTime.now();

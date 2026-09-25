@@ -4,14 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:inces_lms_app/core/gateways/invitacion_gateway.dart';
 import 'package:inces_lms_app/models/archivo.dart';
 import 'package:inces_lms_app/models/cuadrante.dart';
+import 'package:inces_lms_app/models/inscripcion_campo.dart';
 import 'package:inces_lms_app/models/invitacion_docente.dart';
 import 'package:inces_lms_app/models/seccion.dart';
 import 'package:inces_lms_app/models/system_setting.dart';
 import 'package:inces_lms_app/repositories/archivos_repository.dart';
+import 'package:inces_lms_app/repositories/aspirante_repository.dart';
 import 'package:inces_lms_app/repositories/cuadrante_repository.dart';
 import 'package:inces_lms_app/repositories/inscripcion_repository.dart';
 import 'package:inces_lms_app/repositories/invitacion_repository.dart';
 import 'package:inces_lms_app/repositories/modulo_repository.dart';
+import 'package:inces_lms_app/repositories/planilla_repository.dart';
 import 'package:inces_lms_app/repositories/secciones_repository.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_aulas_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_guardias_panel.dart';
@@ -22,16 +25,20 @@ import 'package:inces_lms_app/screens/admin/cpanel_secciones_panel.dart';
 import 'package:inces_lms_app/screens/aspirante_dashboard.dart';
 import 'package:inces_lms_app/screens/aspirante_form_screen.dart';
 import 'package:inces_lms_app/screens/gestor_documental_panel.dart';
+import 'package:inces_lms_app/services/auth_service.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
 import 'package:inces_lms_app/widgets/andamiaje.dart';
 import 'package:inces_lms_app/widgets/comunes.dart';
 
+import 'support/catalogo_ejemplo.dart';
 import 'support/fake_archivos_gateway.dart';
 import 'support/fake_cuadrante_gateway.dart';
 import 'support/fake_gateway.dart';
 import 'support/fake_inscripcion_gateway.dart';
+import 'support/fake_planilla_gateway.dart';
 import 'support/fake_secciones_gateway.dart';
 import 'support/fake_selector_archivos.dart';
+import 'support/formulario_inscripcion.dart';
 
 /// Auditoría empírica del patrón de desborde que este proyecto ya pagó dos veces.
 ///
@@ -388,16 +395,39 @@ void main() {
     });
 
     testWidgets('Formulario de inscripción', (tester) async {
-      final error = await medirPantalla(tester, const AspiranteFormScreen());
+      // Se monta con el catálogo inyectado y no en pelado: sin él la pantalla
+      // caería en su estado de error —«no pudimos cargar el formulario»— y esta
+      // prueba mediría un mensaje en vez del formulario. Pasaría sin haber mirado
+      // lo que dice que mira.
+      final gateway = FakeGateway()..cursos = cursosDePrueba;
+
+      final error = await medirPantalla(
+        tester,
+        AspiranteFormScreen(
+          planillaRepository: PlanillaRepository(
+            gateway: FakePlanillaGateway()..catalogo = catalogoEjemplo(),
+          ),
+          aspiranteRepository: AspiranteRepository(gateway: gateway),
+          authService: AuthService(gateway: gateway),
+        ),
+      );
 
       sinDesbordes(error, 'AspiranteFormScreen');
     });
 
-    testWidgets('Formulario de inscripción - recorrido completo para auditar desbordes', (tester) async {
-      tester.view.physicalSize = const Size(375, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('Formulario de inscripción - recorrido completo para auditar desbordes',
+        (tester) async {
+      // El recorrido se conduce **por el catálogo** y no por etiquetas escritas a
+      // mano: los pasos, las preguntas y cuáles son obligatorias salen de
+      // `inscripcion_campos`, así que una prueba que los escribiera a mano
+      // volvería a acoplar la prueba a la pantalla justo cuando la pantalla dejó
+      // de estar acoplada al catálogo. Y de paso: si el formulario dejara de ser
+      // conducido por datos, este recorrido no encontraría los campos y fallaría.
+      final arnes = await montarFormulario(
+        tester,
+        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
+        tamano: const Size(375, 2400),
+      );
 
       // `takeException()` **consume** la excepción registrada, así que revisar en
       // cada etapa la localiza. Un único `takeException()` al final sólo dice que
@@ -409,74 +439,65 @@ void main() {
         if (e != null) incidencias.add('$etapa → $e');
       }
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: IncesTheme.claro(),
-          home: const AspiranteFormScreen(),
-        ),
-      );
-      await tester.pump();
       revisar('Al montar, con la carga en vuelo');
 
-      // Damos tiempo a que falle la petición de cursos y muestre el aviso de respaldo
-      await tester.pump(const Duration(seconds: 1));
-      revisar('Tras fallar la carga de cursos');
+      // Paso 0 · Datos personales. Se escribe un nombre largo y un correo sin
+      // espacios para presionar las filas anchas, que es donde vive el candidato
+      // a desborde que este barrido busca.
+      await escribir(tester, 'primer_nombre', 'Lorenzo Valentín de Jesús');
+      await escribir(tester, 'segundo_nombre', 'José');
+      await escribir(tester, 'primer_apellido', 'Roca Burmistrow');
+      await escribir(tester, 'cedula', '20123456');
+      await escribir(tester, 'fecha_nac', '2000-01-01');
+      await elegirEnDesplegable(tester, 'sexo', 'Masculino');
+      revisar('Paso 0 · datos personales');
 
-      // Paso 1: Datos Personales
-      await tester.enterText(find.widgetWithText(TextFormField, 'Nombres'), 'Lorenzo Valentin');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Apellidos'), 'Roca Burmistrow');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Cédula de Identidad / Pasaporte'), '20123456');
-
-      await tester.tap(find.widgetWithText(TextFormField, 'Fecha de Nacimiento'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('OK')); // Cerrar el DatePicker confirmando la fecha por defecto
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Sexo'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Masculino').last);
-      await tester.pumpAndSettle();
-      revisar('Paso 1 · datos personales');
-
-      // `find.text('Continuar')` encuentra TRES: el `Stepper` deja en el árbol los
-      // controles de todos los pasos (sólo el actual es visible; el último dice
-      // «Finalizar inscripción»). Como el orden del árbol sigue el orden de los
-      // pasos, el control del paso `i` es `.at(i)`. Sin esto, `tap` se niega por
-      // ambigüedad — y con `.last` se pulsaría el botón de otro paso.
+      // El desplegable se abre y se cierra a 375 px: la ranura mide 165 px y una
+      // opción larga se parte en cuatro líneas que no caben en 24 px de alto. El
+      // recorte silencioso **no** lanza, así que lo que se audita aquí es que al
+      // menos no desborde.
       await tester.tap(find.text('Continuar').at(0));
       await tester.pumpAndSettle();
-      revisar('Paso 2 · ubicación y contacto');
+      revisar('Paso 1 · ubicación y contacto');
 
-      // Paso 2: Ubicación y Contacto
-      await tester.enterText(find.widgetWithText(TextFormField, 'Teléfono Móvil'), '04141234567');
-      // Un correo excepcionalmente largo y sin espacios para presionar la Row de 150px del resumen final
-      await tester.enterText(find.widgetWithText(TextFormField, 'Correo Electrónico'), 'lorenzo.roca.martinez.desarrollo@inces.gob.ve');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Domicilio'), 'Valencia, Carabobo');
-
-      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Nivel Educativo'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Técnico').last);
-      await tester.pumpAndSettle();
-
+      await escribir(tester, 'telefono', '04141234567');
+      await escribir(
+        tester,
+        'email',
+        'lorenzo.roca.martinez.desarrollo@inces.gob.ve',
+      );
+      await escribir(tester, 'direccion', 'Valencia, Carabobo');
       await tester.tap(find.text('Continuar').at(1));
       await tester.pumpAndSettle();
-      revisar('Paso 3 · formación y misiones');
+      revisar('Paso 2 · formación');
 
-      // Paso 3: Formación y Misiones
-      // Afirmamos que el aviso de error de catálogo realmente se está pintando en pantalla
-      expect(find.text('Reintentar'), findsOneWidget);
-
-      await tester.tap(find.widgetWithText(DropdownButtonFormField<String>, 'Propuesta Formativa a Cursar'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownMenuItem<String>).last); // Seleccionar cualquier curso de respaldo
-      await tester.pumpAndSettle();
-
+      await elegirEnDesplegable(tester, 'nivel_educativo', 'Secundaria');
       await tester.tap(find.text('Continuar').at(2));
       await tester.pumpAndSettle();
-      revisar('Paso 4 · resumen');
+      revisar('Paso 3 · misiones');
 
-      // Paso 4: Confirmación y Contraseña
-      // Afirmamos que hemos llegado al resumen
+      // La rejilla con un ítem marcado: al marcar aparece el campo «desde» al lado
+      // del rótulo y los dos comparten una fila de 375 px. Es el peor caso del
+      // formulario, y es justo el que el formulario viejo no tenía.
+      await marcarPrimeraCasilla(tester, 'misiones');
+      revisar('Paso 3 · rejilla de misiones marcada');
+
+      await tester.tap(find.text('Continuar').at(3));
+      await tester.pumpAndSettle();
+      revisar('Paso 4 · representante legal');
+
+      await tester.tap(find.text('Continuar').at(4));
+      await tester.pumpAndSettle();
+      revisar('Paso 5 · propuesta formativa');
+
+      await elegirEnDesplegable(tester, 'curso_seleccionado', 'Herrería');
+      await tester.tap(find.text('Continuar').at(5));
+      await tester.pumpAndSettle();
+      revisar('Paso 6 · resumen y contraseña');
+
+      // Se demuestra que se llegó al final: si un toque hubiera fallado, el
+      // recorrido se habría quedado a medias y la prueba habría pasado sin medir
+      // los últimos pasos, que es la peor forma de aprobar.
       expect(find.text('Revisa tus datos antes de enviar'), findsOneWidget);
 
       // Se informan **todas** las etapas de una vez: con un `expect` por etapa, el
@@ -484,6 +505,11 @@ void main() {
       // diagnóstico que oculta la mitad de los fallos obliga a correr dos veces
       // para saber lo que ya se podía saber de una.
       expect(incidencias, isEmpty, reason: incidencias.join('\n'));
+
+      // Y se desmonta antes de salir, para cancelar cualquier temporizador
+      // pendiente del propio formulario.
+      await tester.pumpWidget(const SizedBox());
+      expect(arnes.planilla.llamadas, contains('campos'));
     });
   });
 }

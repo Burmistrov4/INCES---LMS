@@ -516,6 +516,53 @@ void main() {
     });
   });
 
+  group('el campo de fecha', () {
+    CampoInscripcion fechaDeNacimiento() => campo(
+          'fecha_nac',
+          etiqueta: 'Fecha de nacimiento',
+          tipo: TipoCampoInscripcion.fecha,
+        );
+
+    testWidgets('el calendario devuelve YYYY-MM-DD y el campo lo enseña',
+        (tester) async {
+      // Dos cosas en una, y la segunda es la que se descubrió tarde:
+      //  · el valor se guarda como `YYYY-MM-DD`, que es lo que el trigger de
+      //    PostgreSQL convierte a `date`. Un timestamp con hora local podía
+      //    desplazar un día y romper el CHECK de mayoría de edad;
+      //  · y **se ve**. Un `TextFormField` no propaga un `initialValue` que
+      //    cambie: su `didUpdateWidget` sólo reacciona a un controlador distinto
+      //    (`text_form_field.dart:394`) y `_initialValue` es `late final`,
+      //    capturado en `initState`. Sin controlador propio, el aspirante elegía
+      //    una fecha y el campo se quedaba **vacío**: el dato viajaba bien y no
+      //    se veía nada, que es la peor forma de fallar porque parece que el
+      //    calendario no funcionó.
+      final anfitrion = await montar(tester, fechaDeNacimiento());
+
+      // El selector abre en `hoy - 20 años`, y `DateTime(año)` sin mes ni día es
+      // el 1 de enero: confirmar sin tocar nada elige esa fecha.
+      final anio = DateTime.now().year - 20;
+
+      await tester.tap(find.byType(TextFormField));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(anfitrion.ultimo, '$anio-01-01');
+      expect(
+        find.text('01/01/$anio'),
+        findsOneWidget,
+        reason: 'la fecha elegida tiene que verse en el campo, no sólo viajar',
+      );
+    });
+
+    testWidgets('con una fecha ya puesta, el campo la muestra al montar',
+        (tester) async {
+      await montar(tester, fechaDeNacimiento(), inicial: '1998-03-07');
+
+      expect(find.text('07/03/1998'), findsOneWidget);
+    });
+  });
+
   group('layout a 375 px', () {
     const movil = Size(375, 812);
 

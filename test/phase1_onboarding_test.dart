@@ -93,6 +93,149 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  group('AspiranteModel · la planilla completa', () {
+    /// Una planilla con la forma que produce el catálogo: el nombre desglosado y
+    /// la rejilla de misiones, que son las dos cosas que no tienen columna.
+    Map<String, dynamic> planillaDeEjemplo() => {
+          'primer_nombre': 'Lorenzo',
+          'segundo_nombre': 'José',
+          'primer_apellido': 'Roca',
+          'misiones': {'RIBAS': '2019'},
+        };
+
+    test('`datos_planilla` viaja en la metadata y en el JSON de escritura', () {
+      final aspirante = _aspiranteAdulto();
+      final conPlanilla = AspiranteModel(
+        nombres: aspirante.nombres,
+        apellidos: aspirante.apellidos,
+        cedula: aspirante.cedula,
+        fechaNacimiento: aspirante.fechaNacimiento,
+        sexo: aspirante.sexo,
+        telefono: aspirante.telefono,
+        email: aspirante.email,
+        direccion: aspirante.direccion,
+        nivelEducativo: aspirante.nivelEducativo,
+        cursoSeleccionado: aspirante.cursoSeleccionado,
+        datosPlanilla: planillaDeEjemplo(),
+      );
+
+      expect(conPlanilla.toMetadata()['datos_planilla'], isA<Map<String, dynamic>>());
+      expect(conPlanilla.toJson()['datos_planilla'], isA<Map<String, dynamic>>());
+      // Es la clave que hace que el trigger llame a `validar_planilla()`: sin
+      // ella el trigger no valida, que es la asimetría deliberada que permitió
+      // desplegar la migración sin romper al formulario viejo.
+      expect(
+        (conPlanilla.toMetadata()['datos_planilla'] as Map)['primer_nombre'],
+        'Lorenzo',
+      );
+    });
+
+    test('sin planilla, la clave no se manda', () {
+      // Ausente y no nula: mandar `datos_planilla: null` haría que el trigger
+      // encontrara la clave y validara contra un `null`.
+      final metadata = _aspiranteAdulto().toMetadata();
+
+      expect(metadata.containsKey('datos_planilla'), isFalse);
+    });
+
+    test('`fromJson` lee `datos_planilla` si viene como mapa', () {
+      final leido = AspiranteModel.fromJson({
+        'nombres': 'Lorenzo',
+        'apellidos': 'Roca',
+        'cedula': '20123456',
+        'datos_planilla': planillaDeEjemplo(),
+      });
+
+      expect(leido.datosPlanilla, isNotNull);
+      expect(leido.datosPlanilla!['segundo_nombre'], 'José');
+    });
+
+    test('una `datos_planilla` con otra forma se descarta en vez de reventar', () {
+      // La planilla es un dato accesorio de la ficha: no poder leerla no debe
+      // impedir mostrar al aspirante.
+      final leido = AspiranteModel.fromJson({
+        'nombres': 'Lorenzo',
+        'apellidos': 'Roca',
+        'cedula': '20123456',
+        'datos_planilla': 'esto no es un mapa',
+      });
+
+      expect(leido.datosPlanilla, isNull);
+      expect(leido.nombres, 'Lorenzo');
+    });
+
+    test('`toMetadata` NO manda `mision_ribaras`, aunque el modelo lo tenga', () {
+      // El modelo conserva el campo para **leer** la columna y para las
+      // escrituras de administración, pero el formulario nuevo manda la rejilla
+      // `misiones` dentro de `datos_planilla`. Mandar los dos sería guardar lo
+      // mismo dos veces con dos formas distintas.
+      final aspirante = AspiranteModel(
+        nombres: 'Lorenzo',
+        apellidos: 'Roca',
+        cedula: '20123456',
+        fechaNacimiento: DateTime(DateTime.now().year - 20, 1, 1),
+        sexo: 'M',
+        telefono: '04141234567',
+        email: 'lorenzo@example.com',
+        direccion: 'Valencia',
+        nivelEducativo: 'Secundario',
+        cursoSeleccionado: 'Herrería',
+        misionRibaras: 'Ribas',
+      );
+
+      expect(aspirante.toMetadata().containsKey('mision_ribaras'), isFalse);
+      // Pero sí se conserva para escribir la columna directamente.
+      expect(aspirante.toJson()['mision_ribaras'], 'Ribas');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  group('AspiranteModel · mayoría de edad', () {
+    // La regla tiene que ser la misma que el CHECK de la base
+    // (`fecha_nac > current_date - interval '18 years'`), porque la pantalla la
+    // usa para decidir si pide los datos del representante legal **antes** de
+    // enviar. Dos copias de una regla de edad se desvían en el borde exacto de
+    // los 18 años, que es justo donde importa.
+    final hoy = DateTime.now();
+
+    test('sin fecha no se presume menor', () {
+      // Un formulario a medio rellenar no puede quedar marcado como menor: eso
+      // exigiría un representante legal que quizá no haga falta.
+      expect(AspiranteModel.esMenorDeEdadCon(null), isFalse);
+    });
+
+    test('el día que cumple 18 ya no es menor', () {
+      expect(
+        AspiranteModel.esMenorDeEdadCon(DateTime(hoy.year - 18, hoy.month, hoy.day)),
+        isFalse,
+      );
+    });
+
+    test('un día antes de cumplir 18 sí lo es', () {
+      // El borde por el otro lado. Se construye con el día +1 y se deja que
+      // `DateTime` normalice el desborde de mes: escribir `hoy.day + 1` a mano
+      // reventaría el último día de cada mes, que es cuando menos se prueba.
+      expect(
+        AspiranteModel.esMenorDeEdadCon(
+          DateTime(hoy.year - 18, hoy.month, hoy.day + 1),
+        ),
+        isTrue,
+      );
+    });
+
+    test('17 años es menor y 19 no', () {
+      expect(
+        AspiranteModel.esMenorDeEdadCon(DateTime(hoy.year - 17, 1, 1)),
+        isTrue,
+      );
+      expect(
+        AspiranteModel.esMenorDeEdadCon(DateTime(hoy.year - 19, 1, 1)),
+        isFalse,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   group('AppException · traducción de errores', () {
     test('cédula duplicada (23505) se traduce a error de duplicado', () {
       final error = AppException.from(
