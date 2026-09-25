@@ -299,10 +299,7 @@ void main() {
       // El error que esto evita es el contrario: que la pantalla exija el
       // representante a todo el mundo y un adulto no pueda inscribirse sin
       // inventarse un tutor.
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester, fechaNac: '2000-01-01');
 
@@ -311,10 +308,7 @@ void main() {
 
     testWidgets('para un menor de edad, sí se exige y dice cuál falta',
         (tester) async {
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       // Se rellena todo menos el representante legal (paso 4), que para un menor
       // es obligatorio aunque el catálogo no lo marque: la condición es la EDAD,
@@ -342,10 +336,7 @@ void main() {
 
     testWidgets('con los datos del representante, el menor sí puede seguir',
         (tester) async {
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await escribir(tester, 'primer_nombre', 'Lorenzo');
       await escribir(tester, 'primer_apellido', 'Roca');
@@ -418,10 +409,7 @@ void main() {
       // `v_nombres` en NULL, la condición `v_es_aspirante` fallaría y **la ficha
       // no se crearía, sin error**: el aspirante vería «registro exitoso» y no
       // tendría ficha.
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester);
       await ponerPassword(tester);
@@ -434,10 +422,7 @@ void main() {
     });
 
     testWidgets('manda `datos_planilla` con la planilla completa', (tester) async {
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester);
       await ponerPassword(tester);
@@ -460,10 +445,7 @@ void main() {
       // `datos_planilla` y el campo de texto libre del formulario viejo deja de
       // enviarse. Mandar los dos sería guardar lo mismo dos veces con dos formas
       // distintas, y el día que discreparan no habría forma de saber cuál manda.
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester);
       await ponerPassword(tester);
@@ -473,10 +455,7 @@ void main() {
     });
 
     testWidgets('copia las claves planas que el trigger lee', (tester) async {
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester);
       await ponerPassword(tester);
@@ -499,10 +478,7 @@ void main() {
       // Si viajara, `datos_planilla` guardaría una contradicción —un detalle de
       // pueblo indígena junto a un «no pertenezco»— y nadie sabría después cuál
       // de las dos cosas es la respuesta.
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await escribir(tester, 'primer_nombre', 'Lorenzo');
       await escribir(tester, 'primer_apellido', 'Roca');
@@ -538,10 +514,7 @@ void main() {
     });
 
     testWidgets('una contraseña corta no deja enviar', (tester) async {
-      await montar(
-        tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
-      );
+      await montar(tester);
 
       await completarFormulario(tester);
       await tester.enterText(
@@ -577,6 +550,13 @@ void main() {
         cursos: const [],
         errorCursos: Exception('sin red'),
       );
+
+      // Hay que **llegar** al paso de la propuesta formativa antes de tocar nada:
+      // el aviso vive ahí, y aunque `find` lo encuentra desde el paso 0 —el
+      // `Stepper` deja el contenido de todos los pasos en el árbol—, el de un paso
+      // que no es el actual está plegado a alto cero, así que `tap` no acertaría.
+      // Una prueba que pulsa un botón sin acertarle y pasa no prueba nada.
+      await completarFormulario(tester, paso: 5);
 
       expect(find.textContaining('No pudimos cargar el catálogo de cursos'),
           findsOneWidget);

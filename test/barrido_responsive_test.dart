@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:inces_lms_app/core/gateways/invitacion_gateway.dart';
 import 'package:inces_lms_app/models/archivo.dart';
 import 'package:inces_lms_app/models/cuadrante.dart';
-import 'package:inces_lms_app/models/inscripcion_campo.dart';
 import 'package:inces_lms_app/models/invitacion_docente.dart';
 import 'package:inces_lms_app/models/seccion.dart';
 import 'package:inces_lms_app/models/system_setting.dart';
@@ -425,7 +424,6 @@ void main() {
       // conducido por datos, este recorrido no encontraría los campos y fallaría.
       final arnes = await montarFormulario(
         tester,
-        catalogo: catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto),
         tamano: const Size(375, 2400),
       );
 
