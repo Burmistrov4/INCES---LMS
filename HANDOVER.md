@@ -2633,4 +2633,78 @@ secretos** en GitHub. **Cinco credenciales pendientes de rotar** — y las cinco
 
 ---
 
+## Sesión 13 — 2026-09-25 (cierre): el formato de HACER y el servicio que lo entrega
+
+### Lo que se hizo
+
+Con la vista de exportación ya aplicada, llegaron las **reglas de formateo del sistema receptor**
+—la mitad de D17 que no era «qué columnas» sino «cómo se escribe el archivo»— y quedaron
+implementadas, cada una con su motivo escrito al lado:
+
+| Regla | Dónde vive |
+| --- | --- |
+| Separador **`;`** | `separadorHacer` |
+| **UTF-8 con BOM** (`EF BB BF`) | `marcaOrdenDeBytes` |
+| Fin de línea **CRLF** | `_finDeLinea` |
+| Nulos → `""`, texto **en MAYÚSCULAS** | `_formatearCelda` |
+| Saltos internos → un espacio | `_formatearCelda` |
+| `documento_identidad` derivado (`V012345678`) | `FilaExportacionHacer.documentoIdentidad` |
+
+Son **62 columnas** en el archivo: las **61** que declara la vista más `documento_identidad`, que
+**no viene de la vista** sino que se deriva en el cliente. **D17 no se cierra con esto**: se parte
+en dos, y la mitad «qué columnas y en qué orden» sigue abierta → **preguntar a HACER, no
+programar**.
+
+### `HacerExportService` — la secuencia, fuera del `State`
+
+`lib/services/hacer_export_service.dart` **compone** piezas que ya existían y estaban probadas
+por separado (`ExportacionHacerRepository` + `csvDeExportacionHacer` + `SelectorDeArchivos`); no
+consulta ni serializa por su cuenta. Lo que aporta es la **secuencia**, que hasta ahora vivía
+dentro del `State` del panel mezclada con `setState` y avisos, y que por eso no se podía probar
+sin montar una pantalla.
+
+Devuelve un `sealed` de **cuatro** desenlaces y **nunca lanza**. Tres decisiones que quedan
+documentadas en el código, no sólo en este traspaso:
+
+- **«No hay nada que exportar» no es un `Failure`.** Una sección recién abierta es normal; si
+  viajara como error, el panel pintaría un rojo por nada y el administrador aprendería a ignorar
+  los rojos.
+- **Los dos fallos se distinguen** porque son de sitios distintos: la consulta es la red, la
+  descarga es el navegador. Al administrador no le sirve el `toString()` de un error de
+  JavaScript, pero sí saber cuál de las dos mitades falló.
+- **El servicio no vuelve a escribir la regla de autorización.** La frontera es la RLS
+  (ADR-003) y la vista es `security_invoker`: el servicio se apoya en el JWT de la sesión. Un
+  `service_role` —o una ruta en Fastify— sería una segunda copia de la regla, y de las dos copias
+  la que se desvía es siempre la de fuera.
+
+Y una regla del proyecto que se respetó: **el archivo se descarga, no se sube.** Subirlo a R2
+desde el navegador exigiría credenciales de R2 en el frontend, y eso no ocurre en este proyecto.
+
+### Verificación
+
+- **`Flutter CI` #25 sobre `5f66235`: `success`** — diez pasos, sin anotaciones de fallo. Es el
+  único sitio donde `flutter test` corre: desde la shell del agente no arranca (`ERROR_PIPE_BUSY`,
+  tubería nombrada).
+- **Analizador local**: `C:/tmp/anapro/verificar.mjs` → **0 errores, 0 avisos, 0 informativos
+  sobre 171 archivos**.
+- **El serializador se ejecutó de verdad**, no por proxy: `dart` **sí** arranca desde esta shell,
+  así que se volcó el archivo real a `C:\tmp\hacer-export\salida-real.csv` — **3273 bytes**,
+  primeros seis `EF BB BF 69 6E 73`, **62 columnas**, CRLF sí / LF suelto no, cabecera **sin**
+  mayusculizar, `V012345678` desde `12345678`+`V`, `V-9876543` sin nacionalidad → `V009876543`.
+- **Una deriva propia, corregida:** `MEMORY.md` decía «SIN aplicar» de `202609250004` mientras su
+  propia línea de estado decía «aplicada». **El archivo de memoria también se relee.**
+
+### Dos cosas que el verde no cubre
+
+1. **La ruta `package:web` + `dart:js_interop` de la descarga no compila en la VM de
+   `flutter test`.** Está cubierta por dobles. **El ciclo en navegador real sigue siendo deuda**,
+   igual que el de M5 y el de M6.
+2. **La identidad de la exportación no se ha visto con datos.** El cuadrante sembrado tiene **3**
+   inscripciones `ENROLLED` que apuntan a `auth.users` reales **sin ficha en `aspirantes`**
+   (`aspirantes` = **0 filas**), así que una exportación real de esa sección da 3 filas con la
+   identidad vacía. **No es un fallo**: es cómo está sembrado. La sonda de 18/18 mide **forma de
+   RLS**, no identidad.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
