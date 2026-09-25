@@ -2338,4 +2338,94 @@ que es donde quedó verificada.
 
 ---
 
+## Sesión 11 — Fase 3 de D14: se retira el andamiaje (2026-09-25)
+
+**Commit `36a199b`** — 10 archivos, **+482 / −91**.
+
+Cierra **D12** del todo y termina **D14**. Migración
+`202609250002_d14_fase3_retirar_tolerancia_y_vista.sql`, en tres partes: se suelta la
+vista, el resolutor pierde el vocabulario viejo, y la migración se comprueba a sí misma.
+
+### La decisión que gobernó la fase: medir antes de retirar
+
+Las dos piezas que se retiran eran **andamiaje de transición**, y las dos protegían a un
+cliente que ya no existe:
+
+| Pieza | A quién protegía | Por qué se puede retirar |
+| --- | --- | --- |
+| Tolerancia al NOMBRE en `resolver_programa_inscripcion()` | Al formulario **desplegado** que manda el nombre | No hay formulario desplegado |
+| Vista `cursos` | Al `cursosDisponibles()` del cliente **viejo** | La Fase 2 lo sustituyó por `programasDisponibles()` |
+
+Sin tolerancia, un nombre no resuelve → `v_programa` nulo → `v_es_aspirante` falso →
+**«registro exitoso» sin ficha**. Ése es el fallo silencioso que `202609250001` documentó.
+Así que «¿existe un cliente desplegado?» no era una pregunta retórica: era la condición de
+seguridad de la fase.
+
+**Se midió contra GitHub, no contra la memoria del proyecto** (2026-09-25):
+
+| Fuente | Resultado |
+| --- | --- |
+| `GET /repos/…/deployments` | `[]` |
+| `GET /repos/…/environments` | `total_count: 0` |
+| Repositorio | `homepage: null`, `has_pages: false` |
+| Estado del commit `80432c1` | `total_count: 0` — ningún host reportó build |
+| Corridas de Actions (20) | todas «Flutter CI» / `push` |
+| `.github/workflows/*.yml` | ninguna mención de `deploy`/`vercel`/`pages` |
+| `ESTADO_DEL_SISTEMA.md` §2 | «API publicada ❌ Pendiente», «Frontend publicado ❌ Pendiente» |
+
+Siete señales, todas en la misma dirección: **no hay nada desplegado**. Límite dicho en voz
+alta: la medición sólo alcanza a GitHub; un despliegue por fuera (CLI sin integración,
+publicación manual) no aparecería. Si algún día aparece una URL pública, esta migración deja
+de ser inocua y hay que volver a decidir.
+
+### El código para un valor que no es uuid: 23503, y por qué no 23514
+
+- **Coherencia interna:** la función ya usa 23503 para todo lo que significa «esta referencia
+  a programa no es aceptable» (no existe, inactivo, es CARRERA, nombre ambiguo).
+- **El mensaje no miente:** `app_exception.dart` traduce 23503 a `validacion` con «El registro
+  hace referencia a datos que no existen». Su rama de 23514 dice «Revisa la fecha de
+  nacimiento y los datos del representante», que para un id de curso mal formado sería
+  **falso**.
+- **`22P02` descartado:** es lo que PostgreSQL lanza solo al castear mal, pero ningún extremo
+  lo traduce → saldría como **500 opaco**, justo lo que el mapeo de 23502 viene a arreglar.
+
+### Tres cosas que el plan aprobado no cubría
+
+1. **La retirada rompía más que la sección 14.** Dos fixtures de `validate.mjs` mandaban
+   **nombres**: la metadata de `ALUMNO_ID` (§7) y `identidad()`, el que simula al «cliente
+   viejo». Sin tolerancia el trigger no resuelve y caía la aserción «el trigger crea la
+   ficha» — sin decir por qué. Los dos pasaron a uuid.
+2. **Dos consultas no fallaban: reventaban.** `select … from public.cursos` con la vista
+   borrada es un **error de Postgres**, no un `check` fallido: abortaba la suite entera por
+   `main().catch`. Lo mismo en `verificar-esquema.mjs`. No bastaba «actualizar aserciones»:
+   había que **quitar la consulta**.
+3. **Colisión de nombre, y lo que reveló.** Renombré `anonCursos` → `anonProgramas` y ya
+   existía un `anonProgramas` en §13. Al mirarlo resultó que §13 **ya prueba** esa RLS —y
+   mejor: por presencia de fila, no por un `=== 6` que se rompe cuando crezca el catálogo—.
+   El bloque de §14 se retiró con una nota que dice dónde vive la prueba ahora, en vez de
+   dejar una aserción duplicada y frágil. **Un choque de nombres destapó una redundancia.**
+
+### Verificación
+
+| Comprobación | Resultado |
+| --- | --- |
+| `validate.mjs` (PostgreSQL real, PGlite) | ✅ **463 / 463** — «TODO VERDE»; `202609250002 … aplicado` |
+| Backend (`npm run verify`) | ✅ **562 / 562** en 22 archivos; `typecheck` y `lint` limpios |
+| Verificador local (servidor de análisis real, bajo Node) | ✅ **limpio** — 0 errores, 0 avisos, 0 informativos, **163 archivos** |
+| `flutter test` desde esta shell | ❌ **no arranca** — `ERROR_PIPE_BUSY` (231) en el primer spawn (`git.EXE`). Es la limitación ya caracterizada en la Sesión 10, no el cambio. Lo verifica CI |
+
+### Lo que queda
+
+- **Aplicar `202609250002` en la nube** — falta el `SUPABASE_ACCESS_TOKEN`. Cuando se aplique,
+  `ESTADO_DEL_SISTEMA.md` §2 cambia en **dos cifras**: migraciones **23 → 24** y vistas
+  **5 → 4**. Después, correr `verificar-esquema.mjs`, que ya espera la vista ausente.
+- **Verificar `flutter test` en la terminal real**, o esperar CI: la prueba nueva de `23502`
+  está **analizada** pero **no ejecutada**.
+- **`gh` no está instalado** y el conector de GitHub no está conectado: la API pública por
+  `WebFetch` sirve para leer, pero los **registros de los jobs** siguen exigiendo permisos de
+  administración, así que el recuento de la suite de CI **no se puede citar**.
+- Sigue pendiente **rotar las cuatro credenciales** expuestas en sesiones anteriores.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*

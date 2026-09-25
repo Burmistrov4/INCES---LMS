@@ -4,12 +4,17 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-17 · **Módulo 3 completo y desplegado**
+> **Última actualización:** 2026-09-25 · **Módulo 3 completo y desplegado**
 > (esquema, backend de 14 rutas y frontend), con su humo de integración en verde
 > contra la nube. **Módulo 4 — Inscripciones y Cupos: Fases 1 (esquema) y 2
 > (backend) cerradas**; queda el frontend. Módulo 1 cerrado y
 > Módulo 2 completo. **D10 resuelta** (libro mayor de migraciones con checksums).
 > Puertos y CORS alineados. Repositorio publicado en GitHub.
+>
+> **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
+> `cursos` y fuera la tolerancia transitoria al nombre del curso). **El estado por
+> módulo que manda es el de §2 y §6**; este encabezado es un resumen y puede ir por
+> detrás — de hecho iba por detrás en la fecha, que arrastraba el 2026-09-17.
 >
 > **El Módulo 3 está completo (frontend incluido).** Las 14 rutas ya existen, están
 > registradas en Fastify y documentadas en `openapi.json` (el recuento pasó de
@@ -243,24 +248,34 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 `programs` como `CURSO_LIBRE`. **Recontado el 2026-09-25** con
 `supabase/contar-catalogo.mjs`.
 
+> **Pendiente en la nube: `202609250002`.** Escrita y **verificada contra
+> PostgreSQL real (PGlite)** el 2026-09-25 —la suite de `supabase/tests/` queda en
+> **463 aserciones, 0 fallidas**—, pero **todavía no aplicada** al proyecto de
+> Supabase. Cuando se aplique, esta sección cambia en **dos cifras y sólo dos**:
+> migraciones **23 → 24** y vistas **5 → 4** (desaparece `cursos`). Lo demás no se
+> mueve: la migración suelta una vista y **sustituye el cuerpo** de una función que
+> ya existía, así que **22 tablas, 51 funciones, 29 triggers y 46 políticas RLS
+> siguen igual**. El renglón se actualizará **recontando**, no restando.
+
 > **La aritmética de D14 cierra en +1 función y nada más.** `202609250001` añade
 > `resolver_programa_inscripcion()` y **sustituye el cuerpo** de tres funciones que
 > ya existían (`validar_planilla`, `handle_new_user`, `validar_planilla_guardada`),
 > así que **50 → 51 funciones**. **No crea ni borra tablas, vistas, triggers ni
-> políticas**: 22 · 5 · 29 · 46 siguen exactamente igual. La sustitución de la
+> políticas**: 22 · 5 · 29 · 46 seguían exactamente igual. La sustitución de la
 > columna `curso_seleccionado` por `program_id` tampoco mueve ningún contador.
-> **La vista `cursos` sigue en pie a propósito** — se retira en la fase en que
-> Flutter lea `programs` directamente (ver D12 y D14 en §6), así que las 5 vistas
-> se mantienen. Las cifras anteriores (49 funciones, 28 triggers, 21 migraciones)
-> eran de antes de la guardia de escritura de la planilla.
+> **La vista `cursos` ya no está**: `202609250002` la retiró al comprobarse que el
+> cliente de la Fase 2 era su último consumidor, así que las vistas pasan de **5 a
+> 4** — ver D12 y D14 en §6. Las cifras anteriores (49 funciones, 28 triggers, 21
+> migraciones) eran de antes de la guardia de escritura de la planilla.
 
 > **El catálogo de M4 ya está contado, no sumado.** Recontado el **2026-09-24**
 > con `supabase/contar-catalogo.mjs` **después** de aplicar `202609240001`, la
 > aritmética cierra pieza por pieza: **+1 tabla** (`inscripcion_campos`), **+3
 > políticas RLS** (`inscripcion_campos_lectura_publica`, `_admin_escritura` y
 > `_admin_lectura`), **+1 función** (`validar_planilla`) y **+1 trigger**
-> (`inscripcion_campos_set_updated_at`). **Sin vistas nuevas** (siguen 5) y **sin
-> parámetros nuevos** (siguen 11). Nada se coló sin documentar.
+> (`inscripcion_campos_set_updated_at`). **Sin vistas nuevas** (eran 5 entonces;
+> hoy **4**, tras `202609250002`) y **sin parámetros nuevos** (siguen 11). Nada se
+> coló sin documentar.
 >
 > **La política de lectura pública es deliberada, no un descuido.** `anon` puede
 > leer el catálogo porque el aspirante **no tiene sesión** cuando el formulario se
@@ -661,9 +676,14 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 
 ### Vistas
 
+> **`cursos` ya no está.** Fue la vista de compatibilidad de D12 hasta el
+> 2026-09-25; `202609250002` la retiró. Quedan **cuatro** vistas, todas de módulo y
+> todas `security_invoker`. La RLS de la oferta formativa no se pierde con ella: la
+> aplicaba `programs` —la vista era `security_invoker` justo para eso—, y sigue
+> aplicándose.
+
 | Vista | Origen | Propósito |
 | --- | --- | --- |
-| `cursos` | **D12** | **Vista de compatibilidad** sobre `programs` (`type = 'CURSO_LIBRE'`) con `security_invoker`. Existía como tabla desde Fase 0; se conservó para no romper el desplegable del formulario público de inscripción mientras Flutter siga leyendo `cursos`. Se retira con `drop view public.cursos;` cuando el cliente lea `programs` directamente |
 | `v_cuadrante_clases` | **M3** | El cuadrante enriquecido: materia, sección, aula, día legible y nombre del docente. `security_invoker` |
 | `v_cuadrante_guardias` | **M3** | Las guardias con su aula y su día legible. `security_invoker` |
 | `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
@@ -724,7 +744,6 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `program_subjects` | **Solo autenticados** | **Solo admin** |
 | `sections` | Activas (`is_active`) para `anon` y autenticados | **Solo admin.** Sin `DELETE` para nadie: archivar es `is_active = false` |
 | `enrollments` | El propio; admin todo. `anon` **no tiene ni el `GRANT`** | **Nadie escribe directo** — ni el propio estudiante, **ni un admin**: `INSERT`/`UPDATE`/`DELETE` están **revocados** de `anon` y `authenticated`. Único camino: las 6 RPC `security definer` de M4 (ver R-23) |
-| `cursos` *(vista, no tabla)* | Hereda la RLS de `programs` gracias a `security_invoker`: `anon` sólo ve los cursos activos | — es una proyección; se escribe en `programs` |
 | `teacher_invitations` | **Solo admin** | **Solo admin.** El servicio de activación usa `service_role` y no pasa por aquí |
 | `auth_logs` | **Solo admin** | **Nadie.** Único camino: el backend con `service_role` |
 | `schema_migrations` | **Nadie** (revocado a `anon` y `authenticated`) | **Nadie.** Sólo el script con token de administración |
@@ -1338,9 +1357,9 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D9** | Una URL prefirmada de `PUT` no puede imponer un tamaño máximo | 🟡 **El reloj está construido y verificado; falta activarlo** (seis secretos en GitHub). Las otras dos mitades están cerradas: (a) la de **configuración** resultó ser **menor de lo que decía la redacción original** — de las tres fugas, la de multipart **ya estaba tapada** por la regla que R2 crea por defecto en todo bucket, así que no había nada que añadir (§3.4 de `docs/CONFIGURACION_R2.md`); (b) la de **código**, construida y verificada el 2026-09-19: `backend/scripts/limpiar-pendientes.mts` barre las `PENDING` abandonadas —y con `--revisar-borrados` las `DELETED` con objeto residual, y con `--huerfanos` los objetos que ninguna fila referencia—, `supabase/eliminar-cuenta.mjs` borra los objetos **antes** de la cuenta, negándose a borrarla si el borrado en R2 falla, y el barrido es además una **ruta de administración** (`POST /api/v1/admin/archivos/limpiar`), idempotente y sin credenciales de R2 para quien la llama. **El reloj ya existe** (2026-09-24): `.github/workflows/limpiar-pendientes.yml` pulsa el barrido **a diario** (07:17 UTC) invocando el **script**, no la ruta —la ruta exige un JWT de administrador, y un JWT de Supabase caduca en una hora, así que un cron tendría que guardar la contraseña de una persona (§3.7)—, y el repo tiene CI desde ese mismo día. Corre **en la nube, así que no depende de que la máquina esté encendida** — que es la pega que arrastraba la receta local de `devops/README.md` §4.2, y este proyecto tiene cortes eléctricos. **Falta sólo activarlo**: el flujo necesita **seis secretos** de GitHub que aún no están configurados, y sin ellos el script sale con código 2 («FALTAN VARIABLES»), que es un fallo seguro — sin credenciales no toca nada. `pg_cron` **no puede** sustituirlo —corre dentro de PostgreSQL, que no habla con el bucket, así que marcaría la fila y dejaría el objeto donde está—; la receta local sigue en `devops/README.md` §4.2 —ya no es la única puerta—, con el razonamiento en §3.7 de `docs/CONFIGURACION_R2.md`. Una regla `--expire-days` sobre `m5_archivos/` **borraría los archivos confirmados** (R2 sólo filtra por prefijo): ver §3.3, y por eso el barrido es código y no configuración. **Ya no está latente por la bandera**: desde el 2026-09-19 las seis rutas de M5 llevan `exigirModulo('m5_archivos')` y apagarla devuelve 403 — aunque la bandera sigue sin ser un barrido. Hubo **un huérfano real** el 2026-09-18 |
 | **D10** | La conexión directa a la base es sólo IPv6 → `supabase db push` no funciona en redes IPv4 | ✅ **Resuelta** — `supabase/apply-migrations.mjs` con libro mayor (`public.schema_migrations`: version, checksum, applied_at). Sólo aplica lo ausente y detecta deriva por SHA-256 |
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
-| **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
+| **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta y cerrada del todo (2026-09-25)** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) y `202609250002` **la retiró**, ya sin consumidor tras la Fase 2 del cliente (`80432c1`). Una sola fuente de verdad y **cero objetos de andamiaje** |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
-| **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | 🟡 **Base y cliente resueltos (2026-09-25); falta la limpieza** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). El **cliente** ya manda el uuid y lee `programs` directamente (`80432c1`, Fase 2). **Falta**: retirar la **tolerancia transitoria** por nombre —vive para que la migración no rompiera al formulario desplegado— y `drop view public.cursos`, que **cierra D12** del todo |
+| **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ✅ **Resuelta del todo (2026-09-25)** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). El **cliente** ya manda el uuid y lee `programs` directamente (`80432c1`, Fase 2). Y `202609250002` **retira la tolerancia transitoria por nombre** —que existía para no romper a un cliente desplegado que nunca llegó a estarlo— y **borra la vista `cursos`**, con lo que cierra D12. Un valor que no es uuid sale **23503** |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 | **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
 
@@ -1597,11 +1616,11 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las dieciséis migraciones**, y ejecuta **271**
+aplica el shim de Supabase y **las veinticuatro migraciones**, y ejecuta **463**
 aserciones sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
-(la vista `cursos`, la `sections` rediseñada y el trigger de la Regla 2, probado
-en las dos direcciones), el Módulo 3 completo (aulas, lapsos, guardias,
+(**la retirada de la vista `cursos`**, la `sections` rediseñada y el trigger de la
+Regla 2, probado en las dos direcciones), el Módulo 3 completo (aulas, lapsos, guardias,
 cuadrante, los dos triggers anti-colisión en las dos direcciones —lo que debe
 rechazar y lo que debe permitir—, el cruce guardia/clase, y la escritura **como
 `authenticated` real**, que es lo que cubre el punto ciego de R-20), **el motor de
@@ -1811,28 +1830,38 @@ Las dos deudas que este diseño destapó quedaron resueltas el 2026-09-15 en
 `202609160001_resolucion_d12_d13.sql`. El relato completo está en §10; aquí sólo
 queda el enlace:
 
-- **D12 — `cursos` contra `programs`.** ✅ **Resuelta.** `programs` es la única
-  fuente de verdad y `cursos` pasó a ser una vista de compatibilidad, para no
-  dejar la app rota entre la migración y el cambio en Flutter.
+- **D12 — `cursos` contra `programs`.** ✅ **Resuelta y cerrada del todo.** `programs`
+  es la única fuente de verdad. `cursos` pasó a ser una vista de compatibilidad para
+  no dejar la app rota entre la migración y el cambio en Flutter, y `202609250002`
+  (**2026-09-25**) **la retiró**: el andamiaje ya no hace falta, y mantenerlo sería
+  una segunda fuente de verdad con fecha de caducidad.
 - **D13 — `sections` no era la que M3 necesita.** ✅ **Resuelta.** Rediseñada
   completa, con `program_id`, y la Regla 2 implementada sobre ella.
 
-**D14 ya está resuelta de punta a punta** (fila en §6), y le queda la limpieza. La
-base dejó de guardar el nombre: `202609250001` (**2026-09-25**) sustituyó
-`aspirantes.curso_seleccionado` por `program_id` con clave foránea, y
-`resolver_programa_inscripcion()` es quien decide qué valor vale. Y el **cliente**
-dejó de mandarlo: `80432c1` (**2026-09-25**, Fase 2) manda el uuid y lee `programs`
-directamente. Lo que falta es retirar la **tolerancia transitoria** por nombre y
-`drop view public.cursos`.
+**D14 también está cerrada** (fila en §6). La base dejó de guardar el nombre:
+`202609250001` (**2026-09-25**) sustituyó `aspirantes.curso_seleccionado` por
+`program_id` con clave foránea, y `resolver_programa_inscripcion()` es quien decide
+qué valor vale. El **cliente** dejó de mandarlo: `80432c1` (**2026-09-25**, Fase 2)
+manda el uuid y lee `programs` directamente. Y `202609250002` retiró las dos piezas
+de andamiaje que quedaban: la **tolerancia transitoria** por nombre y la propia
+vista `cursos`.
 
-Ese cambio de cliente es además lo que **cierra D12 del todo**, porque es lo que
-permite retirar la vista `cursos`. **La Fase 2 ya lo hizo**: `cursosDisponibles()`
-dejó de existir y su sustituto —`programasDisponibles()`— lee `programs`. Así que
-**la vista ya no tiene consumidor** y sólo espera su migración de retirada. Hasta
-el 2026-09-25 seguía en pie a propósito, y no por descuido: era lo único que
-alimentaba el desplegable del formulario público, y borrarla antes de desplegar el
-cliente nuevo habría dejado la inscripción **sin opciones**. El orden lo fijó el
-propio `comment on view` de `202609160001` y es el que se ha respetado.
+**El orden de esa retirada lo fijó el `comment on view` de `202609160001`**, y aquí
+está por qué importaba. La tolerancia existía para que `202609250001` pudiera
+aplicarse **antes** de desplegar el cliente nuevo: el formulario de entonces manda
+el NOMBRE, y sin tolerancia el nombre no resuelve, `v_es_aspirante` queda falso y el
+aspirante vería «registro exitoso» **sin ficha** — el fallo silencioso que este
+proyecto ya se comió una vez. La vista existía por lo mismo: era lo único que
+alimentaba el desplegable público.
+
+**Antes de retirarlas se midió si ese cliente existía, y no existe.** Contra GitHub,
+el 2026-09-25: `deployments` vacío, `environments` en 0, `homepage` nulo,
+`has_pages: false`, las 20 corridas de Actions son «Flutter CI», ningún workflow
+menciona `deploy`/`vercel`/`pages`, y §2 de este mismo documento dice que la API y
+el frontend están **pendientes de publicar**. Es decir: la tolerancia era una póliza
+sobre un siniestro que nunca ocurrió. Se retiran — y la lección queda escrita: **el
+andamiaje de transición hay que retirarlo o se convierte en deuda; pero se retira
+después de medir, no por antigüedad.**
 
 ---
 
@@ -1901,6 +1930,14 @@ Dos detalles que no son opcionales:
   `pg_class.relkind` y emite el `DROP` correcto según lo que encuentre, de modo
   que la migración sirve tanto en una base limpia (donde `cursos` es tabla) como
   en una ya migrada.
+
+> **Nota del 2026-09-25.** La vista que esta sección describe **ya no existe**:
+> `202609250002` la retiró al comprobarse que el cliente de la Fase 2 era su último
+> consumidor. Lo de arriba es el relato de cómo se decidió **crearla** el
+> 2026-09-15, y se conserva tal cual —reescribir el pasado para que cuadre con el
+> presente es exactamente cómo un documento deja de servir para auditar—. El `drop`
+> tolerante al tipo que aquí se explica se reutilizó, casi palabra por palabra, en
+> la migración que la suelta.
 
 ### D13 — `sections` rediseñada, y la Regla 2 por fin implementable
 
