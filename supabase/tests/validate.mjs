@@ -3298,6 +3298,91 @@ async function main() {
   );
   check('la cadena de espacios sale 23514', errEspacios?.code === '23514', String(errEspacios?.code));
 
+  // --- 202609250003: el campo condicional y la obligatoriedad ----------------
+  //  La trampa que cerró esta migración: el panel dejaba marcar «Obligatorio» en
+  //  un campo con `condicion`, el formulario lo ocultaba y lo omitía de la
+  //  planilla, y `validar_planilla()` lo exigía igualmente. El aspirante
+  //  rellenaba los nueve pasos, el formulario validaba en verde y el alta fallaba
+  //  al final nombrando un campo que nunca vio.
+  //
+  //  Aquí se reproduce el escenario entero: se marca obligatorio un campo
+  //  condicional REAL del catálogo, se llama a la función por las dos ramas y se
+  //  restaura el valor original. Sin la migración, la rama «la condición no se
+  //  cumple» moriría con 23514 y esta aserción lo diría con el código de error.
+  const condCampo = (
+    await db.query(
+      "select codigo, obligatorio, condicion from public.inscripcion_campos " +
+        "where condicion is not null and condicion ? 'campo' order by orden limit 1",
+    )
+  ).rows[0];
+  check(
+    'hay un campo condicional real con el que probar la regla',
+    Boolean(condCampo),
+    String(condCampo?.codigo),
+  );
+
+  if (condCampo) {
+    const refCampo = condCampo.condicion.campo;
+    const igual = condCampo.condicion.igual;
+
+    //  Un valor que NO cumple la condición: si `igual` es «sí» se manda «no», y
+    //  al revés. Es el caso real —el aspirante contesta que no— y el único que
+    //  distingue «la condición se evaluó» de «la condición se ignoró».
+    const noCumple =
+      igual === true || igual === 1
+        ? false
+        : igual === false || igual === 0
+          ? true
+          : '__no_coincide__';
+
+    const etiquetaNo = `un condicional obligatorio NO se exige cuando «${refCampo} = ${JSON.stringify(noCumple)}»`;
+
+    await db.query('update public.inscripcion_campos set obligatorio = true where codigo = $1', [
+      condCampo.codigo,
+    ]);
+    try {
+      // (a) La condición NO se cumple → el campo no se exige, aunque esté marcado
+      //     obligatorio. Esto ES el arreglo.
+      try {
+        await db.query('select public.validar_planilla($1::jsonb)', [
+          JSON.stringify({ ...planillaCompleta, [refCampo]: noCumple }),
+        ]);
+        check(etiquetaNo, true);
+      } catch (e) {
+        check(etiquetaNo, false, `lanzó ${e?.code ?? ''} ${e?.message ?? e}`);
+      }
+
+      // (b) La condición SÍ se cumple y el campo falta → se exige, con 23514 y
+      //     nombrando ESE campo. Sin esta rama, «no exigir nunca» pasaría también
+      //     la prueba anterior y la validación habría quedado desactivada.
+      const errCond = await esperaError(
+        `un condicional obligatorio SÍ se exige cuando «${refCampo} = ${JSON.stringify(igual)}»`,
+        () =>
+          db.query('select public.validar_planilla($1::jsonb)', [
+            JSON.stringify({ ...planillaCompleta, [refCampo]: igual }),
+          ]),
+      );
+      check(
+        'el rechazo del condicional incumplido sale 23514',
+        errCond?.code === '23514',
+        String(errCond?.code),
+      );
+      check(
+        `el mensaje nombra «${condCampo.codigo}», que es el campo que faltaba`,
+        String(errCond?.message).includes(condCampo.codigo),
+        String(errCond?.message),
+      );
+    } finally {
+      //  Se restaura el valor ORIGINAL y no un `false` a ciegas: si algún día el
+      //  catálogo trae este campo ya obligatorio, un `false` fijo cambiaría el
+      //  estado del que dependen las secciones siguientes.
+      await db.query('update public.inscripcion_campos set obligatorio = $1 where codigo = $2', [
+        condCampo.obligatorio,
+        condCampo.codigo,
+      ]);
+    }
+  }
+
   // --- el trigger: la asimetría deliberada
   //  UUIDs propios: los `3333…`/`4444…`/`5555…` ya están tomados en otras
   //  secciones de este archivo, y reutilizarlos revienta con 23505 en

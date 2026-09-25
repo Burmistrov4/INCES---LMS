@@ -120,9 +120,13 @@ class ItemRejilla {
 /// `igual`. Ejemplo del catálogo: `pueblo_indigena_cual` se muestra cuando
 /// `pueblo_indigena` es `true`.
 ///
-/// **Sólo afecta a la presentación.** El campo existe siempre en el catálogo y
-/// su valor se puede guardar siempre; quien decide qué es obligatorio es
-/// `validar_planilla()` en la base, que **no lee `condicion`**.
+/// Afecta a la presentación **y a la obligatoriedad**. El campo existe siempre en
+/// el catálogo y su valor se puede guardar siempre; pero un campo condicional no
+/// se puede marcar obligatorio en el panel, y `validar_planilla()` en la base sólo
+/// lo exige cuando la condición se cumple en los datos enviados —migración
+/// `202609250003`, que replica `seCumple` en SQL—. Antes de esa migración la base
+/// lo exigía siempre y la inscripción fallaba al final nombrando un campo que el
+/// aspirante nunca vio.
 class CondicionCampoInscripcion {
   const CondicionCampoInscripcion({required this.campo, this.igual});
 
@@ -350,11 +354,11 @@ class CampoInscripcion {
 
   /// ¿Hay que exigirlo con los valores actuales?
   ///
-  /// Un campo oculto no se exige: no se puede rellenar lo que no se ve. Ojo con
-  /// la consecuencia, que es una **incoherencia latente del catálogo**: como
-  /// `validar_planilla()` no lee `condicion`, marcar como obligatorio un campo
-  /// condicional lo haría imposible de cumplir cuando la condición es falsa.
-  /// Hoy ningún campo del catálogo está en ese caso.
+  /// Un campo oculto no se exige: no se puede rellenar lo que no se ve. Es la
+  /// misma regla que aplica la base desde `202609250003` —`validar_planilla()`
+  /// evalúa `condicion` contra los datos enviados—, así que la obligatoriedad
+  /// condicional del formulario y la de la base coinciden. Antes de esa migración
+  /// no coincidían: el formulario perdonaba el campo oculto y la base lo exigía.
   bool obligatorioCon(Map<String, dynamic> valores) =>
       obligatorio && visibleCon(valores);
 }

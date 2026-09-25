@@ -722,6 +722,16 @@ class _DialogoCampoState extends State<_DialogoCampo> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Un campo con `condicion` no puede ser obligatorio: el formulario lo oculta
+    // y lo omite de la planilla cuando la condición no se cumple, así que
+    // exigirlo sería exigir algo que el aspirante no puede ver ni rellenar. Aquí
+    // se deshabilita el interruptor; la regla de fondo la aplica
+    // `validar_planilla()` en la base (migración 202609250003), y esto es lo que
+    // la hace evidente en la pantalla en vez de dejar que el admin marque algo
+    // que no puede funcionar. Un campo nuevo nunca trae condición, así que el
+    // caso sólo se da en edición.
+    final condicional = widget.campo?.condicion != null;
+
     return AlertDialog(
       title: Text(_esNuevo ? 'Añadir campo' : 'Editar campo'),
       // El contenido va en un `SingleChildScrollView`: con seis controles y un
@@ -861,25 +871,40 @@ class _DialogoCampoState extends State<_DialogoCampo> {
                 SwitchListTile(
                   key: const ValueKey('dialogo-obligatorio'),
                   value: _obligatorio,
-                  onChanged: (valor) => setState(() => _obligatorio = valor),
+                  // `onChanged: null` es la forma que tiene Flutter de decir
+                  // «este control no se toca aquí»: lo deja visible pero
+                  // deshabilitado, sin ocultar el estado actual del campo.
+                  onChanged: condicional
+                      ? null
+                      : (valor) => setState(() => _obligatorio = valor),
                   contentPadding: EdgeInsets.zero,
                   title: Text('Obligatorio', style: theme.textTheme.bodyMedium),
                   subtitle: Text(
-                    'El formulario no dejará enviar sin responderlo.',
+                    condicional
+                        ? 'No se puede marcar: su obligatoriedad la decide la '
+                            'respuesta previa del aspirante.'
+                        : 'El formulario no dejará enviar sin responderlo.',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const AvisoEnLinea(
-                  texto:
-                      'Marcar como obligatorio un campo que depende de otro lo '
-                      'haría imposible de cumplir cuando la condición no se dé: '
-                      'un campo oculto no se puede rellenar. El formulario no lo '
-                      'exige mientras está oculto.',
-                  tono: TonoAviso.advertencia,
-                ),
+                if (condicional) ...[
+                  const SizedBox(height: 8),
+                  // Antes esto era una advertencia sobre algo que el panel SÍ
+                  // permitía hacer y que rompía la inscripción al final —el
+                  // aspirante rellenaba los nueve pasos y el alta fallaba con un
+                  // 23514 nombrando un campo que nunca vio—. Ahora describe lo
+                  // que ocurre, porque ya no se puede provocar.
+                  const AvisoEnLinea(
+                    texto:
+                        'Este campo depende de otro: sólo se muestra cuando la '
+                        'condición se cumple, y sólo se exige mientras está '
+                        'visible. Si el aspirante no activa la condición, el '
+                        'campo no aparece y no se le pide.',
+                    tono: TonoAviso.info,
+                  ),
+                ],
               ],
             ),
           ),

@@ -14,7 +14,7 @@
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
 > `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
 > nube el mismo día**, así que el repositorio y el proyecto ya no divergen:
-> **24 migraciones, 4 vistas**. **El estado por módulo que manda es el de §2 y §6**;
+> **25 migraciones, 4 vistas**. **El estado por módulo que manda es el de §2 y §6**;
 > este encabezado es un resumen y puede ir por detrás — de hecho iba por detrás en la
 > fecha, que arrastraba el 2026-09-17.
 >
@@ -134,13 +134,14 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **463 / 463** aserciones en verde — **medido el 2026-09-25** (tras la Fase 3 de D14). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4 y D14. **La cifra bajó de 466 a 463**: §14 pasó de seis aserciones sobre la vista a una **inversa** («ya no existe») y §7 ganó una — un neto de **−4** frente a la medición anterior, así que 463 **no cuadra al aserción** con el cálculo. Se anota **lo medido**, que es lo que se puede reproducir |
-| **Migraciones en el repositorio** | **24** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250002_d14_fase3_retirar_tolerancia_y_vista.sql` |
-| **Migraciones en la nube** | **24** registradas en `schema_migrations` — **las 24 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
+| Validador SQL contra PostgreSQL real (pglite) | **468 / 468** aserciones en verde — **medido el 2026-09-25** (tras cerrar la trampa condicional). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14 y la regla de los campos condicionales. **De 463 a 468 son +5**: las que fijan la trampa «obligatorio + condicional» —que un campo condicional obligatorio **no** se exige cuando la condición no se cumple, que **sí** se exige cuando se cumple (con `23514` y nombrando ese campo)—, con **control negativo**, para que «no exigir nunca» tampoco pase. (Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible) |
+| **Migraciones en el repositorio** | **25** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250003_fix_validar_planilla_condicionales.sql` |
+| **Migraciones en la nube** | **25** registradas en `schema_migrations` — **las 25 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
+| **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
-| **Libro mayor de migraciones (D10)** | **24** versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases)** el 2026-09-25) — **22 tablas** + **4 vistas**, con RLS activo en las 22 (ver §3) |
+| **Libro mayor de migraciones (D10)** | **25** versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases) y la regla de los campos condicionales** el 2026-09-25) — **22 tablas** + **4 vistas**, con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -241,11 +242,11 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veinticuatro** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veinticinco** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **22 tablas** con RLS activo **en las 22**, **4 vistas** (las tres del Módulo 3 y
-`v_ocupacion_secciones` de M4), **51 funciones**, **29 triggers** y **46 políticas
+`v_ocupacion_secciones` de M4), **52 funciones**, **29 triggers** y **46 políticas
 RLS**, más 10 módulos sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 5
 cursos — que desde la migración de D12 viven dentro de `programs` como
 `CURSO_LIBRE`. **Recontado el 2026-09-25** con `supabase/contar-catalogo.mjs`.
@@ -276,6 +277,24 @@ cursos — que desde la migración de D12 viven dentro de `programs` como
 > cliente de la Fase 2 era su último consumidor, así que las vistas pasan de **5 a
 > 4** — ver D12 y D14 en §6. Las cifras anteriores (49 funciones, 28 triggers, 21
 > migraciones) eran de antes de la guardia de escritura de la planilla.
+
+> **`202609250003` aplicada el 2026-09-25.** Cierra la trampa de «obligatorio +
+> condicional» que encontró `AUDITORIA_M4.md`: el panel dejaba marcar «Obligatorio» en
+> un campo con `condicion`, el formulario **ocultaba y omitía** ese campo cuando la
+> condición no se cumplía, y `validar_planilla()` lo exigía **sin leer `condicion`** —
+> el aspirante recorría los 9 pasos, el formulario validaba en verde y el alta fallaba
+> al final con un **`23514` nombrando un campo que nunca vio**. El renglón cambió en
+> **dos cifras y sólo dos**, como se previó: migraciones **24 → 25** y funciones
+> **51 → 52** (`condicion_campo_se_cumple`, que replica `CondicionCampoInscripcion.seCumple`
+> y `CampoInscripcion.obligatorioCon` de Dart). **No crea ni borra tablas, vistas,
+> triggers ni políticas.** Medido **antes** de escribirla: 44 campos, 13 obligatorios,
+> 2 condicionales y **0 de ellos obligatorios** — la trampa **no estaba armada**, así
+> que el arreglo no cambia ninguna inscripción real. Se hizo igual porque el día que
+> alguien marque el interruptor el fallo aparecería como «la inscripción no funciona»,
+> sin relación con el cambio que lo causó. **Sonda en vivo** (`C:/tmp/d14/sonda-trampa.mjs`,
+> fuera del repo), armando la trampa a mano dentro de un solo `do $$`: con la condición
+> **no** cumplida la planilla **pasa**; con la condición cumplida se rechaza con `23514`
+> nombrando `pueblo_indigena_cual`; catálogo restaurado.
 
 > **El catálogo de M4 ya está contado, no sumado.** Recontado el **2026-09-24**
 > con `supabase/contar-catalogo.mjs` **después** de aplicar `202609240001`, la
@@ -1626,7 +1645,7 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las veinticuatro migraciones**, y ejecuta **463**
+aplica el shim de Supabase y **las veinticinco migraciones**, y ejecuta **468**
 aserciones sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (**la retirada de la vista `cursos`**, la `sections` rediseñada y el trigger de la
