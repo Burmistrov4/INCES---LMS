@@ -345,9 +345,17 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   Widget _panelFicha(AspiranteModel aspirante) {
     final theme = Theme.of(context);
 
-    final curso = aspirante.cursoSeleccionado.isEmpty
+    // D14: el nombre del programa ya no vive en la ficha —la columna se eliminó
+    // y quedó `program_id` con clave foránea—, así que llega resuelto por JOIN
+    // desde `miFicha()` (`select('*, programs(name)')`).
+    //
+    // `programaNombre` es nulo en cualquier ruta que no pida la relación
+    // incrustada, y por eso hay respaldo: un nombre ausente no debe romper la
+    // ficha, pero tampoco debe pasar por «no eligió nada».
+    final nombrePrograma = aspirante.programaNombre;
+    final curso = nombrePrograma == null || nombrePrograma.isEmpty
         ? 'Por asignar'
-        : aspirante.cursoSeleccionado;
+        : nombrePrograma;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

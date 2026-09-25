@@ -211,11 +211,32 @@ CatalogoInscripcion catalogoEjemplo({
           fuente: 'programas'),
     ]);
 
-/// Los cursos que devuelve el catálogo de respaldo en las pruebas.
-const List<String> cursosDePrueba = [
-  'Herrería',
-  'Higiene y Manipulación de Alimentos',
+/// La oferta formativa que devuelve el gateway en las pruebas.
+///
+/// **`valor` y `etiqueta` son distintos, y a propósito.** D14 hizo que lo que se
+/// guarda en la ficha sea el `id` del programa y lo que se pinta sea su nombre;
+/// un doble con los dos campos iguales dejaría pasar el fallo exacto que D14
+/// vino a arreglar —guardar el nombre— porque no habría forma de distinguirlos.
+/// Los uuid son inventados: las pruebas no hablan con Postgres.
+///
+/// Las **etiquetas** sí son literales y estables, porque hay pruebas que eligen
+/// la opción por su texto (`elegirEnDesplegable`). Es el único sitio donde una
+/// prueba se apoya en texto visible, y se acepta: el desplegable se conduce por
+/// lo que el aspirante lee.
+const List<OpcionCampo> programasDePrueba = [
+  OpcionCampo(valor: 'uuid-herreria', etiqueta: 'Herrería'),
+  OpcionCampo(
+    valor: 'uuid-higiene',
+    etiqueta: 'Higiene y Manipulación de Alimentos',
+  ),
 ];
+
+/// El `id` con el que las pruebas identifican el programa «Herrería».
+///
+/// Se expone para que las aserciones de D14 —«a la ficha viaja el uuid, no el
+/// nombre»— no repitan el literal y sigan coincidiendo si un día cambia.
+String get uuidHerreria =>
+    programasDePrueba.firstWhere((p) => p.etiqueta == 'Herrería').valor;
 
 /// Los grupos del catálogo de ejemplo, en orden, tal como los ve el formulario.
 ///

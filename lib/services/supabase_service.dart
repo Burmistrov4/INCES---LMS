@@ -5,6 +5,7 @@ import '../core/gateways/auth_gateway.dart';
 import '../core/gateways/modules_gateway.dart';
 import '../models/aspirante_model.dart';
 import '../models/config_audit_entry.dart';
+import '../models/inscripcion_campo.dart';
 import '../models/system_module.dart';
 import '../models/system_setting.dart';
 
@@ -28,7 +29,11 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
 
   static const String _tablaAspirantes = 'aspirantes';
   static const String _tablaPerfiles = 'profiles';
-  static const String _tablaCursos = 'cursos';
+  /// D14: la oferta formativa se lee de `programs`, no de la vista `cursos`.
+  ///
+  /// `cursos` sigue existiendo como puente de compatibilidad mientras el cliente
+  /// desplegado la use; esta capa ya no la necesita.
+  static const String _tablaPrograms = 'programs';
   static const String _tablaModulos = 'system_modules';
   static const String _tablaSettings = 'system_settings';
   static const String _tablaAuditoria = 'config_audit_log';
@@ -184,9 +189,17 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
     final id = userId;
     if (id == null) return null;
 
+    // D14: la ficha ya no guarda el NOMBRE del programa, así que se trae por la
+    // relación incrustada. Es la única ruta que pide `programs(name)` porque es la
+    // única que pinta el nombre —el panel del aspirante—; las demás devuelven el
+    // modelo con `programaNombre` nulo, y quien lo pinte debe tener respaldo.
+    //
+    // Se comprobó contra la API real que PostgREST resuelve el embed por
+    // `aspirantes_program_id_fkey` (un embed inventado devuelve 400 PGRST200, así
+    // que el 200 no es un falso positivo).
     final respuesta = await client
         .from(_tablaAspirantes)
-        .select()
+        .select('*, programs(name)')
         .eq('user_id', id)
         .maybeSingle();
 
@@ -224,10 +237,35 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
   }
 
   @override
-  Future<List<String>> cursosDisponibles() async {
-    final respuesta = await client.from(_tablaCursos).select('nombre');
+  Future<List<OpcionCampo>> programasDisponibles() async {
+    // Los dos filtros son la Decisión 1, y viven también aquí y no sólo en la
+    // base: `type = CURSO_LIBRE` porque la inscripción pública es de formación
+    // continua —las carreras tienen otro ciclo de admisión—, y `is_active` porque
+    // un borrador no debe asomar en el formulario.
+    //
+    // La RLS ya limita `programs` a `anon` con `using (is_active)`, pero eso sólo
+    // cubre a quien consulta sin sesión. El filtro explícito hace que el resultado
+    // sea el mismo para `anon` y para `authenticated`, que sí ve los borradores.
+    final respuesta = await client
+        .from(_tablaPrograms)
+        .select('id, name')
+        .eq('type', 'CURSO_LIBRE')
+        .eq('is_active', true)
+        .order('name');
+
     return respuesta
-        .map((fila) => fila['nombre'] as String)
+        .map(
+          (fila) => OpcionCampo(
+            // D14: el VALOR es el uuid y la ETIQUETA el nombre. Es el cambio que
+            // hace que renombrar un programa no toque ninguna ficha.
+            valor: (fila['id'] ?? '').toString(),
+            etiqueta: (fila['name'] ?? '').toString(),
+          ),
+        )
+        // Una fila sin id o sin nombre no es una opción: pintarla daría una
+        // casilla que el aspirante no puede identificar y que enviaría un uuid
+        // vacío. Se descarta en vez de propagar el problema al envío.
+        .where((opcion) => opcion.valor.isNotEmpty && opcion.etiqueta.isNotEmpty)
         .toList(growable: false);
   }
 

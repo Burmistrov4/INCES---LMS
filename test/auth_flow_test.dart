@@ -19,7 +19,9 @@ AspiranteModel _aspiranteValido() => AspiranteModel(
       email: 'ana.perez@example.com',
       direccion: 'Calle Principal, casa 1',
       nivelEducativo: 'Secundario',
-      cursoSeleccionado: 'Herrería',
+      // D14: el programa va por **identificador**. Antes esto era el nombre del
+      // curso en texto libre, y renombrarlo en M2 dejaba huérfana la ficha.
+      programId: 'uuid-herreria',
     );
 
 void main() {
@@ -299,16 +301,23 @@ void main() {
       expect(resultado.errorOrNull, isNull);
     });
 
-    test('el fallo del catálogo de cursos se expone para que la UI decida',
+    test('el fallo de la oferta formativa se expone para que la UI decida',
         () async {
-      final fake = FakeGateway()..errorAlCursos = Exception('timeout');
+      final fake = FakeGateway()..errorAlProgramas = Exception('timeout');
       final repo = AspiranteRepository(gateway: fake);
 
-      final resultado = await repo.obtenerCursosDisponibles();
+      final resultado = await repo.obtenerProgramasDisponibles();
 
       expect(resultado.isFailure, isTrue);
-      // La UI usa `cursosRespaldo`, pero el fallo debe ser visible y reintentable.
-      expect(AspiranteRepository.cursosRespaldo, isNotEmpty);
+      expect(resultado.valueOrNull, isNull);
+      // D14 se llevó por delante el respaldo: antes había aquí una lista de
+      // nombres de curso escrita a mano (`cursosRespaldo`) que la UI usaba para
+      // seguir adelante. Con la clave foránea esos nombres ya no son inscribibles
+      // —el trigger los resuelve contra `programs` y no los encuentra—, así que
+      // el fallo tiene que verse y poder reintentarse, no taparse con opciones
+      // que no existen. La prueba de que la pantalla avisa y ofrece «Reintentar»
+      // vive en `aspirante_form_catalogo_test.dart`.
+      expect(fake.llamadas, contains('programasDisponibles'));
     });
 
     test('precheck propaga el error de red', () async {

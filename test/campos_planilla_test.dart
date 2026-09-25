@@ -148,7 +148,7 @@ void main() {
       // `curso_seleccionado` declara `fuente: 'programas'`: sus opciones no están
       // en el catálogo. Si el widget ignorara las que le pasan, el aspirante
       // vería un desplegable vacío.
-      await montar(
+      final anfitrion = await montar(
         tester,
         CampoInscripcion(
           codigo: 'curso_seleccionado',
@@ -159,13 +159,24 @@ void main() {
           obligatorio: true,
           fuente: 'programas',
         ),
-        opciones: const [OpcionCampo(valor: 'Herrería', etiqueta: 'Herrería')],
+        // `valor` y `etiqueta` distintos, que es la forma real desde D14: lo que
+        // se guarda es el uuid del programa y lo que se lee es su nombre. Con los
+        // dos iguales, esta prueba pasaría aunque el widget guardara la etiqueta.
+        opciones: const [
+          OpcionCampo(valor: 'uuid-herreria', etiqueta: 'Herrería'),
+        ],
       );
 
       await tester.tap(find.byType(DropdownButtonFormField<String>));
       await tester.pumpAndSettle();
 
       expect(find.text('Herrería'), findsWidgets);
+
+      // Y lo que sube al anfitrión —lo que acabará guardado en la ficha— es el
+      // identificador, no el texto que se acaba de leer.
+      await tester.tap(find.text('Herrería').last);
+      await tester.pumpAndSettle();
+      expect(anfitrion.ultimo, 'uuid-herreria');
     });
 
     testWidgets('booleano se pinta como casilla', (tester) async {
@@ -728,6 +739,53 @@ void main() {
 
       await tester.pumpAndSettle();
       sinDesbordes(tester, 'tabla con una fila', movil);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  group('el texto del resumen', () {
+    test('un `seleccion` con fuente externa se traduce con las opciones que le pasan',
+        () {
+      // D14: `curso_seleccionado` guarda el **uuid** del programa, y sus opciones
+      // no están en el catálogo —llegan de `programas`—. Sin el parámetro, esta
+      // función cae al `toString()` y el resumen del paso final pinta el uuid en
+      // la cara del aspirante, que es lo que pasaba antes de pasarle las opciones.
+      final conFuente = campo(
+        'curso_seleccionado',
+        etiqueta: 'Propuesta formativa a cursar',
+        tipo: TipoCampoInscripcion.seleccion,
+      );
+
+      expect(
+        textoDeValor(
+          conFuente,
+          'uuid-herreria',
+          opciones: const [
+            OpcionCampo(valor: 'uuid-herreria', etiqueta: 'Herrería'),
+          ],
+        ),
+        'Herrería',
+      );
+      // Sin ellas no hay nada que traducir y cae al valor crudo. Se fija a
+      // propósito: es el comportamiento que explica por qué el parámetro existe.
+      expect(textoDeValor(conFuente, 'uuid-herreria'), 'uuid-herreria');
+    });
+
+    test('un `seleccion` incrustado sigue leyendo las opciones del catálogo', () {
+      // La contraparte: los campos que NO declaran `fuente` no necesitan que se
+      // les pase nada, y el cambio no puede haberlos roto.
+      final incrustado = campo(
+        'sexo',
+        etiqueta: 'Sexo',
+        tipo: TipoCampoInscripcion.seleccion,
+        opciones: const {
+          'opciones': [
+            {'valor': 'F', 'etiqueta': 'Femenino'},
+          ],
+        },
+      );
+
+      expect(textoDeValor(incrustado, 'F'), 'Femenino');
     });
   });
 }

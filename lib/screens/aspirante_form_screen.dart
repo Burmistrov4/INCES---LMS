@@ -116,9 +116,14 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   /// haría creer que la inscripción no tiene preguntas.
   String? _errorCatalogo;
 
-  bool _cargandoCursos = true;
-  List<String> _cursosDisponibles = const [];
-  String? _avisoCursos;
+  bool _cargandoProgramas = true;
+
+  /// La oferta formativa, con `valor` = uuid del programa y `etiqueta` = nombre.
+  ///
+  /// D14: antes era `List<String>` de nombres, y el nombre era lo que acababa
+  /// guardado en la ficha. Ahora lo que viaja es el identificador.
+  List<OpcionCampo> _programasDisponibles = const [];
+  String? _avisoProgramas;
 
   /// Envío en curso. **No** reemplaza el formulario por un spinner: eso hacía
   /// perder todo lo escrito si algo fallaba.
@@ -137,7 +142,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     _aspiranteRepo = widget.aspiranteRepository ?? AspiranteRepository();
     _authService = widget.authService ?? AuthService();
     _cargarCatalogo();
-    _cargarCursos();
+    _cargarProgramas();
   }
 
   @override
@@ -188,28 +193,36 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     });
   }
 
-  Future<void> _cargarCursos() async {
+  Future<void> _cargarProgramas() async {
     setState(() {
-      _cargandoCursos = true;
-      _avisoCursos = null;
+      _cargandoProgramas = true;
+      _avisoProgramas = null;
     });
 
-    final resultado = await _aspiranteRepo.obtenerCursosDisponibles();
+    final resultado = await _aspiranteRepo.obtenerProgramasDisponibles();
     if (!mounted) return;
 
     setState(() {
-      final cursos = resultado.valueOrNull;
-      if (cursos != null && cursos.isNotEmpty) {
-        _cursosDisponibles = cursos;
+      final programas = resultado.valueOrNull;
+      if (programas != null && programas.isNotEmpty) {
+        _programasDisponibles = programas;
       } else {
-        // El fallo se hace visible, pero no se bloquea al aspirante.
-        _cursosDisponibles = AspiranteRepository.cursosRespaldo;
-        _avisoCursos = cursos == null
-            ? 'No pudimos cargar el catálogo de cursos. Se muestran los cursos '
-                'conocidos; puedes reintentar.'
-            : 'El catálogo llegó vacío. Se muestran los cursos conocidos.';
+        // **Sin opciones inventadas.** Aquí había antes un respaldo de cinco
+        // nombres de curso escritos a mano. Con la clave foránea eso ya no puede
+        // funcionar —no sabe los uuid— y además habría dependido de la tolerancia
+        // transitoria del resolutor, que está previsto retirar. Ver
+        // `AspiranteRepository`, donde se explica entero.
+        //
+        // Se deja la lista VACÍA y se avisa. El aspirante ve por qué, puede
+        // reintentar, y no puede enviar una opción que no exista.
+        _programasDisponibles = const [];
+        _avisoProgramas = programas == null
+            ? 'No pudimos cargar la oferta formativa. Revisa tu conexión y '
+                'vuelve a intentarlo.'
+            : 'La oferta formativa llegó vacía. Avisa al CFS: puede que no haya '
+                'ningún curso abierto a inscripción todavía.';
       }
-      _cargandoCursos = false;
+      _cargandoProgramas = false;
     });
   }
 
@@ -299,12 +312,13 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   /// Hoy el único valor es `'programas'`. Una `fuente` desconocida devuelve
   /// `null` y el campo cae a las opciones del catálogo —que no tiene—, así que
   /// se vería vacío. Es preferible eso a inventar opciones que no existen.
+  ///
+  /// D14: las opciones llegan ya construidas desde el gateway, con `valor` = uuid
+  /// del programa y `etiqueta` = su nombre. Antes se construían aquí con
+  /// `valor` = `etiqueta` = nombre, y ese nombre era el que acababa en la ficha.
   List<OpcionCampo>? _opcionesDeFuente(CampoInscripcion campo) {
     if (campo.fuente != 'programas') return null;
-    return [
-      for (final curso in _cursosDisponibles)
-        OpcionCampo(valor: curso, etiqueta: curso),
-    ];
+    return _programasDisponibles;
   }
 
   // ---------------------------------------------------------------------------
@@ -410,7 +424,9 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
       email: (planilla['email'] ?? '').toString().trim().toLowerCase(),
       direccion: texto('direccion') ?? '',
       nivelEducativo: texto('nivel_educativo') ?? '',
-      cursoSeleccionado: texto('curso_seleccionado') ?? '',
+      // D14: el valor del catálogo sigue llamándose `curso_seleccionado` —es el
+      // código del campo— pero ahora lleva el uuid del programa.
+      programId: texto('curso_seleccionado') ?? '',
       discapacidad: planas['discapacidad'] == true,
       tipoDiscapacidad: _listaATexto(planilla['tipo_discapacidad']),
       numeroIdentidadTutor: texto('numero_identidad_tutor'),
@@ -530,8 +546,8 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (pideFuenteExterna && _avisoCursos != null) ...[
-          _construirAvisoCursos(),
+        if (pideFuenteExterna && _avisoProgramas != null) ...[
+          _construirAvisoProgramas(),
           const SizedBox(height: 16),
         ],
         for (final campo in visibles)
@@ -552,7 +568,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
-  Widget _construirAvisoCursos() {
+  Widget _construirAvisoProgramas() {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -568,7 +584,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              _avisoCursos!,
+              _avisoProgramas!,
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: const Color(0xFF78350F),
@@ -577,7 +593,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
             ),
           ),
           TextButton(
-            onPressed: _cargandoCursos ? null : _cargarCursos,
+            onPressed: _cargandoProgramas ? null : _cargarProgramas,
             child: const Text('Reintentar'),
           ),
         ],
@@ -601,7 +617,14 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
 
       for (final campo in ordenados) {
         if (!campo.visibleCon(_valores)) continue;
-        final texto = textoDeValor(campo, _valores[campo.codigo]);
+        // Las opciones de fuera se le pasan al resumen: `curso_seleccionado`
+        // guarda el uuid del programa, y sin sus opciones el resumen no puede
+        // traducirlo a un nombre y lo pintaría crudo.
+        final texto = textoDeValor(
+          campo,
+          _valores[campo.codigo],
+          opciones: campo.tieneFuenteExterna ? _opcionesDeFuente(campo) : null,
+        );
         if (texto.isEmpty) continue;
         filas.add(MapEntry(campo.etiqueta, texto));
       }
@@ -797,7 +820,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   Widget _construirCuerpo() {
     // El catálogo es lo que define el formulario: sin él no hay nada que pintar.
     // La oferta formativa sólo bloquea si algún campo la pide.
-    if (_cargandoCatalogo || (_necesitaCursos && _cargandoCursos)) {
+    if (_cargandoCatalogo || (_necesitaCursos && _cargandoProgramas)) {
       return const Center(child: CircularProgressIndicator());
     }
 

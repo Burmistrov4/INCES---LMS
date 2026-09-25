@@ -1,4 +1,5 @@
 import '../../models/aspirante_model.dart';
+import '../../models/inscripcion_campo.dart';
 
 /// Contrato de acceso a los datos de aspirantes.
 ///
@@ -24,7 +25,13 @@ abstract interface class AspiranteGateway {
 
   Future<void> eliminar(String id);
 
-  Future<List<String>> cursosDisponibles();
+  /// La oferta formativa abierta a la inscripción pública.
+  ///
+  /// D14: devuelve `valor` = uuid del programa y `etiqueta` = su nombre, leídos
+  /// de `public.programs` —no de la vista `cursos`, que sólo existe como puente
+  /// de compatibilidad—. Antes devolvía una lista de nombres, y el nombre era lo
+  /// que acababa guardado en la ficha.
+  Future<List<OpcionCampo>> programasDisponibles();
 
   Future<bool> existeEmail(String email);
 }

@@ -22,7 +22,7 @@ AspiranteModel _aspiranteAdulto() => AspiranteModel(
       email: 'ana.perez@example.com',
       direccion: 'Calle Principal, casa 1',
       nivelEducativo: 'Secundario',
-      cursoSeleccionado: 'Herrería',
+      programId: 'uuid-herreria',
     );
 
 void main() {
@@ -59,11 +59,51 @@ void main() {
         email: 'luis@example.com',
         direccion: 'Av. Bolívar',
         nivelEducativo: 'Técnico',
-        cursoSeleccionado: 'Oratoria',
+        programId: 'uuid-oratoria',
       );
 
       expect(aspirante.toMetadata()['fecha_nac'], '2005-03-07');
       expect(aspirante.toJson()['fecha_nac'], '2005-03-07');
+    });
+
+    test('D14 · `toJson` manda `program_id` y ya no `curso_seleccionado`', () {
+      // La columna `curso_seleccionado` se eliminó con la migración de D14, así
+      // que mandarla en una escritura directa sobre `aspirantes` daba `42703`
+      // —y `PGRST204` si PostgREST la filtraba por su caché de esquema—. Es la
+      // mitad de D14 que se rompe en silencio: el error no aparece hasta que
+      // alguien guarda una ficha.
+      final json = _aspiranteAdulto().toJson();
+
+      expect(json.containsKey('curso_seleccionado'), isFalse);
+      expect(json['program_id'], 'uuid-herreria');
+    });
+
+    test('D14 · sin programa, `toJson` omite `program_id` en vez de mandarlo vacío', () {
+      // Condicional y no incondicional: `''` no es un uuid válido y Postgres lo
+      // rechazaría con `22P02`. Si la clave falta, la guardia de escritura lo
+      // deriva de `datos_planilla`, que es justo para lo que existe.
+      final sinPrograma = AspiranteModel(
+        nombres: 'Ana',
+        apellidos: 'Pérez',
+        cedula: '12345678',
+        fechaNacimiento: DateTime(DateTime.now().year - 20, 1, 15),
+        sexo: 'F',
+        telefono: '04141234567',
+        email: 'ana.perez@example.com',
+        direccion: 'Calle Principal, casa 1',
+        nivelEducativo: 'Secundario',
+      );
+
+      expect(sinPrograma.toJson().containsKey('program_id'), isFalse);
+    });
+
+    test('D14 · la metadata conserva la clave `curso_seleccionado`', () {
+      // La clave NO se renombró, y es deliberado: es la que lee
+      // `handle_new_user()` y la que el catálogo usa como código del campo. Lo
+      // que cambió es el VALOR, que antes era el nombre del curso y ahora es su
+      // uuid. Renombrar la clave obligaría a migrar el catálogo para no ganar
+      // nada.
+      expect(_aspiranteAdulto().toMetadata()['curso_seleccionado'], 'uuid-herreria');
     });
 
     test('omite los datos del tutor cuando el aspirante es mayor de edad', () {
@@ -84,7 +124,7 @@ void main() {
         email: 'menor@example.com',
         direccion: 'Calle 2',
         nivelEducativo: 'Secundario',
-        cursoSeleccionado: 'Oratoria',
+        programId: 'uuid-oratoria',
       );
 
       expect(menor.esMenorDeEdad, isTrue);
@@ -115,7 +155,7 @@ void main() {
         email: aspirante.email,
         direccion: aspirante.direccion,
         nivelEducativo: aspirante.nivelEducativo,
-        cursoSeleccionado: aspirante.cursoSeleccionado,
+        programId: aspirante.programId,
         datosPlanilla: planillaDeEjemplo(),
       );
 
@@ -179,7 +219,7 @@ void main() {
         email: 'lorenzo@example.com',
         direccion: 'Valencia',
         nivelEducativo: 'Secundario',
-        cursoSeleccionado: 'Herrería',
+        programId: 'uuid-herreria',
         misionRibaras: 'Ribas',
       );
 
@@ -413,7 +453,7 @@ void main() {
         email: 'correo-invalido',
         direccion: '',
         nivelEducativo: 'Secundario',
-        cursoSeleccionado: '',
+        programId: '',
       );
 
       final resultado = await AuthService().registrarAspirante(
@@ -440,7 +480,7 @@ void main() {
         email: 'menor@example.com',
         direccion: 'Calle 2',
         nivelEducativo: 'Secundario',
-        cursoSeleccionado: 'Oratoria',
+        programId: 'uuid-oratoria',
       );
 
       final resultado = await AuthService().registrarAspirante(
@@ -468,7 +508,7 @@ void main() {
         email: 'menor@example.com',
         direccion: 'Calle 2',
         nivelEducativo: 'Secundario',
-        cursoSeleccionado: 'Oratoria',
+        programId: 'uuid-oratoria',
         numeroIdentidadTutor: '99999999',
         nombreTutor: 'Madre Ejemplo',
         parentescoTutor: 'Madre',

@@ -2,6 +2,7 @@ import '../core/errors/app_exception.dart';
 import '../core/gateways/aspirante_gateway.dart';
 import '../core/result.dart';
 import '../models/aspirante_model.dart';
+import '../models/inscripcion_campo.dart';
 import '../services/supabase_service.dart';
 
 /// Repositorio de aspirantes.
@@ -19,17 +20,30 @@ class AspiranteRepository {
   AspiranteRepository({AspiranteGateway? gateway})
       : _gateway = gateway ?? SupabaseService.instance;
 
-  /// Catálogo local de respaldo.
+  /// **`cursosRespaldo` se eliminó con D14, y conviene decir por qué.**
   ///
-  /// Sólo se usa si la consulta a `cursos` falla. La UI debe avisar que está
-  /// mostrando datos locales y ofrecer reintentar; nunca ocultar el fallo.
-  static const List<String> cursosRespaldo = [
-    'Herrería',
-    'Higiene y Manipulación de Alimentos',
-    'Estética (cejas y pestañas)',
-    'Oratoria',
-    'Curso Introductorio (15-16 años)',
-  ];
+  /// Era una lista de cinco nombres de curso escrita a mano, que se mostraba si la
+  /// consulta fallaba. Con la columna convertida en clave foránea dejó de poder
+  /// funcionar por dos motivos, y ninguno se arregla añadiendo ids a mano:
+  ///
+  ///   1. **No puede saber los uuid.** Son los de `public.programs`, y cambian. Una
+  ///      lista fija de ids sería una copia del catálogo que envejece en silencio.
+  ///   2. **Dependía de la tolerancia transitoria.** Si se dejaban los nombres,
+  ///      funcionaba sólo porque `resolver_programa_inscripcion()` acepta el
+  ///      vocabulario viejo. El día que esa tolerancia se retire —que es lo
+  ///      previsto— el respaldo empezaría a fallar en el momento del envío, con un
+  ///      `23503` que el aspirante no puede resolver.
+  ///
+  /// Y además apenas cubría un caso que ocurre: si falla la red, `_cargarCatalogo()`
+  /// falla también y el formulario ya muestra su propio error con reintento. Lo
+  /// único que el respaldo tapaba era un fallo **sólo** de `programs` —permisos,
+  /// RLS—, que es justo el caso donde enseñar opciones inventadas es peor que no
+  /// enseñar ninguna.
+  ///
+  /// El hueco que deja lo cubre la pantalla: aviso visible, lista vacía y reintento.
+  Future<Result<List<OpcionCampo>>> obtenerProgramasDisponibles() {
+    return Result.guard(() => _gateway.programasDisponibles());
+  }
 
   Future<Result<AspiranteModel?>> obtenerPorCedula(String cedula) {
     return Result.guard(() => _gateway.porCedula(cedula.trim()));
@@ -68,10 +82,6 @@ class AspiranteRepository {
       await _gateway.eliminar(id);
       return true;
     });
-  }
-
-  Future<Result<List<String>>> obtenerCursosDisponibles() {
-    return Result.guard(() => _gateway.cursosDisponibles());
   }
 
   /// Verifica duplicados antes de enviar el formulario.

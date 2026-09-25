@@ -45,15 +45,15 @@ void main() {
     WidgetTester tester, {
     CatalogoInscripcion? catalogo,
     Object? errorCatalogo,
-    List<String>? cursos,
-    Object? errorCursos,
+    List<OpcionCampo>? programas,
+    Object? errorProgramas,
   }) async {
     final arnes = await montarFormulario(
       tester,
       catalogo: catalogo,
       errorCatalogo: errorCatalogo,
-      cursos: cursos,
-      errorCursos: errorCursos,
+      programas: programas,
+      errorProgramas: errorProgramas,
     );
     gateway = arnes.gateway;
     planilla = arnes.planilla;
@@ -466,7 +466,12 @@ void main() {
       expect(metadata['sexo'], 'M');
       expect(metadata['telefono'], '04141234567');
       expect(metadata['nivel_educativo'], 'SECUNDARIA');
-      expect(metadata['curso_seleccionado'], 'Herrería');
+      // D14: la CLAVE sigue siendo `curso_seleccionado` —es el código del campo
+      // del catálogo y la que lee `handle_new_user()`—, pero el VALOR es el
+      // **uuid** del programa, no su nombre. Antes viajaba «Herrería», y renombrar
+      // el programa en M2 dejaba huérfana la ficha que lo había elegido.
+      expect(metadata['curso_seleccionado'], uuidHerreria);
+      expect(metadata['curso_seleccionado'], isNot('Herrería'));
       expect(metadata['direccion'], 'Valencia, Carabobo');
       // El correo no viaja en la metadata —lo pone `auth.users`—, pero sí se usa
       // para el registro y el prechequeo.
@@ -535,20 +540,41 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // El curso que se pide en vivo
+  // La oferta formativa que se pide en vivo
   // ---------------------------------------------------------------------------
 
   group('la oferta formativa', () {
-    testWidgets('si el catálogo de cursos falla, se avisa y se puede reintentar',
+    testWidgets('el resumen del paso final pinta el nombre, no el uuid',
+        (tester) async {
+      // La mitad visible de D14. Lo que se guarda es el uuid —eso lo fijan
+      // `campos_planilla_test.dart` (el widget sube el `valor`) y la prueba
+      // «copia las claves planas» de más arriba (el uuid llega a la metadata)—,
+      // pero el resumen del paso final es el único sitio donde un valor guardado
+      // se vuelve a convertir en texto. Como `curso_seleccionado` declara
+      // `fuente`, sus opciones no están en el catálogo: un resumen que no las
+      // recibiera pintaría el uuid crudo en la cara del aspirante.
+      await montar(tester);
+      await completarFormulario(tester);
+
+      expect(find.text('Herrería'), findsWidgets);
+      expect(find.textContaining(uuidHerreria), findsNothing);
+    });
+
+    testWidgets('si la oferta formativa falla, se avisa y se puede reintentar',
         (tester) async {
       // La oferta formativa cambia, así que no puede quedar congelada en el
-      // catálogo: se pide en vivo. Cuando falla, el aspirante tiene que poder
-      // seguir —con los cursos conocidos— en vez de quedarse mirando un
-      // desplegable vacío sin saber por qué.
+      // catálogo: se pide en vivo. Cuando falla, el aspirante tiene que verlo y
+      // poder reintentar en vez de quedarse mirando un desplegable vacío sin
+      // saber por qué.
+      //
+      // D14 se llevó por delante el respaldo de nombres escrito a mano: con la
+      // clave foránea esos nombres no son inscribibles —el trigger los resuelve
+      // contra `programs` y no los encuentra—, así que «seguir con los cursos
+      // conocidos» ya no es una opción y el aviso es la única salida honesta.
       await montar(
         tester,
-        cursos: const [],
-        errorCursos: Exception('sin red'),
+        programas: const [],
+        errorProgramas: Exception('sin red'),
       );
 
       // Hay que **llegar** al paso de la propuesta formativa antes de tocar nada:
@@ -558,17 +584,17 @@ void main() {
       // Una prueba que pulsa un botón sin acertarle y pasa no prueba nada.
       await completarFormulario(tester, paso: 5);
 
-      expect(find.textContaining('No pudimos cargar el catálogo de cursos'),
+      expect(find.textContaining('No pudimos cargar la oferta formativa'),
           findsOneWidget);
       expect(find.text('Reintentar'), findsOneWidget);
 
-      gateway.errorAlCursos = null;
-      gateway.cursos = cursosDePrueba;
+      gateway.errorAlProgramas = null;
+      gateway.programas = programasDePrueba;
       await tester.tap(find.text('Reintentar'));
       await tester.pump();
       await tester.pump();
 
-      expect(find.textContaining('No pudimos cargar el catálogo de cursos'),
+      expect(find.textContaining('No pudimos cargar la oferta formativa'),
           findsNothing);
     });
   });

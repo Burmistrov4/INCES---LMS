@@ -437,7 +437,10 @@ void main() {
         'telefono': '04141234567',
         'direccion': 'Calle 1',
         'nivel_educativo': 'SECUNDARIO',
-        'curso_seleccionado': 'Herrería',
+        // D14: lo que la planilla trae en esta clave es el **uuid** del programa,
+        // no su nombre. `sintetizarClavesPlanas` sólo copia la clave —no la
+        // interpreta—, así que la prueba fija la forma real del dato.
+        'curso_seleccionado': 'uuid-herreria',
         'discapacidad': true,
         'numero_identidad_tutor': '87654321',
         'nombre_tutor': 'Ana Pérez',
@@ -450,7 +453,7 @@ void main() {
       expect(planas['sexo'], 'F');
       expect(planas['fecha_nac'], '2003-05-14');
       expect(planas['nivel_educativo'], 'SECUNDARIO');
-      expect(planas['curso_seleccionado'], 'Herrería');
+      expect(planas['curso_seleccionado'], 'uuid-herreria');
       expect(planas['discapacidad'], isTrue);
       expect(planas['parentesco_tutor'], 'MADRE');
       expect(planas['correo_tutor'], 'ana@example.com');

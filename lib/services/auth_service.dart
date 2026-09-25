@@ -248,7 +248,7 @@ class AuthService {
       if (!_esEmailValido(a.email)) 'correo electrónico',
       if (a.direccion.trim().isEmpty) 'domicilio',
       if (a.nivelEducativo.trim().isEmpty) 'nivel educativo',
-      if (a.cursoSeleccionado.trim().isEmpty) 'propuesta formativa',
+      if (a.programId.trim().isEmpty) 'propuesta formativa',
     ];
 
     if (faltantes.isNotEmpty) {

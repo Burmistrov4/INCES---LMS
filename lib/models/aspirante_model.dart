@@ -15,7 +15,24 @@ class AspiranteModel {
   final String email;
   final String direccion;
   final String nivelEducativo;
-  final String cursoSeleccionado;
+  /// D14: el programa elegido, por **identificador**.
+  ///
+  /// Antes esto era `cursoSeleccionado` y guardaba el **nombre** del curso en
+  /// texto libre, así que renombrar un programa en M2 dejaba huérfanas las fichas
+  /// que lo habían elegido —sin error y sin aviso—. Ahora es el uuid de
+  /// `public.programs(id)`, con clave foránea, y el nombre se resuelve por JOIN.
+  final String programId;
+
+  /// El **nombre** del programa, resuelto por JOIN.
+  ///
+  /// No es una columna: sólo llega cuando la consulta pide la relación incrustada
+  /// —hoy sólo [SupabaseService.miFicha], que usa `select('*, programs(name)')`—.
+  /// En las demás rutas queda nulo, y quien lo pinte necesita un respaldo.
+  ///
+  /// **No se guarda.** Derivarlo del id es lo que hace que renombrar un programa
+  /// se refleje al instante en todas las fichas en vez de dejarlas desfasadas.
+  final String? programaNombre;
+
   final String? misionRibaras;
   final bool discapacidad;
   final String? tipoDiscapacidad;
@@ -55,7 +72,8 @@ class AspiranteModel {
     required this.email,
     required this.direccion,
     required this.nivelEducativo,
-    this.cursoSeleccionado = '',
+    this.programId = '',
+    this.programaNombre,
     this.misionRibaras,
     this.discapacidad = false,
     this.tipoDiscapacidad,
@@ -87,9 +105,13 @@ class AspiranteModel {
       nivelEducativo: json['nivel_educativo'] as String? ??
           json['nivelEducativo'] as String? ??
           '',
-      cursoSeleccionado: json['curso_seleccionado'] as String? ??
-          json['cursoSeleccionado'] as String? ??
+      programId: json['program_id'] as String? ??
+          json['programId'] as String? ??
           '',
+      // Llega sólo si la consulta pidió `programs(name)`. PostgREST devuelve un
+      // objeto —relación a uno— o `null`; una forma inesperada se descarta en vez
+      // de reventar, igual que con la planilla.
+      programaNombre: _nombreDePrograma(json['programs']),
       misionRibaras: json['mision_ribaras'] as String? ??
           json['misionEstudiante'] as String?,
       discapacidad: json['discapacidad'] as bool? ??
@@ -126,7 +148,14 @@ class AspiranteModel {
       'email': email,
       'direccion': direccion,
       'nivel_educativo': nivelEducativo,
-      'curso_seleccionado': cursoSeleccionado,
+      // D14: `curso_seleccionado` ya **no existe** como columna, así que no se
+      // manda. Enviarla daba `42703` (y `PGRST204` si PostgREST la filtraba por
+      // caché) en cualquier escritura directa sobre `aspirantes`.
+      //
+      // Condicional y no incondicional: un uuid vacío no es un uuid válido y
+      // Postgres lo rechazaría con `22P02`. Si falta, la guardia de escritura lo
+      // deriva de `datos_planilla` — que es justo para lo que existe.
+      if (programId.isNotEmpty) 'program_id': programId,
       'mision_ribaras': misionRibaras,
       'discapacidad': discapacidad,
       'tipo_discapacidad': discapacidad ? tipoDiscapacidad : null,
@@ -169,7 +198,12 @@ class AspiranteModel {
       'telefono': telefono,
       'direccion': direccion,
       'nivel_educativo': nivelEducativo,
-      'curso_seleccionado': cursoSeleccionado,
+      // La CLAVE sigue siendo `curso_seleccionado`, y es deliberado: es la que lee
+      // `handle_new_user()` y la que el catálogo usa como código del campo. Lo que
+      // cambió con D14 es el VALOR —antes el nombre del curso, ahora su uuid—.
+      // Renombrar la clave obligaría a migrar el catálogo y `sintetizarClavesPlanas`
+      // para no ganar nada.
+      'curso_seleccionado': programId,
       'discapacidad': discapacidad,
       if (discapacidad && tipoDiscapacidad != null)
         'tipo_discapacidad': tipoDiscapacidad,
@@ -190,6 +224,20 @@ class AspiranteModel {
   bool get esMenorDeEdad => _esMenorDeEdad(fechaNacimiento);
 
   String get nombreCompleto => '$nombres $apellidos';
+
+  /// Lee el nombre del programa de la relación incrustada de PostgREST.
+  ///
+  /// Con `select('*, programs(name)')` la respuesta trae
+  /// `"programs": {"name": "Herrería"}`, o `null` si la relación no se pudo
+  /// resolver. Cualquier otra forma se descarta: el nombre es accesorio y no
+  /// poder leerlo no debe impedir mostrar la ficha.
+  static String? _nombreDePrograma(dynamic value) {
+    if (value is Map) {
+      final nombre = value['name'];
+      if (nombre is String && nombre.isNotEmpty) return nombre;
+    }
+    return null;
+  }
 
   /// Lee `datos_planilla`, que puede llegar como mapa o como el texto JSON que
   /// devuelve PostgREST en algunas proyecciones.

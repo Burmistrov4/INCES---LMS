@@ -66,8 +66,8 @@ Future<ArnesFormulario> montarFormulario(
   WidgetTester tester, {
   CatalogoInscripcion? catalogo,
   Object? errorCatalogo,
-  List<String>? cursos,
-  Object? errorCursos,
+  List<OpcionCampo>? programas,
+  Object? errorProgramas,
   Size tamano = const Size(900, 2400),
 }) async {
   final planilla = FakePlanillaGateway()
@@ -75,8 +75,8 @@ Future<ArnesFormulario> montarFormulario(
         catalogo ?? catalogoEjemplo(tipoFecha: TipoCampoInscripcion.texto);
   if (errorCatalogo != null) planilla.errorAlLeerCatalogo = errorCatalogo;
 
-  final gateway = FakeGateway()..cursos = cursos ?? cursosDePrueba;
-  if (errorCursos != null) gateway.errorAlCursos = errorCursos;
+  final gateway = FakeGateway()..programas = programas ?? programasDePrueba;
+  if (errorProgramas != null) gateway.errorAlProgramas = errorProgramas;
 
   tester.view.physicalSize = tamano;
   tester.view.devicePixelRatio = 1.0;
@@ -208,9 +208,9 @@ Future<void> avanzar(WidgetTester tester, int paso) async {
 /// Rellena los pasos del catálogo de ejemplo y deja la pantalla en [paso].
 ///
 /// Por defecto [paso] es 6, la confirmación: es donde terminan los casos de envío.
-/// Pero hay cosas que sólo se pueden tocar **estando** en su paso —el aviso de los
-/// cursos vive en el de la propuesta formativa, y su «Reintentar» no es pulsable
-/// desde otro—, así que [paso] permite parar antes. Se rellenan los pasos
+/// Pero hay cosas que sólo se pueden tocar **estando** en su paso —el aviso de la
+/// oferta formativa vive en el de la propuesta formativa, y su «Reintentar» no es
+/// pulsable desde otro—, así que [paso] permite parar antes. Se rellenan los pasos
 /// anteriores al pedido, y ninguno más.
 ///
 /// `fechaNac` se escribe como texto porque el arnés monta el catálogo con la fecha
@@ -258,6 +258,9 @@ Future<void> completarFormulario(
 
   // Paso 5 · Propuesta formativa
   if (paso == 5) return;
+  // Se elige **por etiqueta**, que es lo que hace el aspirante. Lo que queda
+  // guardado no es ese texto sino el `valor` de la opción —el uuid del programa,
+  // con D14—; las aserciones que lo comprueban van en su propia prueba.
   await elegirEnDesplegable(tester, 'curso_seleccionado', 'Herrería');
   await avanzar(tester, 5);
 }

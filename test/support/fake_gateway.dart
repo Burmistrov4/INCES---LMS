@@ -3,6 +3,7 @@ import 'package:inces_lms_app/core/gateways/auth_gateway.dart';
 import 'package:inces_lms_app/core/gateways/modules_gateway.dart';
 import 'package:inces_lms_app/models/aspirante_model.dart';
 import 'package:inces_lms_app/models/config_audit_entry.dart';
+import 'package:inces_lms_app/models/inscripcion_campo.dart';
 import 'package:inces_lms_app/models/system_module.dart';
 import 'package:inces_lms_app/models/system_setting.dart';
 
@@ -68,13 +69,24 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
 
   AspiranteModel? ficha;
   List<AspiranteModel> fichas = const [];
-  List<String> cursos = const ['Herrería'];
+
+  /// La oferta formativa que devuelve [programasDisponibles].
+  ///
+  /// **Son `OpcionCampo` y no `String`, y el uuid es falso pero distinto del
+  /// nombre a propósito.** Con D14 lo que viaja a la ficha es el identificador
+  /// del programa, no su nombre; un doble que devolviera el nombre en los dos
+  /// campos dejaría pasar un fallo real —que la pantalla guardara la etiqueta en
+  /// vez del valor— porque las dos cosas serían iguales.
+  List<OpcionCampo> programas = const [
+    OpcionCampo(valor: 'uuid-herreria', etiqueta: 'Herrería'),
+  ];
+
   bool existeEmailResultado = false;
 
   Object? errorAlListar;
   Object? errorAlObtener;
   Object? errorAlCrear;
-  Object? errorAlCursos;
+  Object? errorAlProgramas;
 
   // --- ModulesGateway ------------------------------------------------------
 
@@ -220,10 +232,10 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
   }
 
   @override
-  Future<List<String>> cursosDisponibles() async {
-    llamadas.add('cursosDisponibles');
-    _lanzarSi(errorAlCursos);
-    return cursos;
+  Future<List<OpcionCampo>> programasDisponibles() async {
+    llamadas.add('programasDisponibles');
+    _lanzarSi(errorAlProgramas);
+    return programas;
   }
 
   @override

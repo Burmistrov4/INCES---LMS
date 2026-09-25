@@ -144,16 +144,31 @@ class CampoPlanilla extends StatelessWidget {
 /// Un `bool` se muestra como «Sí»/«No» y una rejilla o una tabla como un
 /// resumen, en vez de volcar el `toString()` de un `Map` —que es lo que saldría
 /// sin esto— y que el aspirante no podría leer.
-String textoDeValor(CampoInscripcion campo, Object? valor) {
+///
+/// [opciones] existe para los campos que declaran `fuente` y por tanto **no**
+/// traen sus opciones incrustadas en el catálogo. Sin ellas, un `seleccion` no
+/// puede traducir el valor guardado y cae al `toString()` crudo; con D14 eso
+/// significa que el resumen del paso final pintaría el **uuid del programa** y el
+/// aspirante revisaría su inscripción leyendo `9f2c1b7e-…`. Es el mismo
+/// parámetro, y por la misma razón, que ya recibe `_Seleccion`.
+String textoDeValor(
+  CampoInscripcion campo,
+  Object? valor, {
+  List<OpcionCampo>? opciones,
+}) {
   if (valorDeCampoVacio(valor)) return '';
+
+  // Lo que llega de fuera manda; el catálogo es el respaldo. Mismo criterio que
+  // el desplegable, para que lo que se lee en el resumen sea exactamente lo que
+  // se vio al elegir.
+  final disponibles = opciones ?? campo.opcionesCerradas;
 
   switch (campo.tipo) {
     case TipoCampoInscripcion.booleano:
       return valor == true ? 'Sí' : 'No';
 
     case TipoCampoInscripcion.seleccion:
-      final opciones = campo.opcionesCerradas;
-      for (final opcion in opciones) {
+      for (final opcion in disponibles) {
         if (opcion.valor == valor.toString()) return opcion.etiqueta;
       }
       return valor.toString();
@@ -163,7 +178,7 @@ String textoDeValor(CampoInscripcion campo, Object? valor) {
       final etiquetas = <String>[];
       for (final elegido in elegidos) {
         var etiqueta = elegido;
-        for (final opcion in campo.opcionesCerradas) {
+        for (final opcion in disponibles) {
           if (opcion.valor == elegido) etiqueta = opcion.etiqueta;
         }
         etiquetas.add(etiqueta);

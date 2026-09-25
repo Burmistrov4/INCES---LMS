@@ -480,7 +480,7 @@ void main() {
       // caería en su estado de error —«no pudimos cargar el formulario»— y esta
       // prueba mediría un mensaje en vez del formulario. Pasaría sin haber mirado
       // lo que dice que mira.
-      final gateway = FakeGateway()..cursos = cursosDePrueba;
+      final gateway = FakeGateway()..programas = programasDePrueba;
 
       final error = await medirPantalla(
         tester,
