@@ -128,11 +128,11 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **437 / 437** aserciones en verde — **medido el 2026-09-24**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6 y el catálogo de M4 |
-| **Migraciones en el repositorio** | **21** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609240001_mod4_catalogo_inscripcion.sql` |
-| **Migraciones en la nube** | **21** registradas en `schema_migrations` — **las 21 del repositorio, ninguna pendiente**. Medido el 2026-09-24 con `contar-catalogo.mjs` |
-| **Verificación independiente del esquema en la nube** | **105 / 105** comprobaciones, 0 fallos (`supabase/verificar-esquema.mjs`) — **medido el 2026-09-24**. Las tres nuevas son la tabla `inscripcion_campos`, la columna `aspirantes.datos_planilla` y la función `validar_planilla()`. La cifra anterior (102/102) era de esta misma jornada, antes del catálogo |
-| **Libro mayor de migraciones (D10)** | **21** versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 el 2026-09-24) — **22 tablas** + **5 vistas**, con RLS activo en las 22 (ver §3) |
+| **Migraciones en el repositorio** | **22** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609240002_mod4_planilla_guardia.sql` |
+| **Migraciones en la nube** | **22** registradas en `schema_migrations` — **las 22 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
+| **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
+| **Libro mayor de migraciones (D10)** | **22** versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24) — **22 tablas** + **5 vistas**, con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -233,15 +233,17 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veintiuna** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veintidós** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **22 tablas** con RLS activo **en las 22**, **5 vistas** (`cursos` de D12, las
-tres del Módulo 3 y `v_ocupacion_secciones` de M4), **49 funciones**, **28
+tres del Módulo 3 y `v_ocupacion_secciones` de M4), **50 funciones**, **29
 triggers** y **46 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
 lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
-`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-24** con
-`supabase/contar-catalogo.mjs`; la cifra anterior era de antes del catálogo de M4.
+`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-25** con
+`supabase/contar-catalogo.mjs`; las cifras anteriores (49 funciones, 28 triggers,
+21 migraciones) eran de antes de la guardia de escritura de la planilla, que suma
+**+1 función** y **+1 trigger** sin tocar tablas, vistas, políticas ni parámetros.
 
 > **El catálogo de M4 ya está contado, no sumado.** Recontado el **2026-09-24**
 > con `supabase/contar-catalogo.mjs` **después** de aplicar `202609240001`, la
@@ -255,6 +257,20 @@ lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro 
 > leer el catálogo porque el aspirante **no tiene sesión** cuando el formulario se
 > pinta: se está registrando. No expone datos personales — son definiciones de
 > campo, no respuestas de nadie. Es el mismo criterio que `system_settings.es_publico`.
+
+> **Y tras `202609240002`** (la guardia de escritura de la planilla): **+1 función**
+> (`validar_planilla_guardada`) y **+1 trigger** (`aspirantes_validar_planilla`).
+> Tablas, vistas, políticas y parámetros **no cambian**. Esa migración cierra un
+> agujero **medido antes de escribirla**: `authenticated` conservaba `UPDATE` sobre
+> `aspirantes` y la política `aspirantes_update_own` seguía viva, así que un usuario
+> con sesión podía escribir `datos_planilla` por PostgREST con la clave publicable
+> del bundle y **saltarse `validar_planilla()` en una petición HTTP** — y esa columna
+> es la que alimentará la exportación hacia HACER. Validar en la ruta Fastify no
+> bastaba: la frontera de autorización es la RLS (ADR-003). El trigger valida salvo
+> cuando la planilla es `'{}'`, que es el «sin planilla» del formulario viejo, así
+> que no hay regresión para los clientes antiguos. Que esta migración mueva
+> exactamente dos objetos —y no toque ninguna política— es la comprobación de que
+> hizo una sola cosa.
 
 > **M5 ya está contado, no sumado.** Recontado el **2026-09-18** con
 > `supabase/contar-catalogo.mjs` **después** de aplicar `202609210001`, la
@@ -619,7 +635,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `subjects` | **M2** | Banco global de materias, compartido entre programas |
 | `program_subjects` | **M2** | El pensum: qué materia va en qué programa y en qué período |
 | `profiles` | Fase 0 | Identidad y rol. Espejo de `auth.users` |
-| `aspirantes` | Fase 0 → **M4** | Ficha de inscripción del aspirante. **M4 (`202609240001`) le añade `datos_planilla` (jsonb)**: la planilla extendida con la forma del catálogo, para que añadir un campo del CFS no exija una migración. El contrato con `AspiranteModel` siguen siendo las 15 columnas planas |
+| `aspirantes` | Fase 0 → **M4** | Ficha de inscripción del aspirante. **M4 (`202609240001`) le añade `datos_planilla` (jsonb)**: la planilla extendida con la forma del catálogo, para que añadir un campo del CFS no exija una migración. El contrato con `AspiranteModel` siguen siendo las 15 columnas planas. **`202609240002` le pone la guardia de escritura**: el trigger `aspirantes_validar_planilla` (`before insert or update of datos_planilla`) valida la columna contra el catálogo **también cuando se escribe por PostgREST**, no sólo por el `signUp` |
 | `sections` | Fase 0 → **M2** | Secciones abiertas. **Rediseñada en D13**: `program_id`, `subject_id`, `period_code`, `name`, `max_capacity` |
 | `enrollments` | Fase 0 | Matrículas y estados de cupo (M4) |
 | `system_modules` | **Fase 3** | Interruptores de módulos del cPanel |

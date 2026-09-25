@@ -156,9 +156,9 @@ como `DEFINER` (con `authenticated` sí y `anon` no)** y **la columna
 
 | Suite | Resultado | Comando |
 |---|---|---|
-| Backend (vitest) | **428 / 428** en verde | `cd backend && npm test` |
-| Flutter | **307 / 307** en verde — ⚠️ **última medición válida (2026-09-15)**; hoy **no re-ejecutable** en este entorno (ver la corrección más abajo) | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **223 / 223** en verde · 15 migraciones | `cd supabase/tests && npm test` |
+| Backend (vitest) | **540 / 540** en verde (21 archivos) — medido el 2026-09-22 | `cd backend && npm test` |
+| Flutter | **632 / 632** en verde — **medido el 2026-09-25, exit 0** (02:22). Ya **sí** corre en este entorno; ver la corrección del 2026-09-25 | `flutter test` |
+| SQL (pglite, PostgreSQL real) | **437 / 437** en verde · 22 migraciones — medido el 2026-09-24 | `cd supabase/tests && npm test` |
 
 **Humos contra la nube real** (necesitan `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
 no el `sbp_`): currículo **15/15** (medido el 2026-09-18 — resuelve la discrepancia
@@ -192,6 +192,16 @@ Se corren con `node --env-file-if-exists=backend/.env supabase/humo-*.mjs --conf
 > de hoy.** No cites una cifra de Flutter como si la hubieras re-ejecutado. Lo que
 > sí sigue bloqueado es `flutter devices` / enumerar Chrome (lo impide `reg.exe`):
 > no lances la app en Chrome desde aquí.
+
+> **✅ Corrección (2026-09-25): `flutter test` SÍ corre — el bloque de arriba ya no
+> aplica.** Se ejecutó en una terminal real del usuario: **632 / 632 en 02:22, exit 0**.
+> La nota del 2026-09-18 describía un síntoma que existió de verdad (`flutter_tester`
+> no abría su WebSocket de loopback) y se conserva como registro, pero **no la cites
+> como estado actual**. El bloqueo que sigue vivo es el del *sandbox de la herramienta*
+> —`cmd.exe` no se puede crear ahí, y Flutter lanza todos sus subprocesos por él—, y es
+> **del arnés, no del proyecto**: la suite corre en la terminal del usuario y en CI.
+> **Regla que ya costó tres intentos: «no se puede en este entorno» es una afirmación
+> sobre el entorno, y ésas caducan.**
 
 ### Versiones confirmadas
 
@@ -2056,6 +2066,103 @@ envejece en el que nadie volvió a ejecutar. La tabla de §2 es la que manda.
 
 Commits de la sesión 7: `263706a` (el sembrado de M4 y M6) y el de esta corrección
 documental — subidos a `origin/main`.
+
+---
+
+## 2026-09-25 (sesión 8) — el panel del catálogo (Entrega 5) y la guardia de la planilla
+
+Cierre de la arquitectura **data-driven** de la planilla de inscripción. La pantalla
+ya **leía** el catálogo; faltaba que el CFS pudiera **administrarlo sin SQL**. Eso es
+la Entrega 5.
+
+### Qué se construyó
+
+| Fase | Archivo | Qué |
+|---|---|---|
+| 1 | `lib/core/gateways/planilla_admin_gateway.dart` | El contrato |
+| 1 | `lib/services/supabase_planilla_admin_gateway.dart` | PostgREST directo; cliente inyectable |
+| 1 | `lib/repositories/planilla_admin_repository.dart` | `Result` + atajo `alternarActivo` |
+| 1 | `lib/core/errors/app_exception.dart` | Traduce `23505`/`23514`/`42501` del catálogo |
+| 2 | `lib/screens/admin/cpanel_inscripcion_campos_panel.dart` | El panel: grupos, switch, reorden, alta/edición |
+| 3 | `test/support/fake_planilla_admin_gateway.dart` | Doble que **muta su estado** y **reproduce el rechazo** |
+
+**El gateway administrativo es una clase aparte y no `SupabaseService`, y no fue
+preferencia: lo impuso el compilador.** `SupabaseService` ya implementa
+`AspiranteGateway`, que declara `crear(AspiranteModel)` y `actualizar(String, Map)`;
+Dart no admite sobrecarga por tipo, así que las dos interfaces no caben en una clase
+sin renombrar los métodos del catálogo. La colisión **es la señal** de que son
+superficies distintas. Se revirtió `supabase_service.dart` a su estado original.
+
+**El vecino se busca dentro del grupo, y reordenar RELEE el catálogo.** El intercambio
+son dos `update` y **no es atómico** (PostgREST no da transacciones por petición).
+Mover la lista en memoria mostraría lo que se *pidió*, no lo que *quedó*.
+
+**En edición, `codigo` y `tipo` se pintan como dato (`_DatoFijo`), no como campo.** Un
+`TextFormField` de sólo lectura **se traga un `enterText` sin decir nada** —la trampa
+que ya costó caro en el formulario—, así que un campo deshabilitado convertiría un
+fallo del arnés en un fallo fantasma de la pantalla.
+
+**A 375 px los controles bajan a su propia línea**, con `LayoutBuilder` + el umbral de
+640 px que ya defienden `TituloSeccion` y `EncabezadoInstitucional`. Sin eso, la `Row`
+desbordaría **o** —peor, porque no se ve— el `Expanded` de la identidad se quedaría con
+ancho cero.
+
+### El hallazgo de la sesión: una migración de seguridad aplicada y sin documentar
+
+`202609240002_mod4_planilla_guardia.sql` **estaba aplicada y no la mencionaba ningún
+`.md` del repositorio.** Cierra un agujero **medido antes de escribirla, no deducido**:
+`authenticated` conservaba `UPDATE` sobre `public.aspirantes` (privilegio por defecto de
+Supabase que ninguna migración revocó) y `aspirantes_update_own` seguía viva, así que
+**cualquier usuario con sesión podía escribir `datos_planilla` por PostgREST con la
+clave publicable del bundle y saltarse `validar_planilla()` en una petición HTTP**. Esa
+columna es la que alimentará la exportación a HACER. Validar en la ruta Fastify no
+bastaba: **la frontera de autorización es la RLS** (ADR-003). El trigger
+`aspirantes_validar_planilla` valida salvo cuando la planilla es `'{}'` —el «sin
+planilla» del formulario viejo—, así que **cero regresión** para los clientes antiguos.
+
+### Verificación
+
+- **`flutter test`: 632 / 632 en 02:22, exit 0** — corrida real en la terminal del
+  usuario. Primera ejecución completa de la suite desde el 2026-09-24.
+- **`flutter analyze`: limpio sobre 163 archivos** (0 errores, 0 avisos, 0 informativos)
+  vía el verificador local, que **analiza `test/`** y por tanto prueba que las pruebas
+  *compilan* — que no es lo mismo que pasar, y por eso hizo falta la corrida de arriba.
+- **`apply-migrations.mjs --check`: 22 aplicadas, 0 pendientes, 0 con deriva.**
+- **`contar-catalogo.mjs`: 22 tablas · 5 vistas · 50 funciones · 29 triggers ·
+  46 políticas · 7 de 10 módulos.**
+- **`verificar-esquema.mjs`: sin fallos** — cubre el catálogo **y** la guardia.
+
+### Dos correcciones que salieron de medir
+
+1. **El recuento de pruebas.** La sesión venía reportando «24 pruebas nuevas»; el
+   conteo real es **41** — 20 del panel, 12 del repositorio, 7 de la traducción de
+   errores y 2 del barrido—, y cuadra exacto: **591 + 41 = 632**. Un número copiado sin
+   contar envejece igual que cualquier otro, y éste se había copiado a tres sitios.
+2. **La aritmética de los objetos.** El documento decía 21 migraciones, 49 funciones y
+   28 triggers; medido son **22, 50 y 29**, porque `202609240002` suma +1 y +1 sin
+   tocar tablas, vistas, políticas ni parámetros.
+
+### Deriva documental corregida
+
+`ESTADO_DEL_SISTEMA.md` §2 (migraciones 21→22, funciones 49→50, triggers 28→29,
+«veintiuna»→«veintidós», y **se quitó el «105/105»**: `verificar-esquema.mjs` **ya no
+imprime un total a propósito**, así que la cifra reproducible es «sin fallos», no un
+cociente que nadie recontaría), §3 (la fila de `aspirantes` ahora nombra la guardia), y
+`temas/modulo4.md` («Paso 2, NO ejecutado» **era falso**, y la duplicación
+`misiones`/`mision_ribaras` **ya estaba decidida**). Las dos últimas eran avisos de
+«falta hacer X», que es la dirección peligrosa: provocan trabajo que ya está hecho.
+
+### Lo que queda
+
+- **`opciones` no es editable** en `actualizar` (sí en `crear`): editar una lista JSON
+  necesita su propia UI y su propio contrato. Deuda declarada.
+- **D14** — `aspirantes.curso_seleccionado` sigue siendo texto libre con el *nombre* del
+  curso: renombrar un programa rompe la referencia. El catálogo ya apunta a `programas`,
+  pero la columna no.
+- Sin arrastrar-y-soltar ni reordenación global: sólo intercambio con el vecino del grupo.
+
+Commits de la sesión: el de la Entrega 5 y el de esta corrección documental — subidos a
+`origin/main`.
 
 ---
 
