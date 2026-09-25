@@ -197,9 +197,11 @@ Se corren con `node --env-file-if-exists=backend/.env supabase/humo-*.mjs --conf
 > aplica.** Se ejecutó en una terminal real del usuario: **632 / 632 en 02:22, exit 0**.
 > La nota del 2026-09-18 describía un síntoma que existió de verdad (`flutter_tester`
 > no abría su WebSocket de loopback) y se conserva como registro, pero **no la cites
-> como estado actual**. El bloqueo que sigue vivo es el del *sandbox de la herramienta*
-> —`cmd.exe` no se puede crear ahí, y Flutter lanza todos sus subprocesos por él—, y es
-> **del arnés, no del proyecto**: la suite corre en la terminal del usuario y en CI.
+> como estado actual**. El bloqueo que sigue vivo es el del *sandbox de la herramienta*:
+> Dart **sí** lanza hijos ahí, pero **no puede crear las tuberías nombradas** con las que
+> captura su salida (`detached` e `inheritStdio` arrancan; `normal` falla — ver la
+> **Sesión 10**)—, y es **del arnés, no del proyecto**: la suite corre en la terminal del
+> usuario y en CI.
 > **Regla que ya costó tres intentos: «no se puede en este entorno» es una afirmación
 > sobre el entorno, y ésas caducan.**
 
@@ -2258,6 +2260,81 @@ fijar la derivación, y el `23502` se movió al caso que sí lo produce (planill
 - **Retirar la tolerancia por nombre** de `resolver_programa_inscripcion()`, en la
   migración siguiente al despliegue de la Fase 2.
 - **Mapear `23502`**, hoy sin traducir en ningún lado.
+
+---
+
+## Sesión 10 — D14 Fase 2: el cliente lee y escribe el programa por id (2026-09-25)
+
+**Commit `80432c1`** — 17 archivos, **+436 / −115**. Empujado (`d666458..80432c1`).
+
+### Lo que cambió
+
+| Antes | Ahora |
+| --- | --- |
+| `AspiranteModel.cursoSeleccionado` (el **nombre**) | `programId` (uuid) + `programaNombre` (sólo si la consulta pide el JOIN) |
+| `toJson()` mandaba `curso_seleccionado` → `42703`/`PGRST204` | manda `program_id`, **condicional** (un uuid vacío daría `22P02`) |
+| `SupabaseService.cursosDisponibles()` → vista `cursos` | `programasDisponibles()` → `programs`, con `valor: id` / `etiqueta: name` |
+| `AspiranteRepository.cursosRespaldo` (5 nombres escritos a mano) | **eliminado**: con la clave foránea no puede conocer los uuid |
+| fallo de la oferta → «seguir con los conocidos» | lista vacía + aviso visible + «Reintentar» |
+| la ficha pintaba `cursoSeleccionado` | pinta `programaNombre`, con respaldo «Por asignar» |
+
+`toMetadata()` **conserva la clave** `curso_seleccionado` con el uuid como valor: es la que
+lee `handle_new_user()`. Renombrarla obligaría a migrar el catálogo sin ganar nada.
+
+### Dos cosas que el plan aprobado no cubría
+
+1. **El resumen del paso final habría pintado el uuid.** `textoDeValor()`
+   (`campo_planilla.dart:147`) traducía un `seleccion` leyendo **sólo** `opcionesCerradas`
+   —las opciones incrustadas en el catálogo—. Como `curso_seleccionado` declara
+   `fuente: 'programas'`, sus opciones no están ahí y la función caía al `valor.toString()`:
+   antes de D14 eso imprimía el nombre **por casualidad**; con D14 imprimiría el uuid delante
+   del aspirante. Arreglado con un parámetro `opciones` —mismo criterio que ya usaba
+   `_Seleccion`— y una prueba que lo fija. **El desplegable ya estaba bien**; el que fallaba
+   era el resumen.
+2. **Un error de compilación que cazó el analizador.** El botón «Reintentar» del aviso
+   seguía llamando a `_cargarCursos`, que ya no existe. El renombrado se hizo por búsqueda y
+   reemplazo y **este sitio se escapó porque el nombre aparece como *referencia*, no como
+   declaración**: buscar la declaración da una lista incompleta.
+
+### Verificación
+
+| Comprobación | Resultado |
+| --- | --- |
+| Verificador local (servidor de análisis real, bajo Node) | **limpio** — 0 errores, 0 avisos, 0 informativos, **163 archivos**, 163/163 declarados |
+| **CI sobre `80432c1`** | ✅ **verde** — «Análisis estático» **8 s** y «Suite de pruebas» **52 s**, ambos `success` |
+| `flutter test` desde esta shell | **no arranca** — ver abajo |
+
+**`flutter test` no se pudo correr desde aquí, y no es por el cambio.** Se aisló con un
+script de tres líneas **fuera del repo**:
+
+| modo de arranque | resultado |
+| --- | --- |
+| `ProcessStartMode.detached` | OK |
+| `ProcessStartMode.inheritStdio` | OK |
+| `ProcessStartMode.normal` (crea tuberías) | **FALLA** `ERROR_PIPE_BUSY` (231) |
+
+Dart **sí** lanza hijos; lo que no puede es crear la **tubería nombrada** con la que captura
+la salida del hijo —la creación ocurre **antes** de `CreateProcess`—. Node no lo sufre porque
+usa tuberías **anónimas**: por eso el verificador bajo Node funciona en el mismo instante en
+que `flutter test` no arranca. `ok=0 fallos=5` con `cmd.exe /c echo hola`, igual dentro y
+fuera del sandbox, tras 30 s de pausa y sin procesos huérfanos.
+
+**Esto corrige la nota del 2026-09-25 de más arriba**: no es que «`cmd.exe` no se pueda
+crear» —el **mismo** `cmd.exe` arranca en `detached` e `inheritStdio`—. Y la **receta de dos
+piezas** (`PROGRAMFILES(X86)` + proxy desactivado) es para **otro** fallo —el WebSocket de
+loopback de `flutter_tester`—: **no** arregla éste, medido con la receta puesta. El bloqueo es
+**de esta shell**, no del proyecto: la suite corre en la terminal real del usuario y en CI,
+que es donde quedó verificada.
+
+### Lo que queda
+
+- **Fase 3**: retirar la tolerancia por nombre y `drop view public.cursos` — eso **cierra
+  D12**—, reescribiendo las aserciones que hoy afirman la vista.
+- **Mapear `23502`**, hoy sin traducir en ningún lado.
+- **El total de la suite no se pudo leer**: el registro del job exige permisos de
+  administración —lo documenta el propio `flutter_ci.yml`—, así que el paso de pruebas es
+  verde pero **no se puede citar el número**. Lo que sí se puede citar: corrió **52 s** y
+  salió `success`.
 
 ---
 

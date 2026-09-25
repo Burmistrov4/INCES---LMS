@@ -121,8 +121,8 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 | Comprobación | Resultado |
 | --- | --- |
-| `flutter analyze` | Sin problemas |
-| `flutter test` | **456 / 456** en verde — **medido el 2026-09-22**, con el Centro de Mando del Docente incluido (+10). Exige la receta de dos piezas de §"Verificación" (ver aviso) |
+| `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 163 archivos** con el servidor de análisis real |
+| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `80432c1`**. Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto |
 | `npm run verify` (backend) | **540 / 540** en verde (**21** archivos) — **medido el 2026-09-22** |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
@@ -1340,7 +1340,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D11** | `ESTADO_DEL_SISTEMA.md` (este documento) arrastraba cifras viejas: 138 tests / 88 Flutter / 11 rutas / 4 migraciones frente a 171 / 110 / 15 / 5 reales | ✅ **Resuelta** — actualizado contra el código el 2026-09-14. *Y vuelto a actualizar el 2026-09-15: 341 / 203 / 29 / 10 reales (ver §7). La lección se cumplió dos veces: el documento se desincroniza solo.* |
 | **D12** | `cursos` (Fase 0) y `programs` (M2) eran el mismo concepto: el catálogo de oferta formativa. Los 5 cursos sembrados son justo los `CURSO_LIBRE` que M2 modela | ✅ **Resuelta** — los 5 cursos se migraron a `programs` conservando id, nombre y estado; `cursos` pasó a ser una **vista de compatibilidad** (`security_invoker`) sobre `programs`. Una sola fuente de verdad, cero cambios en Flutter |
 | **D13** | El `sections` de Fase 0 (`nombre`, `cupo_maximo`, `activa`) no era el que exige M3 (`period_code`, `subject_id`, `name`, `max_capacity`) y **no tenía `program_id`**, así que la cabecera del cuadrante era ambigua y la Regla 2 de M2 era inimplementable | ✅ **Resuelta** — `sections` rediseñada completa (0 filas, 0 consumidores: no había nada que conservar) + `program_id` + **Regla 2 implementada** como trigger. Ver §10 |
-| **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | 🟡 **La base resuelta (2026-09-25); falta el cliente** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). **Tolerancia transitoria**: acepta el uuid *o* el nombre, para que la migración no rompa al formulario desplegado mientras la Fase 2 no se despliegue — se retira en la migración siguiente a ese despliegue. **Falta**: que Flutter mande el uuid y lea `programs` directamente; eso cierra D12 del todo (`drop view public.cursos`) |
+| **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | 🟡 **Base y cliente resueltos (2026-09-25); falta la limpieza** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). El **cliente** ya manda el uuid y lee `programs` directamente (`80432c1`, Fase 2). **Falta**: retirar la **tolerancia transitoria** por nombre —vive para que la migración no rompiera al formulario desplegado— y `drop view public.cursos`, que **cierra D12** del todo |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 | **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
 
@@ -1817,18 +1817,22 @@ queda el enlace:
 - **D13 — `sections` no era la que M3 necesita.** ✅ **Resuelta.** Rediseñada
   completa, con `program_id`, y la Regla 2 implementada sobre ella.
 
-**D14 quedó resuelta por la mitad** (fila en §6). La base ya no guarda el nombre:
-`202609250001` (**2026-09-25**) sustituyó `aspirantes.curso_seleccionado` por
-`program_id` con clave foránea, y `resolver_programa_inscripcion()` es quien
-decide qué valor vale. Lo que falta es el **cliente**: que Flutter mande el uuid y
-lea `programs` directamente.
+**D14 ya está resuelta de punta a punta** (fila en §6), y le queda la limpieza. La
+base dejó de guardar el nombre: `202609250001` (**2026-09-25**) sustituyó
+`aspirantes.curso_seleccionado` por `program_id` con clave foránea, y
+`resolver_programa_inscripcion()` es quien decide qué valor vale. Y el **cliente**
+dejó de mandarlo: `80432c1` (**2026-09-25**, Fase 2) manda el uuid y lee `programs`
+directamente. Lo que falta es retirar la **tolerancia transitoria** por nombre y
+`drop view public.cursos`.
 
 Ese cambio de cliente es además lo que **cierra D12 del todo**, porque es lo que
-permite retirar la vista `cursos`. Por eso **la vista sigue en pie**, y no por
-descuido: `SupabaseService.cursosDisponibles()` es su único consumidor y alimenta
-el desplegable del formulario público, así que borrarla antes de desplegar el
-cliente nuevo dejaría la inscripción **sin opciones**. El orden lo fijó el propio
-`comment on view` de `202609160001` y es el que se ha respetado.
+permite retirar la vista `cursos`. **La Fase 2 ya lo hizo**: `cursosDisponibles()`
+dejó de existir y su sustituto —`programasDisponibles()`— lee `programs`. Así que
+**la vista ya no tiene consumidor** y sólo espera su migración de retirada. Hasta
+el 2026-09-25 seguía en pie a propósito, y no por descuido: era lo único que
+alimentaba el desplegable del formulario público, y borrarla antes de desplegar el
+cliente nuevo habría dejado la inscripción **sin opciones**. El orden lo fijó el
+propio `comment on view` de `202609160001` y es el que se ha respetado.
 
 ---
 
