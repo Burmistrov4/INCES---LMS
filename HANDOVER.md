@@ -2412,15 +2412,25 @@ de ser inocua y hay que volver a decidir.
 | `validate.mjs` (PostgreSQL real, PGlite) | ✅ **463 / 463** — «TODO VERDE»; `202609250002 … aplicado` |
 | Backend (`npm run verify`) | ✅ **562 / 562** en 22 archivos; `typecheck` y `lint` limpios |
 | Verificador local (servidor de análisis real, bajo Node) | ✅ **limpio** — 0 errores, 0 avisos, 0 informativos, **163 archivos** |
-| `flutter test` desde esta shell | ❌ **no arranca** — `ERROR_PIPE_BUSY` (231) en el primer spawn (`git.EXE`). Es la limitación ya caracterizada en la Sesión 10, no el cambio. Lo verifica CI |
+| `flutter test` desde esta shell | ❌ **no arranca** — `ERROR_PIPE_BUSY` (231) en el primer spawn (`git.EXE`). Es la limitación ya caracterizada en la Sesión 10, no el cambio |
+| **CI sobre `499af9c`** — `Flutter CI` #17 | ✅ **verde**, `completed` / `success`, 07:57:52 → 07:59:48 (≈116 s) |
+| **CI sobre `499af9c`** — `Backend CI` #4 | ✅ **verde**, `completed` / `success`, 07:57:52 → 07:58:27 (≈35 s) |
+
+Las dos suites corrieron sobre el mismo push. **`Flutter CI` es el que cierra el hueco**: ejecuta
+`flutter test`, así que la prueba nueva de `23502` **sí se ejecutó** — lo que no se pudo fue
+ejecutarla **desde esta shell**. El **recuento** de la suite no se puede citar: los registros de
+los jobs exigen permisos de administración, y `gh` no está instalado. Lo que sí se puede citar:
+ambos salieron `success` y con duraciones compatibles con haber ejecutado de verdad —≈52 s de
+pruebas en Flutter, que es lo que ya se midió en la Sesión 10—.
 
 ### Lo que queda
 
 - **Aplicar `202609250002` en la nube** — falta el `SUPABASE_ACCESS_TOKEN`. Cuando se aplique,
   `ESTADO_DEL_SISTEMA.md` §2 cambia en **dos cifras**: migraciones **23 → 24** y vistas
   **5 → 4**. Después, correr `verificar-esquema.mjs`, que ya espera la vista ausente.
-- **Verificar `flutter test` en la terminal real**, o esperar CI: la prueba nueva de `23502`
-  está **analizada** pero **no ejecutada**.
+- **`flutter test` ya quedó verificado por CI** sobre `499af9c`. Si se quiere el **recuento**
+  exacto, hay que correrlo en la terminal real: desde esta shell no arranca, y los registros
+  del job no son legibles sin permisos de administración.
 - **`gh` no está instalado** y el conector de GitHub no está conectado: la API pública por
   `WebFetch` sirve para leer, pero los **registros de los jobs** siguen exigiendo permisos de
   administración, así que el recuento de la suite de CI **no se puede citar**.
