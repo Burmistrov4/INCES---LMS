@@ -73,6 +73,16 @@ node_modules/
 npm-debug.log*
 *.tsbuildinfo
 
+# --- Suite E2E de Playwright -------------------------------------------------
+# El informe HTML y los artefactos de una corrida (capturas, trazas, vídeos) son
+# salida de una ejecución concreta, no código: se suben como artefacto del flujo
+# de CI y no se versionan. El `package-lock.json` de `e2e/` **sí** se versiona,
+# porque `npm ci` lo exige y es lo que fija la versión de Playwright.
+e2e/informe/
+e2e/test-results/
+e2e/blob-report/
+e2e/.playwright/
+
 # --- Artefactos de build del backend -----------------------------------------
 # `openapi.json` NO se ignora a propósito: es el contrato publicado y su `diff`
 # es justo lo que hace visible un cambio de API en la revisión.

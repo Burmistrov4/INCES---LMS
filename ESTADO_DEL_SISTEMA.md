@@ -1209,6 +1209,35 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 > «consultar → serializar → descargar» está cubierta por dobles y **no** por un
 > navegador real: **el ciclo en navegador sigue siendo deuda**, igual que el de M5.
 
+> **✅ La mitad de esa deuda se cerró el 2026-09-25: existe la suite E2E.** `e2e/`
+> es una suite de **Playwright + TypeScript** con Page Object Model que recorre el
+> flujo real —inicio de sesión contra el Supabase real, navegación por el menú,
+> pulsación del botón— y **captura el evento `download`** del navegador, y luego
+> comprueba el archivo **byte a byte**: BOM `EF BB BF`, CRLF, separador `;`,
+> cabecera de 62 columnas y `documento_identidad`. Se ejecuta en
+> `.github/workflows/e2e.yml` sobre `ubuntu-latest`, que es el único sitio donde
+> `flutter build web` arranca (aquí el CLI muere con `ERROR_PIPE_BUSY`).
+>
+> **Lo que se midió, y no se supuso**, porque de ello depende todo el diseño:
+> Flutter Web en CanvasKit **no expone los widgets como DOM** —no hay `getByRole`
+> ni `getByText`: miden **0** coincidencias— y hay que encender el árbol semántico
+> pulsando `flt-semantics-placeholder` con `dispatchEvent`, porque un `click()`
+> normal **agota el tiempo**. Los localizadores válidos son
+> `flt-semantics[aria-label="…"]` y `getByLabel`. El `<canvas>` está en el
+> **shadow DOM** de `flt-glass-pane`, así que `document.querySelectorAll('canvas')`
+> da **0** con la app funcionando.
+>
+> **Lo que sigue abierto, y es lo importante:** la suite **todavía no se ha
+> ejecutado contra la app real**. Falta un bundle compilado y los cinco secretos
+> (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`,
+> `E2E_SECCION`), que son parte de **D9**; el flujo `e2e.yml` **falla a propósito**
+> mientras falten, con una anotación que dice cuáles — un verde con las pruebas
+> saltadas sería peor que un rojo. Lo que sí está verificado: TypeScript compila
+> sin errores, Playwright descubre las 10 pruebas, y **el spec se ejecutó sin
+> modificarlo contra un arnés que reproduce el contrato de DOM de Flutter y la
+> descarga real por `Blob`: 9 de 10 en verde**, y la que falla es la que debe
+> fallar. El paso menos verificado es escribir en un `TextField` de Flutter.
+
 > **El 2026-09-25 llegaron las reglas de formateo de HACER, y el archivo cambió de
 > forma.** Lo que sigue sin especificarse son las **columnas** (D17); lo que llegó
 > es **cómo se escribe cada celda**. El archivo pasó a ser: separador **punto y

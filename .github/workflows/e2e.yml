@@ -1,0 +1,152 @@
+# Suite E2E del frontend (Playwright + Chromium real).
+#
+# Por qué existe este archivo, y no es «porque toca tener CI»:
+#
+# 1. La descarga del CSV hacia HACER vive en `package:web` + `dart:js_interop`,
+#    que **no compilan en la VM de Dart**. La suite de `flutter test` la dobla y
+#    nunca ejecuta el `Blob`, la URL de objeto ni el `<a download>`. Este flujo
+#    es el único sitio donde esa ruta se recorre de verdad.
+#
+# 2. En el sandbox de Windows de desarrollo, `flutter build web` **no arranca**:
+#    el CLI de Flutter muere al lanzar su primer proceso hijo (`ERROR_PIPE_BUSY`,
+#    `CreateFile failed 231`). En `ubuntu-latest` ese problema no existe, así que
+#    compilar aquí es lo que hace que la suite sea ejecutable por cualquiera.
+#
+# 3. Aquí la versión de Flutter **sí importa**: se fija a 3.47.0, la misma que el
+#    proyecto compila y defiende. Un verde con otro toolchain no sería evidencia
+#    sobre lo que se entrega.
+#
+# AVISO: este flujo **falla a propósito** mientras falten los secretos. La lista
+# está en `e2e/README.md` y es parte de D9. Un flujo que saltara las pruebas y
+# saliera en verde sería peor que un rojo: nadie lo miraría, y la deuda de la
+# descarga en navegador real seguiría abierta creyéndose cerrada.
+
+name: E2E (Playwright)
+
+on:
+  # A mano, desde la pestaña Actions: es lo que se usa mientras se pone a punto.
+  workflow_dispatch:
+  # Y cada noche, para que la deriva de la nube (un esquema que cambia, un
+  # secreto que caduca) aparezca sin que nadie tenga que acordarse.
+  schedule:
+    - cron: '0 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'e2e/**'
+      - 'lib/**'
+      - '.github/workflows/e2e.yml'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Exportación CSV en navegador real
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      # Se comprueban los secretos ANTES de gastar veinte minutos compilando.
+      # Sin esto, un secreto ausente se manifiesta como un error de compilación
+      # de Flutter sin relación aparente con la causa, y se pierde el tiempo
+      # buscando en el sitio equivocado. Se publica además como anotación, que
+      # es pública: los registros del job exigen permisos de administración.
+      - name: Comprobar los secretos
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_SECCION: ${{ secrets.E2E_SECCION }}
+        run: |
+          faltan=""
+          for nombre in SUPABASE_URL SUPABASE_ANON_KEY E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_SECCION; do
+            if [ -z "${!nombre}" ]; then
+              faltan="$faltan $nombre"
+            fi
+          done
+          if [ -n "$faltan" ]; then
+            echo "::error title=Faltan secretos::La suite E2E no puede correr: falta$faltan. Se añaden en Settings > Secrets and variables > Actions. La lista y para qué sirve cada uno está en e2e/README.md (parte de D9)."
+            exit 1
+          fi
+          echo "Los cinco secretos están presentes."
+
+      - name: Instalar Flutter 3.47.0
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      - name: Resolver dependencias
+        run: flutter pub get
+
+      # `.env.json` está en .gitignore y no puede estar en el repositorio, pero
+      # el bundle lo necesita: Flutter no lee `.env` en ejecución, resuelve
+      # `String.fromEnvironment()` **al compilar**. Sin este paso, la app se
+      # construye con la URL de Supabase vacía y falla al iniciar sesión con un
+      # error que no menciona la causa.
+      - name: Escribir .env.json desde los secretos
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: |
+          cat > .env.json <<JSON
+          {
+            "_comentario": "Generado por .github/workflows/e2e.yml. No se edita a mano.",
+            "SUPABASE_URL": "${SUPABASE_URL}",
+            "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}",
+            "API_BASE_URL": "${API_BASE_URL}"
+          }
+          JSON
+
+      - name: Compilar el frontend
+        run: flutter build web --dart-define-from-file=.env.json
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar la suite E2E
+        working-directory: e2e
+        run: npm ci
+
+      # `--with-deps` instala las bibliotecas de sistema que Chromium necesita
+      # en un runner limpio; sin ellas el navegador no arranca y el fallo se lee
+      # como «no se pudo lanzar el navegador», sin decir qué falta.
+      - name: Instalar Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Correr la suite
+        working-directory: e2e
+        env:
+          CI: 'true'
+          E2E_BASE_URL: http://127.0.0.1:8090
+          E2E_WEB_DIR: ../build/web
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_SECCION: ${{ secrets.E2E_SECCION }}
+        run: npx playwright test
+
+      # El informe HTML es lo que convierte «falló» en «falló aquí, por esto».
+      # Se sube siempre, no sólo al fallar: cuando algo pasa a veces, el informe
+      # de la corrida que sí pasó también sirve.
+      - name: Subir el informe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-e2e
+          path: e2e/informe/
+          retention-days: 14
+          if-no-files-found: warn

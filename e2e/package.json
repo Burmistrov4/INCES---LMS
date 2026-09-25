@@ -1,0 +1,20 @@
+{
+  "name": "inces-lms-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Suite E2E en Playwright para el LMS del INCES. Cubre lo que `flutter test` NO puede cubrir: la ruta de descarga del CSV, que vive en `package:web` + `dart:js_interop` y no compila en la VM de Dart.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:depurar": "playwright test --debug",
+    "informe": "playwright show-report informe",
+    "servir": "node serve.mjs",
+    "navegador": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -2707,4 +2707,79 @@ desde el navegador exigiría credenciales de R2 en el frontend, y eso no ocurre 
 
 ---
 
+## Sesión 13 — 2026-09-25 (cierre final): la suite E2E de la descarga
+
+### Qué se entrega
+
+`e2e/` — suite de **Playwright + TypeScript** con Page Object Model. Recorre el flujo **real**
+—inicio de sesión contra el Supabase real, navegación por el menú, pulsación del botón—,
+**captura el evento `download`** del navegador y valida el archivo **byte a byte**: BOM
+`EF BB BF`, CRLF, separador `;`, cabecera de 62 columnas y `documento_identidad`.
+
+| Archivo | Qué es |
+| --- | --- |
+| `e2e/playwright.config.ts` | Tiempos ajustados a CanvasKit, `acceptDownloads`, un worker |
+| `e2e/src/pages/FlutterApp.ts` | La mecánica de CanvasKit, toda ella medida |
+| `e2e/src/pages/LoginPage.ts` | El acceso, con las etiquetas del widget real |
+| `e2e/src/pages/InscripcionesPage.ts` | El panel y la captura de la descarga |
+| `e2e/src/fixtures/csv.ts` | Las aserciones de bytes, sin reimplementar las reglas de Dart |
+| `e2e/tests/export_csv.spec.ts` | 10 pruebas |
+| `e2e/serve.mjs` | Servidor estático con fallback de SPA y guardia anti-traversal |
+| `.github/workflows/e2e.yml` | Compila en `ubuntu-latest` y corre la suite |
+
+### Lo que se midió, y que un POM escrito «a lo normal» habría hecho mal
+
+Flutter Web en CanvasKit **no expone los widgets como DOM**. Cuatro resultados, todos contra una
+app Flutter Web real (`dartpad.dev`, porque en esta máquina no se puede compilar):
+
+1. **`click()` sobre `flt-semantics-placeholder` agota el tiempo.** `click({force:true})` falla
+   con «Element is outside of the viewport». Lo que funciona es **`dispatchEvent('click')`**.
+2. **`getByRole` y `getByText` devuelven 0 coincidencias.** Flutter deja **23 de 41** nodos sin
+   `role`, incluidos los que sí llevan `aria-label`. Sirven
+   `flt-semantics[aria-label="…"]` y `getByLabel`.
+3. **Pulsar un nodo semántico con `click()` también agota el tiempo.** `dispatchEvent` y
+   `{force:true}` sí funcionan. Un POM con `click()` a secas falla el 100 % de las pulsaciones.
+4. **El `<canvas>` está en el shadow DOM** de `flt-glass-pane`:
+   `document.querySelectorAll('canvas')` da **0** con la app pintando perfectamente.
+
+Y una trampa de la app: el botón de exportar se llama **igual en todas las tarjetas** y el árbol
+semántico es **plano**, así que se desambigua por **geometría** (`botonDeTarjeta`, vecino más
+cercano entre títulos y botones), no por jerarquía.
+
+### Una hipótesis propia que la medición falsificó
+
+Pareció que el `revokeObjectURL()` inmediato de `selector_archivos_web.dart` degradaba la entrega
+de 200 ms a 5,7 s. **No era eso**: al invertir el orden de los casos, el lento pasó a ser el
+otro. Lo lento es **la primera descarga de cada proceso de navegador** —arranque del gestor de
+descargas—. Sin el caso de control, esto se habría publicado como un bug inexistente. El diseño
+se lleva la consecuencia: la espera de descarga no baja de **30 s**.
+
+### Verificación: qué está probado y qué no
+
+**Probado:** `tsc --noEmit` → 0 errores · Playwright descubre las 10 pruebas · el guardia
+anti-traversal de `serve.mjs` da **403** en los cuatro intentos (`curl --path-as-is`) · y **el
+spec se ejecutó sin modificarlo contra un arnés que reproduce el contrato de DOM de Flutter y la
+descarga real por `Blob`: 9 de 10 en verde**, fallando la que debe fallar.
+
+**No probado, y es lo que importa:** la suite **no se ha ejecutado contra la app real**. Hacen
+falta un bundle compilado y **cinco secretos** —`SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`E2E_ADMIN_EMAIL`, `E2E_ADMIN_PASSWORD`, `E2E_SECCION`—, que son parte de **D9**. El flujo
+`e2e.yml` **falla a propósito** mientras falten, con una anotación que dice cuáles: un verde con
+las pruebas saltadas sería peor que un rojo.
+
+**El paso menos verificado del POM es escribir en un `TextField` de Flutter.** Todo lo demás se
+midió contra una app real; esto no, porque no encontré una app Flutter Web pública con un campo
+accesible por semántica. Si algo va a fallar, falla ahí — y por eso `escribirEn()` comprueba el
+resultado y lo dice, en vez de continuar con un formulario vacío.
+
+### Dos cosas más para quien siga
+
+- **`NODE_PATH` no resuelve para ESM**, y `playwright-core` es CommonJS: hay que importar por URL
+  absoluta y desestructurar del export por defecto.
+- **`node 22.22` ejecuta `.ts` directamente** (type stripping). Eso permitió verificar el helper
+  de aserciones contra archivos reales —y comprobar que **distingue bien de mal**, con cuatro
+  casos negativos— sin compilar nada.
+
+---
+
 *Fin del traspaso. El estado es verde y el camino está marcado.*
