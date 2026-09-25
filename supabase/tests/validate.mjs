@@ -3174,9 +3174,91 @@ async function main() {
     db.query("select public.validar_planilla('[]'::jsonb)"),
   );
 
+  //  (D14) `curso_seleccionado` dejó de ser texto libre: su valor tiene que
+  //  resolver a un programa real. El resto de obligatorios siguen aceptando
+  //  cualquier cosa porque `validar_planilla()` valida FORMA, no tipos — y eso no
+  //  cambia aquí.
+  //
+  //  El id se consulta en vez de escribirlo a mano: un uuid fijo se rompería el
+  //  día que la semilla cambie de identificadores, y el fallo aparecería como
+  //  «la planilla completa no pasa», que no dice nada sobre la causa.
+  const cursoInscribible = (
+    await db.query(
+      "select id, name from public.programs where type = 'CURSO_LIBRE' and is_active order by code limit 1",
+    )
+  ).rows[0];
+  const programaInscribible = cursoInscribible?.id;
+  const nombreInscribible = cursoInscribible?.name;
+  check(
+    'hay al menos un curso inscribible con el que armar la planilla',
+    Boolean(programaInscribible),
+    String(programaInscribible),
+  );
+
   const planillaCompleta = Object.fromEntries(obligatorios.map((c) => [c.codigo, 'x']));
+  planillaCompleta.curso_seleccionado = programaInscribible;
   await db.query('select public.validar_planilla($1::jsonb)', [JSON.stringify(planillaCompleta)]);
   check('una planilla con todos los obligatorios pasa', true);
+
+  // --- D14: la referencia al programa tiene que ser real ---------------------
+  //  Sin estas aserciones, `resolver_programa_inscripcion()` podría dejar de
+  //  comprobar y nada lo delataría: la planilla completa seguiría pasando.
+  const errProgramaInventado = await esperaError(
+    'un programa inventado se rechaza con 23503',
+    () =>
+      db.query('select public.validar_planilla($1::jsonb)', [
+        JSON.stringify({
+          ...planillaCompleta,
+          curso_seleccionado: '00000000-0000-4000-8000-000000000000',
+        }),
+      ]),
+  );
+  check(
+    'un programa inexistente sale 23503',
+    errProgramaInventado?.code === '23503',
+    String(errProgramaInventado?.code),
+  );
+
+  const errNombreInventado = await esperaError(
+    'un nombre de curso que no existe se rechaza',
+    () =>
+      db.query('select public.validar_planilla($1::jsonb)', [
+        JSON.stringify({ ...planillaCompleta, curso_seleccionado: 'Curso Que No Existe' }),
+      ]),
+  );
+  check(
+    'un nombre inexistente sale 23503',
+    errNombreInventado?.code === '23503',
+    String(errNombreInventado?.code),
+  );
+
+  // La tolerancia transitoria: el formulario DESPLEGADO hoy manda el nombre. Si
+  // esto dejara de funcionar, el hueco entre aplicar la migración y desplegar la
+  // Fase 2 rompería la inscripción pública en silencio.
+  await db.query('select public.validar_planilla($1::jsonb)', [
+    JSON.stringify({ ...planillaCompleta, curso_seleccionado: nombreInscribible }),
+  ]);
+  check('el NOMBRE del curso sigue valiendo (tolerancia transitoria de D14)', true);
+
+  // Una CARRERA no está abierta a la inscripción pública (Decisión 1). La regla
+  // vive en la función y no sólo en el desplegable de Flutter: `handle_new_user`
+  // es `security definer` y no pasa por RLS, así que el filtro del cliente no
+  // protege de una petición fabricada a mano.
+  const carreraId = (
+    await db.query("select id from public.programs where type = 'CARRERA' limit 1")
+  ).rows[0]?.id;
+  if (carreraId) {
+    const errCarrera = await esperaError('una CARRERA no se puede elegir para inscribirse', () =>
+      db.query('select public.validar_planilla($1::jsonb)', [
+        JSON.stringify({ ...planillaCompleta, curso_seleccionado: carreraId }),
+      ]),
+    );
+    check(
+      'inscribirse en una CARRERA sale 23503',
+      errCarrera?.code === '23503',
+      String(errCarrera?.code),
+    );
+  }
 
   //  El anti-agujero: sin esto, un cliente «cumpliría» mandando [] o espacios.
   const errArray = await esperaError('un array vacío NO cuenta como campo cumplido', () =>
@@ -3214,7 +3296,13 @@ async function main() {
     telefono: '04141111111',
     direccion: 'Calle 1',
     nivel_educativo: 'SECUNDARIO',
-    curso_seleccionado: 'Soldadura',
+    //  (D14) Antes era 'Soldadura', un nombre que no existe en la oferta: con el
+    //  texto libre colaba. Ahora tiene que resolver a un programa real. Se manda
+    //  el NOMBRE a propósito —este fixture representa al cliente VIEJO, el que
+    //  sigue desplegado— así que quien lo sostiene es la tolerancia transitoria
+    //  de `resolver_programa_inscripcion()`. Si esa tolerancia se retirara antes
+    //  de desplegar la Fase 2, esta aserción es la que lo delata.
+    curso_seleccionado: nombreInscribible,
   });
 
   //  (a) cliente VIEJO (el formulario actual): no manda la clave.
@@ -3433,7 +3521,7 @@ async function main() {
         db.query(
           'insert into public.aspirantes ' +
             '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
-            ' nivel_educativo, curso_seleccionado, datos_planilla) ' +
+            ' nivel_educativo, program_id, datos_planilla) ' +
             'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)',
           [
             SIN_FICHA,
@@ -3446,7 +3534,9 @@ async function main() {
             'sinficha@inces.test',
             'Calle 1',
             'SECUNDARIO',
-            'Soldadura',
+            // (D14) Antes iba aquí el NOMBRE 'Soldadura' en `curso_seleccionado`.
+            // Ahora la columna es una FK, así que va el id del curso.
+            programaInscribible,
             JSON.stringify(planillaIncompleta),
           ],
         ),
@@ -3458,7 +3548,7 @@ async function main() {
     db.query(
       'insert into public.aspirantes ' +
         '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
-        ' nivel_educativo, curso_seleccionado, datos_planilla) ' +
+        ' nivel_educativo, program_id, datos_planilla) ' +
         'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)',
       [
         SIN_FICHA,
@@ -3471,12 +3561,135 @@ async function main() {
         'sinficha@inces.test',
         'Calle 1',
         'SECUNDARIO',
-        'Soldadura',
+        programaInscribible,
         JSON.stringify(planillaCompleta),
       ],
     ),
   );
   check('…y sí puede insertarla completa', true);
+
+  // --- D14: la clave foránea, por el camino que NO pasa por el resolutor -----
+  //  `resolver_programa_inscripcion()` protege el camino del formulario. Pero un
+  //  cliente puede escribir `aspirantes` directamente con `aspirantes_insert_own`
+  //  y ahí quien tiene que rechazar es la FK — que es el motivo de que D14 sea
+  //  una columna con `references` y no una comprobación en Dart.
+  //
+  //  El código importa: `traducir-error.ts` convierte 23503 en
+  //  REFERENCIA_INVALIDA. Si la FK desapareciera, este insert pasaría y la ficha
+  //  quedaría apuntando a un programa que no existe.
+  const SIN_FICHA_2 = 'a0000000-0000-4000-8000-000000000005';
+  const SIN_FICHA_3 = 'a0000000-0000-4000-8000-000000000006';
+  const SIN_FICHA_4 = 'a0000000-0000-4000-8000-000000000007';
+  await db.exec(
+    `insert into auth.users (id, email, raw_user_meta_data) values ` +
+      `('${SIN_FICHA_2}', 'sinficha2@inces.test', '{}'::jsonb), ` +
+      `('${SIN_FICHA_3}', 'sinficha3@inces.test', '{}'::jsonb), ` +
+      `('${SIN_FICHA_4}', 'sinficha4@inces.test', '{}'::jsonb);`,
+  );
+
+  const errFk = await esperaError(
+    'un program_id inexistente lo rechaza la clave foránea',
+    () =>
+      como('authenticated', SIN_FICHA_2, () =>
+        db.query(
+          'insert into public.aspirantes ' +
+            '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
+            ' nivel_educativo, program_id, datos_planilla) ' +
+            'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)',
+          [
+            SIN_FICHA_2,
+            '91000002',
+            'Sin',
+            'Ficha',
+            '1990-01-01',
+            'M',
+            '04141111112',
+            'sinficha2@inces.test',
+            'Calle 2',
+            'SECUNDARIO',
+            '00000000-0000-4000-8000-000000000000',
+            JSON.stringify(planillaCompleta),
+          ],
+        ),
+      ),
+  );
+  check(
+    'la FK rechaza un programa inexistente con 23503',
+    errFk?.code === '23503',
+    String(errFk?.code),
+  );
+
+  //  (D14) La derivación del lado del trigger. Si el llamante OMITE `program_id`
+  //  pero la planilla trae `curso_seleccionado`, la guardia lo rellena.
+  //
+  //  Esta aserción nació de un fallo: la primera versión de esta prueba esperaba
+  //  un 23502 y NO lo hubo, porque la guardia derivó la clave. El hallazgo es la
+  //  prueba — es lo que impide que `program_id` y `datos_planilla` se
+  //  desincronicen cuando hay dos caminos de escritura (`handle_new_user` y
+  //  `PUT /yo/planilla`).
+  await como('authenticated', SIN_FICHA_3, () =>
+    db.query(
+      'insert into public.aspirantes ' +
+        '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
+        ' nivel_educativo, datos_planilla) ' +
+        'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)',
+      [
+        SIN_FICHA_3,
+        '91000003',
+        'Sin',
+        'Ficha',
+        '1990-01-01',
+        'M',
+        '04141111113',
+        'sinficha3@inces.test',
+        'Calle 3',
+        'SECUNDARIO',
+        JSON.stringify(planillaCompleta),
+      ],
+    ),
+  );
+  check(
+    'la guardia deriva program_id desde la planilla cuando el llamante lo omite',
+    (
+      await db.query(`select program_id from public.aspirantes where user_id = '${SIN_FICHA_3}'`)
+    ).rows[0]?.program_id === programaInscribible,
+  );
+
+  //  Y el hueco que queda: sin `program_id` **y** sin `curso_seleccionado` en la
+  //  planilla, salta el NOT NULL. `23502` no está traducido ni en
+  //  `traducir-error.ts` ni en `app_exception.dart`, así que llega al cliente
+  //  como error opaco. La aserción fija que el hueco existe y dónde, para que no
+  //  se descubra en producción.
+  const errSinPrograma = await esperaError(
+    'una ficha sin programa y sin curso en la planilla se rechaza (NOT NULL)',
+    () =>
+      como('authenticated', SIN_FICHA_4, () =>
+        db.query(
+          'insert into public.aspirantes ' +
+            '(user_id, cedula, nombres, apellidos, fecha_nac, sexo, telefono, email, direccion, ' +
+            ' nivel_educativo, datos_planilla) ' +
+            'values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)',
+          [
+            SIN_FICHA_4,
+            '91000004',
+            'Sin',
+            'Ficha',
+            '1990-01-01',
+            'M',
+            '04141111114',
+            'sinficha4@inces.test',
+            'Calle 4',
+            'SECUNDARIO',
+            '{}',
+          ],
+        ),
+      ),
+  );
+  check(
+    'sin programa y sin curso sale 23502 (NOT NULL, sin traducir todavía)',
+    errSinPrograma?.code === '23502',
+    String(errSinPrograma?.code),
+  );
 
   // ---------------------------------------------------------------- resumen
   console.log(

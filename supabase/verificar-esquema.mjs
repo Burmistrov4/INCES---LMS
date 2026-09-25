@@ -149,7 +149,7 @@ comprobar('sin tablas heredadas', sobrantes.length === 0, sobrantes.join(', ') |
 
 console.log('\n  2. Columnas de public.aspirantes (contrato con AspiranteModel)\n');
 const columnas = await consultar(
-  "select column_name, data_type from information_schema.columns " +
+  "select column_name, data_type, is_nullable from information_schema.columns " +
     "where table_schema = 'public' and table_name = 'aspirantes' order by ordinal_position;",
 );
 const requeridas = [
@@ -164,7 +164,9 @@ const requeridas = [
   'email',
   'direccion',
   'nivel_educativo',
-  'curso_seleccionado',
+  // D14 (`202609250001`): sustituye a `curso_seleccionado`, que guardaba el
+  // NOMBRE del curso en texto libre y quedaba huérfano al renombrar el programa.
+  'program_id',
   'mision_ribaras',
   'discapacidad',
   'requires_legal_tutor',
@@ -177,6 +179,46 @@ for (const columna of requeridas) {
   comprobar(`columna aspirantes.${columna}`, columnas.some((c) => c.column_name === columna));
 }
 
+// D14 — la comprobación INVERSA. Que `program_id` exista no basta: si alguien
+// volviera a añadir `curso_seleccionado`, el dato duplicado regresaría y
+// renombrar un programa volvería a romper las fichas, sin que ninguna aserción
+// de arriba se quejara.
+comprobar(
+  'aspirantes.curso_seleccionado ya NO existe (D14)',
+  !columnas.some((c) => c.column_name === 'curso_seleccionado'),
+  columnas.some((c) => c.column_name === 'curso_seleccionado') ? 'sigue ahí' : 'eliminada',
+);
+
+// D14 — que sea una FK de verdad, no un uuid suelto. Sin esto, cambiar
+// `references` por un `text` pasaría el control de columnas y nada volvería a
+// impedir una referencia a un programa inventado.
+const colPrograma = columnas.find((c) => c.column_name === 'program_id');
+comprobar(
+  'aspirantes.program_id es uuid',
+  colPrograma?.data_type === 'uuid',
+  String(colPrograma?.data_type),
+);
+comprobar(
+  'aspirantes.program_id es NOT NULL',
+  colPrograma?.is_nullable === 'NO',
+  String(colPrograma?.is_nullable),
+);
+
+const fkPrograma = await consultar(
+  "select pg_get_constraintdef(c.oid) as definicion " +
+    "from pg_constraint c join pg_class t on t.oid = c.conrelid " +
+    "join pg_namespace n on n.oid = t.relnamespace " +
+    "where n.nspname = 'public' and t.relname = 'aspirantes' " +
+    "and c.contype = 'f' and c.conname = 'aspirantes_program_id_fkey';",
+);
+comprobar(
+  'FK aspirantes.program_id → programs(id) ON DELETE RESTRICT',
+  fkPrograma.length === 1 &&
+    /programs\(id\)/.test(fkPrograma[0].definicion) &&
+    /ON DELETE RESTRICT/i.test(fkPrograma[0].definicion),
+  fkPrograma[0]?.definicion ?? 'ausente',
+);
+
 console.log('\n  3. Funciones y triggers (invariantes)\n');
 const funciones = await consultar(
   "select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
@@ -184,7 +226,8 @@ const funciones = await consultar(
     "('is_admin', 'handle_new_user', 'link_pending_aspirante', 'proteger_modulo_critico', " +
     "'proteger_ultimo_admin', 'set_updated_at', 'apply_aspirante_auth_fields', " +
     "'turno_de_bloque', 'dia_legible', 'exigir_agenda_libre', 'nombre_para_mostrar', " +
-    "'validar_planilla', 'validar_planilla_guardada');",
+    "'validar_planilla', 'validar_planilla_guardada', " +
+    "'resolver_programa_inscripcion');",
 );
 const nombresFunciones = funciones.map((f) => f.proname);
 for (const fn of [
@@ -203,9 +246,25 @@ for (const fn of [
   // M4 (`202609240002`): el envoltorio que hace que la validación no se pueda
   // esquivar escribiendo la columna por PostgREST con el token propio.
   'validar_planilla_guardada',
+  // D14 (`202609250001`): resuelve el valor de `curso_seleccionado` a un
+  // `programs.id`, exigiendo que exista, esté activo y sea CURSO_LIBRE.
+  'resolver_programa_inscripcion',
 ]) {
   comprobar(`función public.${fn}()`, nombresFunciones.includes(fn));
 }
+
+// El resolutor lo llama `handle_new_user()`, que corre como `supabase_auth_admin`:
+// sin SECURITY DEFINER no podría leer `programs` y el alta fallaría entera. Es un
+// invariante, no un detalle de estilo.
+const definerResolver = await consultar(
+  "select prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+    "where n.nspname = 'public' and p.proname = 'resolver_programa_inscripcion';",
+);
+comprobar(
+  'resolver_programa_inscripcion() es SECURITY DEFINER',
+  definerResolver[0]?.prosecdef === true,
+  String(definerResolver[0]?.prosecdef),
+);
 
 const triggers = await consultar(
   "select t.tgname, c.relname from pg_trigger t join pg_class c on c.oid = t.tgrelid " +

@@ -158,7 +158,7 @@ como `DEFINER` (con `authenticated` sí y `anon` no)** y **la columna
 |---|---|---|
 | Backend (vitest) | **540 / 540** en verde (21 archivos) — medido el 2026-09-22 | `cd backend && npm test` |
 | Flutter | **632 / 632** en verde — **medido el 2026-09-25, exit 0** (02:22). Ya **sí** corre en este entorno; ver la corrección del 2026-09-25 | `flutter test` |
-| SQL (pglite, PostgreSQL real) | **437 / 437** en verde · 22 migraciones — medido el 2026-09-24 | `cd supabase/tests && npm test` |
+| SQL (pglite, PostgreSQL real) | **466 / 466** en verde · 23 migraciones — medido el 2026-09-25 | `cd supabase/tests && npm test` |
 
 **Humos contra la nube real** (necesitan `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`,
 no el `sbp_`): currículo **15/15** (medido el 2026-09-18 — resuelve la discrepancia
@@ -2163,6 +2163,101 @@ cociente que nadie recontaría), §3 (la fila de `aspirantes` ahora nombra la gu
 
 Commits de la sesión: el de la Entrega 5 y el de esta corrección documental — subidos a
 `origin/main`.
+
+---
+
+## Sesión 9 — D14: `aspirantes.program_id` con clave foránea (2026-09-25)
+
+**Archivo: `supabase/migrations/202609250001_d14_aspirantes_program_fk.sql`.**
+
+D14 no era una idea nueva: `202609160001_resolucion_d12_d13.sql` (líneas 62-67) ya la
+describía con estas palabras y esta solución, y decía por qué se difería —`aspirantes`
+estaba vacía—. Esta sesión ejecuta esa decisión.
+
+### Lo que se midió antes de escribir (contra la base real)
+
+```
+aspirantes   0 filas      ← el supuesto del plan, comprobado y no asumido
+programs     6 filas      (1 CARRERA [SEMILLA] + 5 CURSO_LIBRE, todas activas)
+cursos       VIEW         ← no tabla
+aspirantes   sin program_id; curso_seleccionado text NOT NULL
+on_auth_user_created  AFTER INSERT ON auth.users → handle_new_user()
+```
+
+Con 0 filas el `ADD COLUMN ... NOT NULL` es directo. La migración **vuelve a
+comprobar el conteo dentro de sí misma** y se niega a correr si deja de ser 0, en vez
+de rellenar en silencio con un valor inventado.
+
+### Tres correcciones al plan, con la evidencia delante
+
+1. **La inscripción no pasa por Fastify.** `curso_seleccionado` no aparece en ningún
+   archivo de `backend/src`, y el backend **no inserta en `aspirantes`** (sólo escribe
+   `datos_planilla` por `PUT /yo/planilla`). El único camino de alta es el trigger
+   `handle_new_user()` sobre `auth.users`. La fase de Zod/`repos-supabase.ts`/OpenAPI
+   que proponía el plan **no tenía dónde aplicarse**.
+2. **El nombre se guardaba dos veces.** `AspiranteModel.toMetadata()` manda
+   `curso_seleccionado` **y** `datos_planilla` completo, y `_construirPlanilla()` mete
+   todos los campos respondidos. Añadir la FK y soltar la columna **no habría arreglado
+   nada**: el nombre seguía congelado en el jsonb, que es lo que exporta a HACER. Por eso
+   `program_id` se **deriva** de la planilla.
+3. **`DROP VIEW public.cursos` no va en esta fase.** `SupabaseService.cursosDisponibles()`
+   es su único consumidor y alimenta el desplegable del formulario público: borrarla aquí
+   dejaría la inscripción **sin opciones** hasta que se despliegue el cliente nuevo. El
+   orden lo fija el propio `comment on view` de `202609160001`. **Desviación deliberada
+   del plan aprobado**, y la única.
+
+### La decisión que no estaba en el plan: tolerancia transitoria
+
+El formulario desplegado hoy manda el **nombre**. Sin tolerancia, el valor no resolvería,
+`v_es_aspirante` quedaría falso y **el aspirante vería «registro exitoso» sin ficha** — el
+fallo silencioso que este proyecto ya se comió una vez. `resolver_programa_inscripcion()`
+acepta por tanto **los dos vocabularios** (uuid y nombre) y se retira en la migración
+siguiente al despliegue de la Fase 2.
+
+Vive en la base y no en Dart a propósito: ADR-003. Si la tolerancia estuviera en el
+cliente, uno hecho a mano podría mandar nombres para siempre.
+
+### La regla vive donde no la puede rodear el cliente
+
+`handle_new_user()` es `security definer`: **no pasa por RLS**, así que
+`programs_read_activos` no protege de nada dentro del trigger. La resolución comprueba
+explícitamente que el programa **exista, esté activo y sea `CURSO_LIBRE`** — el
+desplegable filtrado en Flutter es comodidad; la regla es la función.
+
+### Verificación
+
+| Comprobación | Resultado |
+| --- | --- |
+| `validate.mjs` (pglite, PostgreSQL real) | **466 / 466**, 0 fallidas — eran 437: **+29** |
+| `verificar-esquema.mjs` | **sin fallos**, con **7 aserciones nuevas** de D14 |
+| `apply-migrations.mjs --check` | **23 aplicadas, 0 pendientes, 0 con deriva** |
+| `contar-catalogo.mjs` | 22 tablas · 5 vistas · **51 funciones** · 29 triggers · 46 políticas · 7/10 módulos |
+| **Sonda en vivo con `rollback`** | el trigger real, con el nombre `'Herrería'`, escribió `cf7f471f-…` (el id de `CUR-HER-01`); `aspirantes` volvió a **0 filas**, sin residuo |
+
+Las aserciones nuevas incluyen la **inversa** —`aspirantes.curso_seleccionado` ya **no**
+existe—, que es la que protege contra que el dato duplicado regrese, y una que fija que
+`23502` (NOT NULL) **sigue sin traducir** en `traducir-error.ts` y `app_exception.dart`.
+
+### Un fallo que salió de una aserción mía mal planteada
+
+Escribí una prueba esperando `23502` al insertar una ficha sin `program_id`; **no lanzó
+nada**. La causa: la guardia **deriva** la clave desde la planilla cuando el llamante la
+omite. El hallazgo es la prueba — es lo que impide que `program_id` y `datos_planilla` se
+desincronicen entre `handle_new_user` y `PUT /yo/planilla`. La aserción se reescribió para
+fijar la derivación, y el `23502` se movió al caso que sí lo produce (planilla sin
+`curso_seleccionado`).
+
+### Lo que queda de D14
+
+- **Fase 2 (Flutter)**: `cursosDisponibles()` → leer `programs` (con `type` y `activo`),
+  `_opcionesDeFuente` con `valor: id` / `etiqueta: nombre`, `cursoSeleccionado` →
+  `programId`, y `toMetadata()` mandando el uuid.
+- **Fase 3**: retirar la vista `cursos` —eso **cierra D12**— y reescribir las aserciones
+  que hoy la afirman: `validate.mjs` §14 entera y tres comprobaciones de
+  `verificar-esquema.mjs` (líneas 118-126, 285-289, 324-336).
+- **Retirar la tolerancia por nombre** de `resolver_programa_inscripcion()`, en la
+  migración siguiente al despliegue de la Fase 2.
+- **Mapear `23502`**, hoy sin traducir en ningún lado.
 
 ---
 
