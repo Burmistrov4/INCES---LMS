@@ -120,6 +120,12 @@ class AppException implements Exception {
     final detail = '${error.message} ${error.details ?? ''}'.toLowerCase();
     final technical = 'PostgrestException(${error.code}): ${error.message}';
 
+    // El catálogo se resuelve ANTES del `switch` y en su propia función, porque
+    // sus mensajes no tienen nada que ver con los de inscripción. Ver el porqué
+    // del orden en la documentación de `_desdeCatalogoInscripcion`.
+    final delCatalogo = _desdeCatalogoInscripcion(error.code, detail, technical);
+    if (delCatalogo != null) return delCatalogo;
+
     switch (error.code) {
       case '23505': // unique_violation
         if (detail.contains('cedula') || detail.contains('cédula')) {
@@ -186,6 +192,77 @@ class AppException implements Exception {
       code: error.code,
       technical: technical,
     );
+  }
+
+  /// Traduce los fallos propios del catálogo de la planilla de inscripción.
+  ///
+  /// **Corre antes que el `switch` genérico, y eso no es estilo: es corrección.**
+  /// El detalle que da Postgres para una clave duplicada es
+  /// `Key (codigo)=(email) already exists.`, así que un campo del catálogo
+  /// llamado `email` haría saltar la rama del correo y el administrador leería
+  /// «ya existe una cuenta registrada con ese correo» mientras intenta añadir un
+  /// campo a la planilla. La firma específica tiene que ganarle a la genérica, y
+  /// eso sólo se consigue comprobándola primero.
+  ///
+  /// `PGRST116` **no** pasa por aquí a propósito: su mensaje
+  /// (`JSON object requested, multiple (or no) rows returned`) no nombra la
+  /// tabla, así que no hay forma de distinguir un campo del catálogo que ya no
+  /// existe de cualquier otra consulta sin filas. Cae al mensaje genérico, que
+  /// es impreciso pero no miente. Se anota para que nadie lo «arregle» con una
+  /// heurística que acertaría casi siempre.
+  ///
+  /// Devuelve `null` cuando el error no es del catálogo, y entonces manda el
+  /// `switch` de siempre.
+  static AppException? _desdeCatalogoInscripcion(
+    String? code,
+    String detail,
+    String technical,
+  ) {
+    // El nombre de la tabla o del constraint es lo que identifica al catálogo.
+    // Es estable: lo genera Postgres a partir del DDL, no de la consulta, así que
+    // no cambia porque cambie la forma de preguntar.
+    const tabla = 'inscripcion_campos';
+    if (!detail.contains(tabla)) return null;
+
+    switch (code) {
+      case '23505': // unique_violation → el `codigo` ya está tomado
+        return AppException(
+          type: AppErrorType.duplicado,
+          message: 'Ya existe un campo con ese código en el catálogo.',
+          code: code,
+          technical: technical,
+        );
+
+      case '23514': // check_violation
+        if (detail.contains('inscripcion_campos_codigo_formato')) {
+          return AppException(
+            type: AppErrorType.validacion,
+            message:
+                'El código sólo admite minúsculas, números y guion bajo, y tiene '
+                'que empezar por una letra.',
+            code: code,
+            technical: technical,
+          );
+        }
+        return AppException(
+          type: AppErrorType.validacion,
+          message: 'El campo no cumple las reglas del catálogo de inscripción.',
+          code: code,
+          technical: technical,
+        );
+
+      case '42501': // insufficient_privilege → la RLS lo bloqueó
+        return AppException(
+          type: AppErrorType.permisos,
+          message:
+              'Sólo un administrador puede modificar el catálogo de '
+              'inscripción.',
+          code: code,
+          technical: technical,
+        );
+    }
+
+    return null;
   }
 
   static AppException _fromAuth(AuthException error) {

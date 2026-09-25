@@ -13,10 +13,12 @@ import 'package:inces_lms_app/repositories/cuadrante_repository.dart';
 import 'package:inces_lms_app/repositories/inscripcion_repository.dart';
 import 'package:inces_lms_app/repositories/invitacion_repository.dart';
 import 'package:inces_lms_app/repositories/modulo_repository.dart';
+import 'package:inces_lms_app/repositories/planilla_admin_repository.dart';
 import 'package:inces_lms_app/repositories/planilla_repository.dart';
 import 'package:inces_lms_app/repositories/secciones_repository.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_aulas_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_guardias_panel.dart';
+import 'package:inces_lms_app/screens/admin/cpanel_inscripcion_campos_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_invitaciones_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_lapsos_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_parametros_panel.dart';
@@ -34,6 +36,7 @@ import 'support/fake_archivos_gateway.dart';
 import 'support/fake_cuadrante_gateway.dart';
 import 'support/fake_gateway.dart';
 import 'support/fake_inscripcion_gateway.dart';
+import 'support/fake_planilla_admin_gateway.dart';
 import 'support/fake_planilla_gateway.dart';
 import 'support/fake_secciones_gateway.dart';
 import 'support/fake_selector_archivos.dart';
@@ -360,6 +363,85 @@ void main() {
       );
 
       sinDesbordes(error, 'TarjetaModulo');
+    });
+
+    testWidgets('Campos de inscripción (fila de campo)', (tester) async {
+      // La fila de un campo pone identidad + cuatro controles en la misma
+      // línea. A 375 px la `Row` desbordaría —o, peor porque no se ve, el
+      // `Expanded` de la identidad se quedaría con ancho cero—, así que el panel
+      // baja los controles a su propia línea por debajo de 640 px. Esto es lo
+      // que lo mide.
+      //
+      // Los datos van **no vacíos**: con el catálogo vacío el panel cae en su
+      // estado vacío y **no monta ninguna fila**, que es donde vive el
+      // candidato. La prueba pasaría sin haber medido nada.
+      final gateway = FakePlanillaAdminGateway()..campos = catalogoAdminEjemplo();
+
+      final error = await medir(
+        tester,
+        CpanelInscripcionCamposPanel(
+          repositorio: PlanillaAdminRepository(gateway: gateway),
+        ),
+      );
+
+      sinDesbordes(error, 'CpanelInscripcionCamposPanel');
+    });
+
+    testWidgets('Campos de inscripción · el diálogo de edición a 375 px',
+        (tester) async {
+      // Se abre el de **edición** y no el de alta, y no es capricho: el de
+      // edición es el único que pinta `_DatoFijo`, cuya `Row` lleva un
+      // `Expanded` y un hermano de ancho fijo («no editable»). El de alta sólo
+      // tiene campos de formulario, así que medirlo mediría menos de lo que
+      // parece. El diálogo además es más estrecho que la pantalla (inset de
+      // `Dialog`), así que es donde primero aprieta.
+      final gateway = FakePlanillaAdminGateway()..campos = catalogoAdminEjemplo();
+
+      tester.view.physicalSize = movil;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: IncesTheme.claro(),
+          home: Scaffold(
+            body: ContenidoSeccion(
+              migas: const ['Inicio', 'Auditoría responsive'],
+              child: CpanelInscripcionCamposPanel(
+                repositorio: PlanillaAdminRepository(gateway: gateway),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // En estrecho el botón de editar vive dentro del `Wrap` de la fila: sin
+      // `ensureVisible` el toque no acierta y la prueba pasaría sin abrir nada.
+      final fila = find.byKey(const ValueKey('fila-primer_nombre'));
+      await tester.ensureVisible(fila);
+      await tester.pump();
+      await tester.tap(
+        find.descendant(
+          of: fila,
+          matching: find.widgetWithIcon(IconButton, Icons.edit_outlined),
+        ),
+      );
+      await tester.pump();
+      // Sin `pumpAndSettle`: basta con dejar terminar la transición del diálogo.
+      await tester.pump(const Duration(seconds: 1));
+
+      // «Editar campo» sólo existe en el título del diálogo: si aparece, el
+      // toque abrió el diálogo de verdad. Sin esta comprobación la prueba
+      // mediría el panel de siempre y pasaría sin haber medido el diálogo.
+      expect(find.text('Editar campo'), findsOneWidget);
+
+      final error = tester.takeException();
+      await tester.pumpWidget(const SizedBox());
+
+      sinDesbordes(error, 'CpanelInscripcionCamposPanel · diálogo de edición');
     });
   });
 

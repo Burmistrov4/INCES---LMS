@@ -37,6 +37,8 @@ CampoInscripcion campoCatalogo(
   String? fuente,
   Map<String, dynamic>? condicion,
   String? ayuda,
+  bool activo = true,
+  List<String> aplicaA = const [],
 }) {
   return CampoInscripcion(
     codigo: codigo,
@@ -51,6 +53,8 @@ CampoInscripcion campoCatalogo(
         ? null
         : CondicionCampoInscripcion.fromJson(condicion),
     ayuda: ayuda,
+    activo: activo,
+    aplicaA: aplicaA,
   );
 }
 
@@ -220,3 +224,58 @@ const List<String> cursosDePrueba = [
 /// misma razón por la que la pantalla no los conoce.
 List<String> gruposDeEjemplo() =>
     catalogoEjemplo().grupos.map((grupo) => grupo.nombre).toList();
+
+/// El catálogo que ve el **panel de administración**: los mismos campos que el
+/// público más los casos que sólo el panel puede enseñar.
+///
+/// Existe aparte de [catalogoEjemplo] porque son dos vistas distintas de la
+/// misma tabla, y mezclarlas rompería las pruebas del formulario: un campo
+/// apagado en `catalogoEjemplo` cambiaría los pasos del formulario de
+/// inscripción, que es justo lo que esas pruebas miden. Aquí sí tiene que estar,
+/// porque **el apagado es la razón de ser del panel**: si no se ve, no se puede
+/// volver a encender.
+///
+/// Los tres casos que añade, y por qué cada uno:
+///  · uno **apagado** — la lista tiene que seguir mostrándolo;
+///  · uno con `aplica_a` — la insignia de «sólo N programas»;
+///  · uno con `fuente` y uno con `condicion` vienen ya del catálogo público, así
+///    que sus insignias también se ejercitan sin duplicar nada.
+List<CampoInscripcion> catalogoAdminEjemplo() => [
+      campoCatalogo('primer_nombre',
+          etiqueta: 'Primer nombre', obligatorio: true, orden: 10),
+      campoCatalogo('segundo_nombre', etiqueta: 'Segundo nombre', orden: 11),
+      campoCatalogo('fecha_nac',
+          etiqueta: 'Fecha de nacimiento',
+          tipo: TipoCampoInscripcion.fecha,
+          obligatorio: true,
+          orden: 12),
+      campoCatalogo('pueblo_indigena',
+          etiqueta: '¿Pertenece a algún pueblo indígena?',
+          tipo: TipoCampoInscripcion.booleano,
+          orden: 13),
+      campoCatalogo('pueblo_indigena_cual',
+          etiqueta: '¿A cuál?',
+          orden: 14,
+          condicion: const {'campo': 'pueblo_indigena', 'igual': true}),
+      // Apagado, con ayuda: la fila tiene que pintarse atenuada, seguir siendo
+      // reordenable y poder volver a encenderse.
+      campoCatalogo('talla_camisa',
+          etiqueta: 'Talla de camisa',
+          orden: 15,
+          ayuda: 'Se pidió durante un lapso y ya no se pregunta.',
+          activo: false),
+      // `aplica_a` no vacío: la insignia «sólo N programas».
+      campoCatalogo('herramientas_propias',
+          etiqueta: '¿Aporta herramientas propias?',
+          grupo: 'Formación',
+          tipo: TipoCampoInscripcion.booleano,
+          orden: 100,
+          aplicaA: const ['soldadura_arco', 'herreria']),
+      campoCatalogo('curso_seleccionado',
+          etiqueta: 'Propuesta formativa a cursar',
+          grupo: 'Propuesta formativa',
+          tipo: TipoCampoInscripcion.seleccion,
+          obligatorio: true,
+          orden: 200,
+          fuente: 'programas'),
+    ];

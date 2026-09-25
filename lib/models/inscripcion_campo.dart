@@ -177,6 +177,8 @@ class CampoInscripcion {
     this.fuente,
     this.condicion,
     this.ayuda,
+    this.aplicaA = const [],
+    this.activo = true,
   });
 
   /// Clave con la que el valor viaja dentro de la planilla. Es también la
@@ -214,6 +216,24 @@ class CampoInscripcion {
   /// Aclaración bajo el campo, o `null`.
   final String? ayuda;
 
+  /// Códigos de programa a los que aplica el campo. **Array vacío = a toda la
+  /// oferta formativa**, que es el caso de los 44 campos de hoy.
+  ///
+  /// Es `text[]` en la base y no una tabla puente porque nadie consulta por él:
+  /// sólo se muestra. Se transporta entero en vez de resumirlo a un booleano
+  /// para no inventar un intérprete que luego haya que desmentir.
+  final List<String> aplicaA;
+
+  /// Si el campo se pinta en el formulario del aspirante.
+  ///
+  /// **El catálogo público sólo sirve los activos** (política
+  /// `inscripcion_campos_lectura_publica`), así que en el formulario este valor
+  /// llega siempre en `true`. Sólo el panel de administración ve `false`, y lo ve
+  /// porque tiene su propia política de lectura (`inscripcion_campos_admin_lectura`).
+  /// Que el valor viva en el modelo es justo lo que permite que el panel muestre
+  /// un campo apagado en vez de hacerlo desaparecer al apagarlo.
+  final bool activo;
+
   factory CampoInscripcion.fromJson(Map<String, dynamic> json) {
     final opciones = json['opciones'];
     final condicion = json['condicion'];
@@ -239,7 +259,48 @@ class CampoInscripcion {
       ayuda: json['ayuda'] is String && (json['ayuda'] as String).isNotEmpty
           ? json['ayuda'] as String
           : null,
+      aplicaA: (json['aplica_a'] as List?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const [],
+      // Ausente ⇒ activo. La ruta pública del backend no manda la columna —no la
+      // necesita, sólo sirve activos— y el default tiene que caer del lado
+      // seguro, que es «se pinta». Al revés, todo el catálogo servido por el
+      // backend se leería como apagado y el formulario saldría vacío sin un solo
+      // error que lo explique.
+      activo: json['activo'] != false,
     );
+  }
+
+  /// Vuelve a la forma de `inscripcion_campos`, para el panel de administración.
+  ///
+  /// **Incluye `codigo` y `tipo`** porque se usa para CREAR, donde sí se fijan.
+  /// Para ACTUALIZAR no sirve tal cual: los dos son inmutables después de la
+  /// creación, y `PlanillaAdminGateway.actualizar` los deja fuera de su firma
+  /// para que esa inmutabilidad sea una garantía del compilador y no una
+  /// convención que alguien pueda olvidar.
+  ///
+  /// Las claves de valor `null` se **omiten** en vez de serializarse como
+  /// `null`: PostgREST distingue «no toques esta columna» (clave ausente) de
+  /// «ponla en NULL», y para `opciones`/`fuente`/`condicion`/`ayuda` lo primero
+  /// es lo que se quiere al crear un campo que no las usa.
+  Map<String, dynamic> toJson() {
+    final regla = condicion;
+
+    return {
+      'codigo': codigo,
+      'etiqueta': etiqueta,
+      'grupo': grupo,
+      'tipo': tipo.name,
+      'obligatorio': obligatorio,
+      'orden': orden,
+      'aplica_a': aplicaA,
+      'activo': activo,
+      if (opciones != null) 'opciones': opciones,
+      if (fuente != null) 'fuente': fuente,
+      if (regla != null) 'condicion': {'campo': regla.campo, 'igual': regla.igual},
+      if (ayuda != null) 'ayuda': ayuda,
+    };
   }
 
   // --- Vistas de `opciones` -------------------------------------------------

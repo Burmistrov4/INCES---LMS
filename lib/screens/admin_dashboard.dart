@@ -12,6 +12,7 @@ import 'admin/cpanel_parametros_panel.dart';
 import 'admin/cpanel_invitaciones_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
 import 'admin/cpanel_cuadrante_panel.dart';
+import 'admin/cpanel_inscripcion_campos_panel.dart';
 import 'admin/cpanel_inscripciones_panel.dart';
 import 'admin/cpanel_secciones_panel.dart';
 
@@ -85,6 +86,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     ItemNavegacion(
       icono: Icons.confirmation_number_outlined,
       titulo: 'Inscripciones y Cupos',
+      categoria: 'Gestión académica',
+      disponible: true,
+    ),
+    // Va justo después de Inscripciones y no en «Administración del sistema»
+    // aunque sea configuración: quien administra el CFS llega aquí pensando en
+    // el formulario de inscripción, no en los parámetros del sistema.
+    ItemNavegacion(
+      icono: Icons.edit_note_outlined,
+      titulo: 'Campos de Inscripción',
       categoria: 'Gestión académica',
       disponible: true,
     ),
@@ -184,6 +194,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Gestión académica', 'Inscripciones y Cupos'],
           child: CpanelInscripcionesPanel(),
+        );
+      case 'Campos de Inscripción':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Gestión académica', 'Campos de Inscripción'],
+          child: CpanelInscripcionCamposPanel(),
         );
       case 'Secciones':
         return const ContenidoSeccion(
