@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../core/gateways/selector_archivos.dart';
 import '../../core/result.dart';
+import '../../models/exportacion_hacer.dart';
 import '../../models/inscripcion.dart';
+import '../../repositories/exportacion_hacer_repository.dart';
 import '../../repositories/inscripcion_repository.dart';
+import '../../services/selector_archivos_navegador.dart';
 import '../../theme/inces_theme.dart';
 import '../../widgets/comunes.dart';
 import 'cpanel_inscripciones_cola_dialog.dart';
@@ -19,10 +23,32 @@ import 'cpanel_inscripciones_cola_dialog.dart';
 ///    pensado para usarse **tras ampliar la capacidad**: si la sección está
 ///    llena o ya tiene una oferta en el aire, la RPC no promueve a nadie y el
 ///    repositorio lo devuelve como `Failure` de validación, no como error.
+///  · **Exportar Planilla HACER (.csv)** — descarga la nómina de la sección (una
+///    fila por matriculado) desde `v_exportacion_hacer`, lista para la
+///    plataforma del INCES.
+///
+/// **Por qué la exportación va por sección y no en un botón de la cabecera.**
+/// El panel no tiene un selector de sección: pinta **una tarjeta por sección**, y
+/// cada tarjeta es ya el contexto de su sección. Un botón global tendría que
+/// preguntar «¿cuál?» en un diálogo, que es un paso de más para algo que la
+/// pantalla ya sabe. El botón va donde está la sección, junto a «Ver cola» y
+/// «Promover siguiente».
 class CpanelInscripcionesPanel extends StatefulWidget {
-  const CpanelInscripcionesPanel({super.key, this.repositorio});
+  const CpanelInscripcionesPanel({
+    super.key,
+    this.repositorio,
+    this.exportacion,
+    this.selector,
+  });
 
   final AdminInscripcionesRepository? repositorio;
+
+  /// La nómina exportable. Se inyecta en pruebas.
+  final ExportacionHacerRepository? exportacion;
+
+  /// La descarga. Se inyecta porque la implementación real es del navegador y no
+  /// compila en la VM — ver `selector_archivos.dart`.
+  final SelectorDeArchivos? selector;
 
   @override
   State<CpanelInscripcionesPanel> createState() =>
@@ -32,12 +58,17 @@ class CpanelInscripcionesPanel extends StatefulWidget {
 class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
   late final AdminInscripcionesRepository _repo =
       widget.repositorio ?? AdminInscripcionesRepository();
+  late final ExportacionHacerRepository _exportacion =
+      widget.exportacion ?? ExportacionHacerRepository();
+  late final SelectorDeArchivos _selector =
+      widget.selector ?? SelectorDeArchivosDelNavegador();
 
   List<OcupacionSeccion> _secciones = const [];
   bool _cargando = true;
   String? _error;
 
   final Set<String> _promoviendo = {};
+  final Set<String> _exportando = {};
   bool _expirando = false;
 
   int get _conOfertaVigente =>
@@ -120,6 +151,68 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
     );
     if (hecho != true || !mounted) return;
     _cargar();
+  }
+
+  /// Descarga la nómina de una sección como CSV, listo para HACER.
+  ///
+  /// El estado de carga se libera **en cuanto vuelve la consulta**, antes de
+  /// descargar. Si se liberara al final, un fallo del navegador dejaría el botón
+  /// girando para siempre — el fallo que la convención del proyecto prohíbe en
+  /// todos los demás paneles.
+  Future<void> _exportar(OcupacionSeccion o) async {
+    setState(() => _exportando.add(o.seccionId));
+
+    final resultado = await _exportacion.deSeccion(o.seccionId);
+    if (!mounted) return;
+    setState(() => _exportando.remove(o.seccionId));
+
+    switch (resultado) {
+      case Failure(error: final fallo):
+        mostrarAviso(context, fallo.message, error: true);
+
+      case Success(value: final exportacion):
+        // Una sección sin matriculados no es un error: es una sección recién
+        // abierta. Se dice con esas palabras en vez de descargar un archivo con
+        // sólo la cabecera, que el administrador leería como «se exportó bien».
+        if (exportacion.vacia) {
+          mostrarAviso(
+            context,
+            'La sección «${o.nombre}» no tiene matriculados todavía: no hay '
+            'nómina que exportar.',
+          );
+          return;
+        }
+
+        final nombre = nombreArchivoHacer(
+          periodo: o.periodo,
+          seccion: o.nombre,
+          materia: o.materiaNombre,
+        );
+
+        try {
+          await _selector.descargarTexto(
+            nombre: nombre,
+            contenido: exportacion.aCsv(),
+          );
+          if (!mounted) return;
+          mostrarAviso(
+            context,
+            'Nómina exportada: ${exportacion.total} matriculado(s) en '
+            '«$nombre».',
+            exito: true,
+          );
+        } catch (_) {
+          // El fallo de la descarga no se traga, pero tampoco se muestra el
+          // `toString()` del error del navegador: al administrador no le dice
+          // nada y no puede hacer nada con él.
+          if (!mounted) return;
+          mostrarAviso(
+            context,
+            'No se pudo descargar el archivo. Inténtalo de nuevo.',
+            error: true,
+          );
+        }
+    }
   }
 
   @override
@@ -246,6 +339,16 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                 icono: Icons.info_outline,
                 tono: TonoAviso.info,
               ),
+              const SizedBox(height: 8),
+              const AvisoEnLinea(
+                texto: '«Exportar Planilla HACER (.csv)» descarga la nómina de la '
+                    'sección: una fila por matriculado, con el contexto de la '
+                    'sección y sus datos de la planilla. Sólo salen los que tienen '
+                    'asiento confirmado — la cola de espera y las bajas no son '
+                    'nómina.',
+                icono: Icons.download_outlined,
+                tono: TonoAviso.info,
+              ),
               const SizedBox(height: 12),
               for (final o in _secciones) _filaOcupacion(o),
             ],
@@ -258,6 +361,7 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
   Widget _filaOcupacion(OcupacionSeccion o) {
     final theme = Theme.of(context);
     final ocupado = _promoviendo.contains(o.seccionId);
+    final exportando = _exportando.contains(o.seccionId);
     final titulo = o.materiaNombre ?? o.nombre;
 
     return Card(
@@ -316,6 +420,24 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                   icon: const Icon(Icons.list_alt_outlined, size: 16),
                   label: const Text('Ver cola'),
                 ),
+                // La exportación va ANTES de «Promover siguiente» a propósito:
+                // leer la nómina no cambia nada, promover sí. La acción que
+                // escribe queda la última, que es donde el ojo la busca.
+                OutlinedButton.icon(
+                  onPressed: exportando ? null : () => _exportar(o),
+                  icon: exportando
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_outlined, size: 16),
+                  label: Text(
+                    exportando
+                        ? 'Exportando…'
+                        : 'Exportar Planilla HACER (.csv)',
+                  ),
+                ),
                 FilledButton.icon(
                   onPressed: ocupado ? null : () => _promover(o),
                   icon: ocupado
@@ -335,14 +457,25 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
             // cabía junto a la información a 375 px. En estrecho se apilan: los
             // botones reciben el ancho completo de la tarjeta y envuelven entre
             // sí si aun así no caben.
-            const anchoMinimoParaFila = 560.0;
+            //
+            // Con el tercer botón —la exportación— el ancho natural del grupo ya
+            // no cabe junto a la información en un portátil, y un `Wrap` **sin
+            // techo de ancho no envuelve**: se sale de la `Row` y desborda. Por
+            // eso va dentro de un `Flexible`, que le pone el techo y lo obliga a
+            // envolver en vez de romper la tarjeta. Y por eso el umbral sube de
+            // 560 a 640: por debajo, el grupo quedaría tan estrecho que
+            // envolvería en tres líneas, y apilar la tarjeta entera se lee mejor.
+            //
+            // `Flexible` y no `Expanded`: el grupo no tiene por qué ocupar toda
+            // su mitad, y `Expanded` lo estiraría dejando botones anchos y vacíos.
+            const anchoMinimoParaFila = 640.0;
             if (restricciones.maxWidth >= anchoMinimoParaFila) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(child: informacion),
                   const SizedBox(width: 12),
-                  botones,
+                  Flexible(child: botones),
                 ],
               );
             }

@@ -3798,6 +3798,246 @@ async function main() {
     String(errSinPrograma?.code),
   );
 
+  // ==========================================================================
+  seccion('22. Exportación hacia HACER — v_exportacion_hacer (202609250004)');
+  // ==========================================================================
+  //
+  //  El escenario se arma entero y con las RPC, no con `insert` directo en
+  //  `enrollments`: esa escritura está revocada desde `202609190001`, y usar la
+  //  RPC es lo que garantiza que la fila sea la que el sistema produce de
+  //  verdad. Una vista que sólo se probara contra filas fabricadas a mano
+  //  probaría el `select`, no el camino real.
+  const PROG_EXP = 'e0000000-0000-4000-8000-000000000001';
+  const MAT_EXP = 'e0000000-0000-4000-8000-000000000002';
+  const SEC_EXP = 'e0000000-0000-4000-8000-000000000003';
+  const AULA_EXP = 'e0000000-0000-4000-8000-000000000004';
+  const DOC_EXP = 'e0000000-0000-4000-8000-000000000005';
+  const EXP1 = 'e0000000-0000-4000-8000-000000000006';
+  const EXP2 = 'e0000000-0000-4000-8000-000000000007';
+  const EXP3 = 'e0000000-0000-4000-8000-000000000008';
+  //  El lapso se toma del vigente y NO se inventa uno: `sections.period_code`
+  //  tiene clave foránea contra `academic_periods`, así que un '2099-1' de
+  //  fantasía muere con 23503 antes de que la vista entre en juego.
+  const PERIODO_EXP = PERIODO;
+
+  await db.exec(
+    `insert into public.programs (id, code, name, type, is_active)
+     values ('${PROG_EXP}', 'EXP-HACER1', 'Soldadura de prueba HACER', 'CURSO_LIBRE', true)`,
+  );
+  await db.exec(
+    `insert into public.subjects (id, code, name, academic_hours)
+     values ('${MAT_EXP}', 'EXP-M1', 'Materia de exportación', 40)`,
+  );
+  await db.exec(
+    `insert into public.sections (id, program_id, subject_id, period_code, name, max_capacity)
+     values ('${SEC_EXP}', '${PROG_EXP}', '${MAT_EXP}', '${PERIODO_EXP}', 'EA', 2)`,
+  );
+  await db.exec(
+    `insert into public.classrooms (id, name, capacity)
+     values ('${AULA_EXP}', 'Taller de prueba HACER', 20)`,
+  );
+  //  El docente existe con rol `docente` porque `nombre_para_mostrar()` sólo
+  //  devuelve el nombre de un perfil docente o admin **activo**. Sin este perfil
+  //  la columna `docente` saldría NULL y la aserción de abajo no probaría nada:
+  //  pasaría igual con la vista mal escrita.
+  await db.exec(
+    `insert into auth.users (id, email, raw_user_meta_data) values
+       ('${DOC_EXP}', 'docente.hacer@inces.test',
+        '{"nombres":"Maglis","apellidos":"Camacho"}'::jsonb)`,
+  );
+  await db.exec(`update public.profiles set rol = 'docente' where id = '${DOC_EXP}'`);
+  await db.exec(
+    `insert into public.schedule_slots (section_id, teacher_id, classroom_id, day_of_week, block)
+     values ('${SEC_EXP}', '${DOC_EXP}', '${AULA_EXP}', 1, 1)`,
+  );
+
+  //  Los aspirantes se registran por el camino real (`auth.users` →
+  //  `handle_new_user`), que es el ÚNICO camino de alta. Cada uno necesita su
+  //  propia cédula: `profiles.cedula` es único y una repetición moriría con
+  //  23505 antes de llegar a lo que se quiere comprobar.
+  const identidadExp = (n) => ({
+    cedula: `8800000${n}`,
+    nombres: `Alumna${n} Del`,
+    apellidos: `Apellido${n} Segundo`,
+    fecha_nac: '1995-03-04',
+    sexo: 'F',
+    telefono: `0414222222${n}`,
+    //  `email` va aquí porque es uno de los trece campos OBLIGATORIOS del
+    //  catálogo: sin él, `validar_planilla()` aborta el registro entero con un
+    //  23514 y el escenario no llega a montarse. Es el mismo correo de la
+    //  cuenta, que es como lo manda el formulario.
+    email: `exp${n}@inces.test`,
+    direccion: `Calle ${n}`,
+    nivel_educativo: 'SECUNDARIO',
+    curso_seleccionado: PROG_EXP,
+  });
+
+  const planillaExp = (n) => ({
+    ...identidadExp(n),
+    primer_nombre: `Alumna${n}`,
+    segundo_nombre: 'Del',
+    primer_apellido: `Apellido${n}`,
+    segundo_apellido: 'Segundo',
+    nacionalidad: 'V',
+    pueblo_indigena: true,
+    pueblo_indigena_cual: 'Wayuu',
+    estado: 'CARABOBO',
+    municipio: 'Valencia',
+    familiares: [
+      { cedula: '1', nombres: 'Ana', apellidos: 'B', parentesco: 'Madre' },
+      { cedula: '2', nombres: 'Luis', apellidos: 'C', parentesco: 'Padre' },
+    ],
+    //  `twitter` NO se manda a propósito: es el campo que prueba que una clave
+    //  ausente sale NULL y no la cadena `'null'`.
+  });
+
+  for (const [i, id] of [EXP1, EXP2, EXP3].entries()) {
+    const n = i + 1;
+    await db.exec(
+      `insert into auth.users (id, email, raw_user_meta_data) values ` +
+        `('${id}', 'exp${n}@inces.test', ` +
+        `'${JSON.stringify({ ...identidadExp(n), datos_planilla: planillaExp(n) })}'::jsonb);`,
+    );
+  }
+
+  const inscribirExp = (alumno) =>
+    como('authenticated', alumno, () =>
+      db.query(`select public.solicitar_inscripcion('${SEC_EXP}') as s`),
+    );
+  const exp1 = await inscribirExp(EXP1);
+  const exp2 = await inscribirExp(EXP2);
+  const exp3 = await inscribirExp(EXP3);
+  check(
+    'los dos primeros entran ENROLLED (la sección tiene cupo para dos)',
+    exp1.rows[0].s === 'ENROLLED' && exp2.rows[0].s === 'ENROLLED',
+    `${exp1.rows[0].s}/${exp2.rows[0].s}`,
+  );
+  check('el tercero queda en cola, para probar que no entra en la nómina', exp3.rows[0].s === 'WAITLISTED', String(exp3.rows[0].s));
+
+  // --- la vista es lo que dice ser ------------------------------------------
+  const vistaExp = (
+    await db.query(
+      'select c.relkind, array_to_string(c.reloptions, \',\') as opciones, ' +
+        'pg_get_viewdef(c.oid, true) as def ' +
+        'from pg_class c join pg_namespace n on n.oid = c.relnamespace ' +
+        "where n.nspname = 'public' and c.relname = 'v_exportacion_hacer'",
+    )
+  ).rows[0];
+  check('v_exportacion_hacer existe y es una vista', vistaExp?.relkind === 'v', String(vistaExp?.relkind));
+  check(
+    'v_exportacion_hacer es security_invoker (sin él, cualquier sesión vería la nómina completa)',
+    /security_invoker=(true|on)/.test(String(vistaExp?.opciones)),
+    String(vistaExp?.opciones),
+  );
+  check('la vista filtra por ENROLLED', /ENROLLED/.test(String(vistaExp?.def)));
+  check('la vista aplana la planilla con planilla_texto()', /planilla_texto/.test(String(vistaExp?.def)));
+
+  // --- la nómina, leída por el administrador --------------------------------
+  //  **`ADMIN2_ID` y no `ADMIN_ID`.** §12 degradó a `ADMIN_ID` a `docente` (línea
+  //  ~449) para poder probar la protección del último administrador con
+  //  `ADMIN2_ID` como único admin. Consultar la vista con `ADMIN_ID` no falla
+  //  ruidosamente: devuelve **cero filas**, porque `is_admin()` es falso y
+  //  `enrollments_admin_all` no le deja ver nada. Es decir, la aserción habría
+  //  pasado por el motivo equivocado si se hubiera escrito como «no falla» en
+  //  vez de «devuelve dos».
+  const filasExp = await como('authenticated', ADMIN2_ID, () =>
+    db.query(
+      `select * from public.v_exportacion_hacer where seccion_id = '${SEC_EXP}' order by apellidos`,
+    ),
+  );
+  check('la vista devuelve una fila por matriculado', filasExp.rows.length === 2, `devolvió ${filasExp.rows.length}`);
+  check(
+    'nadie en cola entra en la nómina',
+    filasExp.rows.every((f) => f.estado === 'ENROLLED'),
+    filasExp.rows.map((f) => f.estado).join(', '),
+  );
+
+  const filtroExp = await como('authenticated', ADMIN2_ID, () =>
+    db.query(
+      "select count(*)::int as n from public.v_exportacion_hacer " +
+        "where seccion_id = '00000000-0000-4000-8000-0000000000ff'",
+    ),
+  );
+  check('el filtro por seccion_id acota el resultado', filtroExp.rows[0].n === 0, `devolvió ${filtroExp.rows[0].n}`);
+
+  // --- el contenido de una fila ---------------------------------------------
+  const f1 = filasExp.rows.find((f) => f.cedula === '88000001');
+  check('la identidad sale del contrato de aspirantes', f1?.nombres === 'Alumna1 Del', String(f1?.nombres));
+  check(
+    'el contexto académico trae lapso, materia y programa',
+    f1?.lapso === PERIODO_EXP && f1?.materia_codigo === 'EXP-M1' && f1?.programa_codigo === 'EXP-HACER1',
+    `${f1?.lapso} / ${f1?.materia_codigo} / ${f1?.programa_codigo}`,
+  );
+  check('el docente se resuelve por la sección, sin abrir profiles', f1?.docente === 'Maglis Camacho', String(f1?.docente));
+  check('la planilla se aplana: un `seleccion`', f1?.planilla_nacionalidad === 'V', String(f1?.planilla_nacionalidad));
+  check(
+    'la planilla se aplana: un `booleano` sale true/false, no Sí/No',
+    f1?.planilla_pueblo_indigena === 'true',
+    String(f1?.planilla_pueblo_indigena),
+  );
+  check(
+    'la planilla se aplana: los nombres desglosados que la planilla física pide',
+    f1?.planilla_primer_nombre === 'Alumna1' && f1?.planilla_segundo_apellido === 'Segundo',
+    `${f1?.planilla_primer_nombre} / ${f1?.planilla_segundo_apellido}`,
+  );
+  check(
+    'la planilla se aplana: un `tabla` repetible se une con " | "',
+    typeof f1?.planilla_familiares === 'string' && f1.planilla_familiares.split(' | ').length === 2,
+    String(f1?.planilla_familiares),
+  );
+  check(
+    'una clave AUSENTE sale NULL, no la cadena "null"',
+    f1?.planilla_twitter === null,
+    JSON.stringify(f1?.planilla_twitter),
+  );
+  check(
+    'el jsonb crudo viaja al final, para que nada se pierda',
+    f1?.datos_planilla?.pueblo_indigena_cual === 'Wayuu',
+    JSON.stringify(f1?.datos_planilla?.pueblo_indigena_cual),
+  );
+
+  // --- la función que aplana ------------------------------------------------
+  const ptExp = (
+    await db.query(
+      'select p.provolatile, p.prosecdef from pg_proc p ' +
+        'join pg_namespace n on n.oid = p.pronamespace ' +
+        "where n.nspname = 'public' and p.proname = 'planilla_texto'",
+    )
+  ).rows[0];
+  check('planilla_texto() existe y es IMMUTABLE', ptExp?.provolatile === 'i', String(ptExp?.provolatile));
+  check(
+    'planilla_texto() NO es security definer: no lee tablas, no hay RLS que saltar',
+    ptExp?.prosecdef === false,
+    String(ptExp?.prosecdef),
+  );
+
+  // --- LA ASERCIÓN QUE MÁS IMPORTA: la RLS manda también aquí ----------------
+  //  Sin `security_invoker`, cualquier usuario con sesión descargaría la nómina
+  //  completa del centro con cédulas, teléfonos y direcciones. Se comprueba con
+  //  un alumno REAL —no con un rol inventado— que sólo debe ver su propia fila.
+  const comoAlumno = await como('authenticated', EXP1, () =>
+    db.query('select cedula from public.v_exportacion_hacer'),
+  );
+  check(
+    'un alumno sólo ve SU fila a través de la vista',
+    comoAlumno.rows.length === 1 && comoAlumno.rows[0].cedula === '88000001',
+    `vio ${comoAlumno.rows.length} fila(s): ${comoAlumno.rows.map((r) => r.cedula).join(', ')}`,
+  );
+
+  const comoEnCola = await como('authenticated', EXP3, () =>
+    db.query('select count(*)::int as n from public.v_exportacion_hacer'),
+  );
+  check(
+    'el que está en cola no aparece ni en su propia consulta: no está matriculado',
+    comoEnCola.rows[0].n === 0,
+    `vio ${comoEnCola.rows[0].n}`,
+  );
+
+  const anonExp = await esperaError('anon no puede leer la nómina', () =>
+    como('anon', null, () => db.query('select * from public.v_exportacion_hacer limit 1')),
+  );
+  check('el rechazo de anon es de privilegios (42501)', anonExp?.code === '42501', `código ${anonExp?.code}`);
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +

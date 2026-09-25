@@ -126,6 +126,7 @@ const esperadas = [
 const vistasEsperadas = [
   'v_cuadrante_clases',
   'v_cuadrante_guardias',
+  'v_exportacion_hacer',
   'v_ocupacion_secciones',
   'v_periodo_vigente',
 ];
@@ -770,6 +771,48 @@ comprobar(
   nombresOcupacion.includes('oferta_vigente'),
   nombresOcupacion.join(', ') || 'AUSENTE',
 );
+
+// La vista de exportación hacia HACER (202609250004). Se comprueban las tres
+// cosas que, si fallan, no se notan hasta que alguien abre el CSV: que sea
+// `security_invoker` —sin él cualquier sesión descarga la nómina completa del
+// centro—, que traiga el contexto académico y que aplane la planilla.
+const vistaHacer = relaciones.find((r) => r.relname === 'v_exportacion_hacer');
+const opcionesHacer = (vistaHacer?.reloptions ?? []).join(',');
+comprobar(
+  'v_exportacion_hacer existe, es vista y usa security_invoker',
+  vistaHacer?.relkind === 'v' &&
+    (opcionesHacer.includes('security_invoker=true') ||
+      opcionesHacer.includes('security_invoker=on')),
+  vistaHacer
+    ? `relkind = ${vistaHacer.relkind}, opciones = ${opcionesHacer || 'NINGUNA'}`
+    : 'AUSENTE',
+);
+
+const columnasHacer = await consultar(
+  'select column_name from information_schema.columns ' +
+    "where table_schema = 'public' and table_name = 'v_exportacion_hacer';",
+);
+const nombresHacer = columnasHacer.map((c) => c.column_name);
+// Se pregunta por columnas de los TRES bloques a propósito: si alguien reescribe
+// la vista y se deja fuera el contexto académico o la identidad, el CSV seguiría
+// saliendo y el fallo no aparecería hasta que HACER lo rechazara.
+for (const columna of [
+  'seccion_id',
+  'lapso',
+  'materia_codigo',
+  'programa_codigo',
+  'docente',
+  'cedula',
+  'planilla_nacionalidad',
+  'planilla_familiares',
+  'datos_planilla',
+]) {
+  comprobar(
+    `v_exportacion_hacer declara «${columna}»`,
+    nombresHacer.includes(columna),
+    nombresHacer.length ? `${nombresHacer.length} columnas` : 'AUSENTE',
+  );
+}
 
 console.log('\n  9. M5: archivos (R2), frontera de escritura y semilla de límites\n');
 

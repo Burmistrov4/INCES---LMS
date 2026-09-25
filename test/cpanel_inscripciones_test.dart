@@ -2,11 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:inces_lms_app/core/errors/app_exception.dart';
+import 'package:inces_lms_app/models/exportacion_hacer.dart';
+import 'package:inces_lms_app/models/inscripcion.dart';
+import 'package:inces_lms_app/repositories/exportacion_hacer_repository.dart';
 import 'package:inces_lms_app/repositories/inscripcion_repository.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_inscripciones_panel.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
 
+import 'support/fake_exportacion_hacer_gateway.dart';
 import 'support/fake_inscripcion_gateway.dart';
+import 'support/fake_selector_archivos.dart';
 
 /// Monta el panel de administración y espera la carga inicial.
 ///
@@ -163,6 +168,217 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(fake.llamadas, contains('reincorporar:est-9:sec-9'));
+    });
+  });
+
+  group('CpanelInscripcionesPanel · exportación hacia HACER', () {
+    /// Monta el panel con la exportación y la descarga inyectadas.
+    ///
+    /// Devuelve los dos dobles para que cada prueba mire **qué se pidió** y
+    /// **qué se descargó**: el contrato del botón no es «se llamó a exportar»,
+    /// es «exportó *esta* sección» y «el archivo lleva *esta* cabecera y *esta*
+    /// fila».
+    Future<(FakeExportacionHacerGateway, FakeSelectorDeArchivos)> montarCon(
+      WidgetTester tester, {
+      required List<OcupacionSeccion> secciones,
+    }) async {
+      final exportacion = FakeExportacionHacerGateway();
+      final selector = FakeSelectorDeArchivos();
+      final ocupacion = FakeInscripcionGateway()..ocupacionDevuelta = secciones;
+
+      await montarPanel(
+        tester,
+        CpanelInscripcionesPanel(
+          repositorio: AdminInscripcionesRepository(gateway: ocupacion),
+          exportacion: ExportacionHacerRepository(gateway: exportacion),
+          selector: selector,
+        ),
+      );
+      return (exportacion, selector);
+    }
+
+    /// El botón de exportación de la tarjeta [indice], listo para pulsar.
+    ///
+    /// `ensureVisible` **no es un adorno**: la tarjeta queda por debajo del
+    /// pliegue a 800×600 (cabecera + métricas + los dos avisos), y un `tap`
+    /// sobre un widget fuera del viewport no acierta — avisa con un «would not
+    /// hit test» que se pierde entre la salida y luego la prueba se cae más
+    /// adelante culpando a la pantalla. Es la misma trampa del `Stepper`, en
+    /// otra pantalla.
+    Future<void> pulsarExportar(WidgetTester tester, {int indice = 0}) async {
+      final boton =
+          botonOutlined('Exportar Planilla HACER (.csv)').at(indice);
+      await tester.ensureVisible(boton);
+      await tester.pumpAndSettle();
+      await tester.tap(boton);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('cada tarjeta lleva su propio botón de exportación',
+        (tester) async {
+      await montarCon(
+        tester,
+        secciones: [
+          ocupacionSeccionEjemplo(id: 'sec-1'),
+          ocupacionSeccionEjemplo(id: 'sec-2'),
+        ],
+      );
+
+      // Uno por sección, no uno global: el panel no tiene selector de sección,
+      // pinta una tarjeta por sección y la tarjeta **es** el contexto. Un botón
+      // único en la cabecera tendría que preguntar «¿cuál?» en un diálogo.
+      expect(find.text('Exportar Planilla HACER (.csv)'), findsNWidgets(2));
+    });
+
+    testWidgets('exporta la sección de su propia tarjeta, no «una» sección',
+        (tester) async {
+      final (exportacion, _) = await montarCon(
+        tester,
+        secciones: [
+          ocupacionSeccionEjemplo(id: 'sec-1'),
+          ocupacionSeccionEjemplo(id: 'sec-2'),
+        ],
+      );
+
+      await pulsarExportar(tester, indice: 1);
+      await cerrarAvisos(tester);
+
+      // La segunda tarjeta exporta `sec-2` y sólo `sec-2`. Sin esta aserción, un
+      // botón que exportara siempre la primera sección pasaría inadvertido.
+      expect(exportacion.llamadas, ['filasDeSeccion:sec-2']);
+    });
+
+    testWidgets('descarga el CSV con el nombre y el contenido de la nómina',
+        (tester) async {
+      final (exportacion, selector) = await montarCon(
+        tester,
+        secciones: [
+          ocupacionSeccionEjemplo(
+            id: 'sec-1',
+            nombre: 'Sección A',
+            materia: 'Soldadura por Arco',
+          ),
+        ],
+      );
+      exportacion.filasDevueltas = [
+        filaExportacionEjemplo(
+          sobrescribir: {'cedula': 'V-12345678', 'nombres': 'Alumna1 Del'},
+        ),
+      ];
+
+      await pulsarExportar(tester);
+
+      expect(exportacion.llamadas, ['filasDeSeccion:sec-1']);
+
+      // El nombre sale del contexto de la sección, con el período delante: dos
+      // descargas del mismo día no se pisan. Y conserva el acento, que en un
+      // nombre no es un error de codificación.
+      expect(
+        selector.ultimoNombreDeTextoDescargado,
+        'planilla-hacer-SA26-2-Soldadura-por-Arco-Sección-A.csv',
+      );
+      expect(selector.ultimoTipoMimeDescargado, contains('text/csv'));
+
+      final csv = selector.ultimoTextoDescargado!;
+      final lineas = csv.split('\r\n');
+
+      // Cabecera + una fila + el salto final: tres trozos. El CSV termina en
+      // CRLF y no en LF suelto, como manda la RFC 4180.
+      expect(lineas.length, 3);
+      expect(csv.endsWith('\r\n'), isTrue);
+      expect(lineas.first.split(',').length, columnasExportacionHacer.length);
+      expect(lineas.first, startsWith('inscripcion_id,seccion_id,lapso'));
+
+      // Y la fila lleva los datos del matriculado, no sólo la cabecera.
+      expect(csv, contains('V-12345678'));
+      expect(csv, contains('Alumna1 Del'));
+
+      expect(
+        find.textContaining('Nómina exportada: 1 matriculado(s)'),
+        findsOneWidget,
+      );
+      await cerrarAvisos(tester);
+    });
+
+    testWidgets('una sección sin matriculados avisa y no descarga nada',
+        (tester) async {
+      final (exportacion, selector) = await montarCon(
+        tester,
+        secciones: [ocupacionSeccionEjemplo(id: 'sec-1', nombre: 'Sección A')],
+      );
+      exportacion.filasDevueltas = const [];
+
+      await pulsarExportar(tester);
+
+      // Cero filas no es un error —es una sección recién abierta— pero tampoco
+      // es una exportación: descargar un archivo con sólo la cabecera se leería
+      // como «se exportó bien».
+      expect(selector.llamadas, isNot(contains('descargarTexto')));
+      expect(
+        find.text('La sección «Sección A» no tiene matriculados todavía: no hay '
+            'nómina que exportar.'),
+        findsOneWidget,
+      );
+      await cerrarAvisos(tester);
+    });
+
+    testWidgets('si la consulta falla avisa del fallo y no descarga nada',
+        (tester) async {
+      final (exportacion, selector) = await montarCon(
+        tester,
+        secciones: [ocupacionSeccionEjemplo(id: 'sec-1')],
+      );
+      exportacion.errorAlConsultar =
+          const AppException.validacion('La vista de exportación no respondió.');
+
+      await pulsarExportar(tester);
+
+      expect(exportacion.llamadas, ['filasDeSeccion:sec-1']);
+      expect(find.text('La vista de exportación no respondió.'), findsOneWidget);
+      expect(selector.llamadas, isNot(contains('descargarTexto')));
+      await cerrarAvisos(tester);
+    });
+
+    testWidgets('si la descarga falla avisa y el botón deja de girar',
+        (tester) async {
+      final (exportacion, selector) = await montarCon(
+        tester,
+        secciones: [ocupacionSeccionEjemplo(id: 'sec-1')],
+      );
+      exportacion.filasDevueltas = [filaExportacionEjemplo()];
+      selector.errorAlDescargarTexto = Exception('el navegador dijo no');
+
+      await pulsarExportar(tester);
+
+      // El error del navegador no se le enseña al administrador: no le dice
+      // nada y no puede hacer nada con él. Se dice qué pasó y qué hacer.
+      expect(
+        find.text('No se pudo descargar el archivo. Inténtalo de nuevo.'),
+        findsOneWidget,
+      );
+
+      // Y el indicador se libera **antes** de descargar, así que un fallo del
+      // navegador no deja el botón girando para siempre. Si el `remove` del
+      // estado de carga se moviera al final del método, esta aserción caería.
+      expect(find.text('Exportando…'), findsNothing);
+      expect(find.text('Exportar Planilla HACER (.csv)'), findsOneWidget);
+      await cerrarAvisos(tester);
+    });
+
+    testWidgets('el panel explica qué entra en la nómina y qué no',
+        (tester) async {
+      await montarCon(
+        tester,
+        secciones: [ocupacionSeccionEjemplo(id: 'sec-1')],
+      );
+
+      // «Nómina» no es «todos los que pidieron cupo»: la cola de espera y las
+      // bajas quedan fuera. Si el aviso desapareciera, el administrador tendría
+      // que deducirlo del archivo — o no lo deduciría.
+      expect(
+        find.textContaining('Sólo salen los que tienen asiento confirmado'),
+        findsOneWidget,
+      );
     });
   });
 }

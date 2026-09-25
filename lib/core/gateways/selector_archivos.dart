@@ -51,4 +51,27 @@ abstract interface class SelectorDeArchivos {
   /// La URL viene firmada por el backend y caduca; este puerto no la construye ni
   /// la guarda.
   Future<void> descargar({required String url, required String nombre});
+
+  /// Descarga contenido **generado en el cliente**, no una URL del servidor.
+  ///
+  /// Es distinto de [descargar], y la diferencia no es cosmética: allí el
+  /// archivo ya existe en algún servidor y basta con abrir su URL; aquí el
+  /// contenido lo produjo la aplicación —el CSV de la exportación hacia HACER—
+  /// y **no existe en ningún servidor**, así que hay que entregarlo como
+  /// archivo. En el navegador eso se resuelve con un `Blob` y una URL de objeto,
+  /// que es la única vía para descargar algo que nadie sirve por HTTP.
+  ///
+  /// [tipoMime] importa de verdad: sin el `charset=utf-8`, una hoja de cálculo
+  /// que abra el CSV usa la codificación del sistema y los acentos de «José» o
+  /// «Núñez» salen rotos. El valor por defecto es el del caso que lo motivó.
+  ///
+  /// Es un método de este puerto y no de un puerto nuevo porque esta interfaz ya
+  /// se declara a sí misma como el contrato de «elegir un archivo y abrir una
+  /// descarga»: añadir un tercer puerto con las mismas dos implementaciones
+  /// obligaría a repetir la danza del import condicional para ganar nada.
+  Future<void> descargarTexto({
+    required String nombre,
+    required String contenido,
+    String tipoMime = 'text/csv;charset=utf-8',
+  });
 }

@@ -29,4 +29,15 @@ class SelectorDeArchivosDelNavegador implements SelectorDeArchivos {
         'Abrir una descarga sólo está implementado para el navegador. En esta '
         'plataforma hay que inyectar un SelectorDeArchivos.',
       );
+
+  @override
+  Future<void> descargarTexto({
+    required String nombre,
+    required String contenido,
+    String tipoMime = 'text/csv;charset=utf-8',
+  }) =>
+      throw UnsupportedError(
+        'Descargar contenido generado sólo está implementado para el '
+        'navegador. En esta plataforma hay que inyectar un SelectorDeArchivos.',
+      );
 }

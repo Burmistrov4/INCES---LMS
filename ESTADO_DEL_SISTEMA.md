@@ -13,8 +13,12 @@
 >
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
 > `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
-> nube el mismo día**, así que el repositorio y el proyecto ya no divergen:
-> **25 migraciones, 4 vistas**. **El estado por módulo que manda es el de §2 y §6**;
+> nube el mismo día**, así que el repositorio y el proyecto ya no divergen **en eso**.
+> **El repositorio va por delante en una migración: 26 escritas, 25 aplicadas** (y
+> **5 vistas escritas, 4 aplicadas**). La que falta es `202609250004` —la vista de
+> exportación hacia HACER—, escrita y **ejercida por el validador SQL contra
+> PostgreSQL real**, pendiente de aplicar porque este entorno **no tiene el PAT** de
+> la Management API. **El estado por módulo que manda es el de §2 y §6**;
 > este encabezado es un resumen y puede ir por detrás — de hecho iba por detrás en la
 > fecha, que arrastraba el 2026-09-17.
 >
@@ -24,13 +28,15 @@
 > compara ahora el documento contra las rutas **reales** en las dos direcciones,
 > así que una ruta nueva sin documentar ya no puede pasar.
 >
-> **El Módulo 4 tiene las Fases 1 y 2 cerradas.** 14 rutas nuevas (3 del catálogo
-> de secciones, 5 de estudiante y 6 de administración), `reglas-inscripciones.ts`
-> con las reglas puras, `PuertaSecciones` y `PuertaInscripciones` con sus
-> implementaciones, esquemas Zod y contrato. El recuento pasó de **29 a 42 rutas** y
-> de **62 a 79 esquemas**, y `m4_inscripciones` quedó **encendido** en
-> `system_modules`. **Falta el frontend (Fase 3) y el humo de concurrencia real
-> (Fase 4).**
+> **El Módulo 4 tiene las Fases 1 y 2 cerradas, y la Fase 3 ya existe.** 14 rutas
+> nuevas (3 del catálogo de secciones, 5 de estudiante y 6 de administración),
+> `reglas-inscripciones.ts` con las reglas puras, `PuertaSecciones` y
+> `PuertaInscripciones` con sus implementaciones, esquemas Zod y contrato. El
+> recuento pasó de **29 a 42 rutas** y de **62 a 79 esquemas**, y `m4_inscripciones`
+> quedó **encendido** en `system_modules`. **La Fase 3 ya existe**: el formulario es
+> un **renderizador del catálogo** (`aspirante_form_screen`), el panel de campos lo
+> edita sin tocar código, y el panel de ocupación gana la **exportación de la nómina
+> hacia HACER**. **Falta el humo de concurrencia real (Fase 4).**
 >
 > **La Capa 4 del Módulo 5 está construida (2026-09-18).** Las 5 rutas de archivos
 > —firma de subida, confirmación, URL de lectura, borrado del propietario y borrado
@@ -128,20 +134,21 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 | Comprobación | Resultado |
 | --- | --- |
-| `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 163 archivos** con el servidor de análisis real |
-| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `499af9c`** (`Flutter CI` #17, `success`). Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto |
+| `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 167 archivos** (`lib/` + `test/`) con el servidor de análisis real: **0 errores, 0 avisos, 0 informativos** |
+| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `499af9c`** (`Flutter CI` #17, `success`). Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto. **Esta entrega añade 33 pruebas —27 puras de la exportación + 6 de widget del botón— que NO se ejecutaron aquí**: la cifra nueva la mide **CI en el push**, no este documento. Lo que sí se midió localmente es que **compilan sin un solo aviso** |
+| **Exportación hacia HACER (M4)** | 🟡 **Escrita y probada, sin aplicar.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real. **En la nube no existe todavía.** **El orden importa: primero la migración, después el despliegue del frontend** — al revés, el botón falla, y el mensaje que vería el administrador sería el genérico de «servidor», que **no dice que falta una migración**. `AppException` no distingue el error de objeto ausente, y **no se le añadió una rama a ojo**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
 | `npm run verify` (backend) | **562 / 562** en verde (**22** archivos) — **medido el 2026-09-25** (Fase 3 de D14), typecheck y lint incluidos |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **468 / 468** aserciones en verde — **medido el 2026-09-25** (tras cerrar la trampa condicional). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14 y la regla de los campos condicionales. **De 463 a 468 son +5**: las que fijan la trampa «obligatorio + condicional» —que un campo condicional obligatorio **no** se exige cuando la condición no se cumple, que **sí** se exige cuando se cumple (con `23514` y nombrando ese campo)—, con **control negativo**, para que «no exigir nunca» tampoco pase. (Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible) |
-| **Migraciones en el repositorio** | **25** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250003_fix_validar_planilla_condicionales.sql` |
-| **Migraciones en la nube** | **25** registradas en `schema_migrations` — **las 25 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
+| Validador SQL contra PostgreSQL real (pglite) | **492 / 492** aserciones en verde — **medido el 2026-09-25** (tras cerrar la trampa condicional **y añadir §22, la exportación hacia HACER**). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
+| **Migraciones en el repositorio** | **26** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250004_v_exportacion_hacer.sql` |
+| **Migraciones en la nube** | **25** registradas en `schema_migrations`. El 2026-09-25 se re-midió con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva — **entonces**. Hoy el repositorio tiene **26**, así que **hay 1 pendiente: `202609250004`**, sin aplicar porque este entorno **no tiene el PAT**. La cifra de la nube **no se re-midió en esta entrega**: se arrastra la del 2026-09-25 |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
-| **Libro mayor de migraciones (D10)** | **25** versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases) y la regla de los campos condicionales** el 2026-09-25) — **22 tablas** + **4 vistas**, con RLS activo en las 22 (ver §3) |
+| **Libro mayor de migraciones (D10)** | **25** versiones aplicadas con checksum SHA-256 válido (la **26.ª** espera el PAT) |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases) y la regla de los campos condicionales** el 2026-09-25) — **22 tablas** + **4 vistas** aplicadas (**5 escritas**: `v_exportacion_hacer` espera el PAT), con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -251,6 +258,18 @@ RLS**, más 10 módulos sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 
 cursos — que desde la migración de D12 viven dentro de `programs` como
 `CURSO_LIBRE`. **Recontado el 2026-09-25** con `supabase/contar-catalogo.mjs`.
 
+> **`202609250004` está escrita y probada, pero NO aplicada.** La vista
+> `v_exportacion_hacer` —la nómina de una sección, para HACER— existe en el
+> repositorio y **la ejerce el validador SQL contra PostgreSQL real** (§22, 24
+> aserciones), así que su corrección no es una promesa. Lo que falta es el paso a la
+> nube: `apply-migrations.mjs` necesita un **PAT** (`SUPABASE_ACCESS_TOKEN=sbp_…`)
+> que **no está en el repositorio ni en este entorno**. La aritmética esperada al
+> aplicarla es **+1 vista y +1 función** (`planilla_texto`) — migraciones **25 → 26**,
+> vistas **4 → 5**, funciones **52 → 53** — y **sin tocar** tablas, triggers ni
+> políticas. **Es una predicción, no una medición**: hay que recontar con
+> `contar-catalogo.mjs` después de aplicar, que es exactamente el error que produjo
+> D11.
+
 > **`202609250002` aplicada el 2026-09-25.** Cierra D12 del todo: retira la vista
 > `public.cursos` —el andamiaje de transición— y deja a `resolver_programa_inscripcion()`
 > con **un solo vocabulario (uuid)**. El renglón cambió en **dos cifras y sólo dos**,
@@ -317,7 +336,7 @@ cursos — que desde la migración de D12 viven dentro de `programs` como
 > `aspirantes` y la política `aspirantes_update_own` seguía viva, así que un usuario
 > con sesión podía escribir `datos_planilla` por PostgREST con la clave publicable
 > del bundle y **saltarse `validar_planilla()` en una petición HTTP** — y esa columna
-> es la que alimentará la exportación hacia HACER. Validar en la ruta Fastify no
+> es la que **alimenta** la exportación hacia HACER. Validar en la ruta Fastify no
 > bastaba: la frontera de autorización es la RLS (ADR-003). El trigger valida salvo
 > cuando la planilla es `'{}'`, que es el «sin planilla» del formulario viejo, así
 > que no hay regresión para los clientes antiguos. Que esta migración mueva
@@ -705,10 +724,14 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 ### Vistas
 
 > **`cursos` ya no está.** Fue la vista de compatibilidad de D12 hasta el
-> 2026-09-25; `202609250002` la retiró. Quedan **cuatro** vistas, todas de módulo y
-> todas `security_invoker`. La RLS de la oferta formativa no se pierde con ella: la
-> aplicaba `programs` —la vista era `security_invoker` justo para eso—, y sigue
-> aplicándose.
+> 2026-09-25; `202609250002` la retiró. Quedan **cuatro** vistas **en la nube**, todas
+> de módulo y todas `security_invoker`. La RLS de la oferta formativa no se pierde con
+> ella: la aplicaba `programs` —la vista era `security_invoker` justo para eso—, y
+> sigue aplicándose.
+>
+> **La quinta está escrita y espera el PAT.** `v_exportacion_hacer`
+> (`202609250004`) es la vista de exportación hacia HACER; **en la nube todavía no
+> existe** (ver §2).
 
 | Vista | Origen | Propósito |
 | --- | --- | --- |
@@ -716,12 +739,13 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `v_cuadrante_guardias` | **M3** | Las guardias con su aula y su día legible. `security_invoker` |
 | `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
 | `v_ocupacion_secciones` | **M4** | Ocupación real de cada sección con su `cupo_efectivo`, `cupos_ocupados` y `oferta_vigente`. `security_invoker` |
+| `v_exportacion_hacer` | **M4** (`202609250004`) | Una fila por inscripción **`ENROLLED`** de una sección: contexto académico + identidad del aspirante + los **29 campos de la planilla aplanados** + el `datos_planilla` crudo al final (**61 columnas**). `security_invoker`. **Escrita, no aplicada** |
 
 > **Las tres vistas de M3 llevan `security_invoker`, y no es un detalle.** Sin
 > él corren con los privilegios de su dueño y **se saltan la RLS de las tablas
 > base**: un estudiante vería el cuadrante de todo el centro, que es justo el
 > dato que las políticas existen para acotar. `verificar-esquema.mjs` comprueba
-> las cuatro.
+> las cuatro de la nube y, desde `202609250004`, también la quinta.
 
 ### Funciones y triggers
 
@@ -758,6 +782,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `expirar_ofertas_cupo()` | **RPC** (`security definer`, M4) | Vence las ofertas caducadas. **Idempotente** (la segunda llamada devuelve 0) y **sin `pg_cron`**: la llama el backend. Concedida a `authenticated` **a propósito** y es inofensiva — un estudiante no puede fabricar una oferta vencida |
 | `reincorporar_inscripcion(uuid, uuid)` | **RPC** (`security definer`, M4) | **Solo admin.** Devuelve un `DROPPED` a `ENROLLED` (la excepción sobre el `unique`) y **PUEDE exceder la capacidad**: «si el admin autoriza, el sistema obedece». La comprobación de cupo se quitó **a propósito**; quedan el rol, el cerrojo y el anti-acaparamiento |
 | `promover_siguiente_de_cola(uuid)` | Función interna (`security definer`, M4) | El trabajo sucio de `promover_siguiente`. **Revocada a `public, anon, authenticated`**: no es una puerta, es un pasillo. **No promueve si hay oferta viva** |
+| `planilla_texto(jsonb, text)` | Función (`immutable`, M4, `202609250004`) | Aplana **un** valor de `datos_planilla` a texto: ausente/`null`/cadena vacía/`[]`/`{}` → `NULL`; una lista se une con `" | "`; un booleano sale `true`/`false`. **No es `security definer` y no puede serlo**: **no lee ninguna tabla**, así que no hay RLS que saltar — y marcarla `definer` sugeriría lo contrario. Replica la semántica de «vacío» que ya tenía `validar_planilla()`, para que el archivo y la validación no discrepen |
 
 ### Políticas RLS
 
@@ -782,6 +807,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `schedule_slots` | El docente ve las suyas; el estudiante ve **las de su sección** (vía `enrollments`); `anon` no tiene `GRANT` | **Solo admin** |
 | `v_cuadrante_clases`, `v_cuadrante_guardias`, `v_periodo_vigente` *(vistas)* | Heredan la RLS de las tablas base gracias a `security_invoker` | — es una proyección |
 | `v_ocupacion_secciones` *(vista, M4)* | Autenticados (lectura). `anon` no tiene `GRANT` | — es una proyección. Cuenta **sólo `ENROLLED`** con funciones `definer` y expone la columna **`oferta_vigente`** (asiento comprometido). Una vista `invoker` que contara `enrollments` directo mostraría a cada alumno **sólo su propia fila** |
+| `v_exportacion_hacer` *(vista, M4, `202609250004`)* | Autenticados (lectura). `anon` no tiene `GRANT` — **`42501`, medido en §22** | — es una proyección. **Un alumno ve exactamente su fila** (hereda `enrollments_read_own` por ser `security_invoker`) y **el que está en la cola ve cero**, porque la vista filtra por `ENROLLED`. El nombre del docente se resuelve con `nombre_para_mostrar()` —**no** relajando `profiles_read_own`—, así que no expone cédula ni correo (R-14). **Escrita, no aplicada** |
 
 > **«Sin política» no es lo mismo que «política que devuelve vacío».** Para un
 > estudiante, `teacher_duties` no tiene ninguna política: es la diferencia entre
@@ -1126,6 +1152,17 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `lib/screens/activar_cuenta_screen.dart` | ✅ | **Módulo 1**: lee el token de `Uri.base.fragment` y fija la contraseña |
 | `lib/screens/docente_dashboard.dart` | ✅ | Marcador con cierre de sesión real |
 | `lib/screens/aspirante_dashboard.dart` | ✅ | Usa el repositorio, con estado de error y reintento |
+| `lib/screens/admin/cpanel_inscripciones_panel.dart` | ✅ | **Módulo 4**: ocupación por sección, cola, promover, reincorporar y **«Exportar Planilla HACER (.csv)»** — uno **por tarjeta**, porque el panel no tiene selector de sección y la tarjeta **es** el contexto |
+| `lib/screens/admin/cpanel_inscripciones_cola_dialog.dart` | ✅ | **Módulo 4**: la cola de espera y las inscripciones de una sección |
+| `lib/screens/admin/cpanel_inscripcion_campos_panel.dart` | ✅ | **Módulo 4**: el catálogo de la planilla. Grupos en `ExpansionTile`, obligatorio/activo por interruptor, orden por **intercambio con el vecino del grupo**. `codigo`/`tipo` inmutables por firma |
+
+> **La descarga del CSV está doblada en las pruebas, y eso hay que saberlo.** El
+> botón de exportación baja el archivo por `SelectorDeArchivos.descargarTexto()`, un
+> método nuevo del puerto que ya existía para las subidas. Existe por la misma razón
+> que el puerto: la implementación real vive en `package:web` + `dart:js_interop` y
+> **no compila en la VM donde corre `flutter test`**. Así que la ruta
+> «consultar → serializar → descargar» está cubierta por dobles y **no** por un
+> navegador real: **el ciclo en navegador sigue siendo deuda**, igual que el de M5.
 
 > **Pendiente de la mitad de interfaz de M1:** que un navegador real abra
 > `http://localhost:8090/#/auth/activate?token=…` y confirme que el token llega
@@ -1391,6 +1428,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D14** | `aspirantes.curso_seleccionado` es **texto libre** con el nombre del curso: renombrar un programa rompe la referencia de los aspirantes que lo eligieron | ✅ **Resuelta del todo (2026-09-25)** — `202609250001` añade `program_id uuid NOT NULL REFERENCES programs(id) ON DELETE RESTRICT`, **elimina** `curso_seleccionado` y resuelve el valor con `resolver_programa_inscripcion()`, que exige que el programa exista, esté activo y sea `CURSO_LIBRE` (dentro de un trigger `security definer` la RLS no protege: el desplegable filtrado en Flutter es comodidad, la regla es la función). El **cliente** ya manda el uuid y lee `programs` directamente (`80432c1`, Fase 2). Y `202609250002` **retira la tolerancia transitoria por nombre** —que existía para no romper a un cliente desplegado que nunca llegó a estarlo— y **borra la vista `cursos`**, con lo que cierra D12. Un valor que no es uuid sale **23503** |
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 | **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
+| **D17** | **No existe la especificación de campos que espera HACER.** El MVP dice que el LMS **alimenta** a HACER, pero nadie ha escrito qué columnas, en qué orden y con qué formato las espera la plataforma del INCES | 🟡 **Abierta y declarada, no escondida.** `AUDITORIA_M4.md` lo midió: en el repositorio la palabra «HACER» **sólo aparece como comentario de consumidor futuro**. `202609250004` se escribió con esa pregunta **abierta en el encabezado de la migración**: expone contexto + identidad + la planilla aplanada + el `datos_planilla` crudo (**61 columnas**), y **no finge que la respuesta llegó**. La capa que cambia cuando la especificación llegue es **una sola**: `columnasExportacionHacer` + `csvDeExportacionHacer` en Dart, más el `select` de la vista. `datos_planilla` viaja al final justo para que **ningún campo sea irrecuperable** mientras tanto. **Qué falta**: preguntar a HACER — no programar |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1645,7 +1683,7 @@ flutter build web --release --dart-define-from-file=.env.json
 El validador de SQL merece una explicación: `flutter analyze` no ve el SQL, y un
 error en una política RLS no rompe la compilación — rompe la seguridad, y se
 descubre en producción. `supabase/tests/` levanta un PostgreSQL real (PGlite),
-aplica el shim de Supabase y **las veinticinco migraciones**, y ejecuta **468**
+aplica el shim de Supabase y **las veintiséis migraciones**, y ejecuta **492**
 aserciones sobre el resultado: cortacircuitos, auditoría, idempotencia, RLS por rol,
 integridad, las dos reglas de negocio de M2, la resolución de D12/D13
 (**la retirada de la vista `cursos`**, la `sections` rediseñada y el trigger de la
@@ -1660,7 +1698,11 @@ directo**) y **el módulo de archivos de M5** (48 aserciones: el ciclo
 `PENDING → CONFIRMED → DELETED`, que reconfirmar y doble borrar dan `23514`, que
 `anon` no alcanza ninguna RPC, la RLS por propietario y por admin, la frontera de
 escritura directa, y que **reaplicar la migración no duplica parámetros, no duplica
-filas y no enciende el módulo**).
+filas y no enciende el módulo**), **la guardia de escritura de la planilla** (M4,
+`202609240002`) y **la exportación hacia HACER** (§22, 24 aserciones: que la vista
+filtra por `ENROLLED` —**el de la cola no es nómina**—, que aplana los cinco tipos de
+campo del catálogo, que una clave ausente sale `NULL` y no la cadena `"null"`, y la
+RLS por rol: un alumno ve su fila, el de la cola ve cero y `anon` recibe `42501`).
 **Las migraciones se validan aquí aunque el validador corra en PGlite**: el
 validador las levanta en un PostgreSQL real y comprueba que los triggers hacen
 lo que dicen hacer.

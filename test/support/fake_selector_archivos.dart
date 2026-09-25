@@ -25,6 +25,9 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
   /// Fuerza un fallo al abrir la descarga.
   Object? errorAlDescargar;
 
+  /// Fuerza un fallo al descargar contenido generado.
+  Object? errorAlDescargarTexto;
+
   final List<String> llamadas = [];
 
   /// Cuántas veces se abrió el diálogo.
@@ -35,6 +38,19 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
 
   String? ultimaUrlDescargada;
   String? ultimoNombreDescargado;
+
+  /// El contenido de la última descarga **generada** (el CSV), entero.
+  ///
+  /// Se guarda el texto completo y no un resumen a propósito: la exportación
+  /// hacia HACER se prueba comprobando que el archivo contiene la cabecera y la
+  /// fila del matriculado, y eso exige el texto, no un «se llamó a descargar».
+  String? ultimoTextoDescargado;
+
+  /// El nombre con el que se ofreció esa descarga.
+  String? ultimoNombreDeTextoDescargado;
+
+  /// El tipo MIME con el que se ofreció esa descarga.
+  String? ultimoTipoMimeDescargado;
 
   @override
   Future<ArchivoElegido?> elegir() async {
@@ -50,6 +66,19 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
     ultimaUrlDescargada = url;
     ultimoNombreDescargado = nombre;
     _lanzarSi(errorAlDescargar);
+  }
+
+  @override
+  Future<void> descargarTexto({
+    required String nombre,
+    required String contenido,
+    String tipoMime = 'text/csv;charset=utf-8',
+  }) async {
+    llamadas.add('descargarTexto');
+    ultimoNombreDeTextoDescargado = nombre;
+    ultimoTextoDescargado = contenido;
+    ultimoTipoMimeDescargado = tipoMime;
+    _lanzarSi(errorAlDescargarTexto);
   }
 
   void _lanzarSi(Object? error) {

@@ -71,6 +71,45 @@ class SelectorDeArchivosDelNavegador implements SelectorDeArchivos {
     web.window.open(url, '_blank');
   }
 
+  @override
+  Future<void> descargarTexto({
+    required String nombre,
+    required String contenido,
+    String tipoMime = 'text/csv;charset=utf-8',
+  }) async {
+    // El `Blob` es lo que convierte una cadena en algo descargable. El `type`
+    // lleva el `charset` a propósito: sin él, Excel abre el CSV con la
+    // codificación del sistema y los acentos de los nombres salen rotos.
+    //
+    // La lista se tipa como `<JSAny>` explícitamente porque `BlobPart` es un
+    // alias de `JSAny`: sin el tipo, `[contenido.toJS].toJS` sería
+    // `JSArray<JSString>` y la asignación al parámetro no compilaría.
+    final blob = web.Blob(
+      <JSAny>[contenido.toJS].toJS,
+      web.BlobPropertyBag(type: tipoMime),
+    );
+
+    final url = web.URL.createObjectURL(blob);
+
+    // El `<a download>` se crea, se pulsa y se retira desde código: no hay
+    // ningún widget de Flutter que abra el diálogo de guardar del navegador, y
+    // `window.open` sobre una URL de objeto sólo la mostraría, sin descargarla.
+    final enlace = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = nombre
+      ..style.display = 'none';
+
+    web.document.body?.append(enlace);
+    enlace.click();
+
+    // Se revoca la URL y se retira el enlace en el mismo instante. Una URL de
+    // objeto **retiene su `Blob` en memoria** hasta que se revoca; en una
+    // pantalla donde se exportan varias secciones seguidas, no revocarlas iría
+    // acumulando nóminas completas sin que nada las suelte.
+    enlace.remove();
+    web.URL.revokeObjectURL(url);
+  }
+
   /// Lee los bytes del archivo elegido.
   ///
   /// `arrayBuffer()` y no `text()`: el archivo puede ser un PDF o una imagen, y
