@@ -31,8 +31,8 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
   static const String _tablaPerfiles = 'profiles';
   /// D14: la oferta formativa se lee de `programs`, no de la vista `cursos`.
   ///
-  /// `cursos` sigue existiendo como puente de compatibilidad mientras el cliente
-  /// desplegado la use; esta capa ya no la necesita.
+  /// `cursos` se retiró en `202609250002` —esta capa era su último consumidor—,
+  /// así que `programs` es ya la única fuente de la oferta formativa.
   static const String _tablaPrograms = 'programs';
   static const String _tablaModulos = 'system_modules';
   static const String _tablaSettings = 'system_settings';

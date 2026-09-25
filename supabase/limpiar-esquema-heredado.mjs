@@ -49,6 +49,11 @@ const sentencias = [
   'drop table if exists public.profiles cascade;',
   'drop table if exists public.sections cascade;',
   'drop table if exists public.enrollments cascade;',
+  // `cursos` era la tabla del prototipo. `202609160001` la convirtió en vista
+  // sobre `programs` y `202609250002` la retiró, así que en una base moderna este
+  // `drop` no encuentra nada y el `if exists` lo deja inofensivo. Se conserva
+  // porque este script corre ANTES de las migraciones, sobre una base donde
+  // `cursos` todavía puede ser la tabla heredada — y ahí sí hace falta.
   'drop table if exists public.cursos cascade;',
   'drop type if exists public.actividad_type cascade;',
   'drop type if exists public.entrega_status cascade;',

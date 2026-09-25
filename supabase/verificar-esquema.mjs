@@ -13,8 +13,8 @@
  *   3. ¿RLS activo en todas?
  *   4. ¿Existen los triggers que sostienen las invariantes (D8)?
  *   5. ¿Los módulos del cPanel están sembrados?
- *   6. ¿Sigue en pie la vista de compatibilidad `cursos` (D12) y están las
- *      tablas del currículo (M2)?
+ *   6. ¿Está RETIRADA la vista de compatibilidad `cursos` (D12, cerrada en
+ *      `202609250002`) y están las tablas del currículo (M2)?
  *   7. ¿Está el Módulo 3 desplegado — aulas, períodos, guardias, cuadrante,
  *      sus vistas y sus triggers anti-colisión?
  *   8. ¿Está el Módulo 4 desplegado — RPC `security definer`, escritura directa
@@ -115,15 +115,15 @@ const esperadas = [
   'teacher_duties',
   'teacher_invitations',
 ];
-// `cursos` YA NO es una tabla: `202609160001` la convirtió en una vista de
-// compatibilidad sobre `programs` (deuda D12). Se comprueba aparte, en el
-// bloque 6, porque `pg_tables` **no ve vistas**. Si algún día reapareciera aquí
-// como tabla, sería una regresión silenciosa de D12 — y el bloque 6 la caza.
+// `cursos` ya NO existe en ninguna forma: `202609160001` la convirtió en vista
+// de compatibilidad sobre `programs` y `202609250002` la retiró, ya sin
+// consumidor. El bloque 6 comprueba su AUSENCIA —antes comprobaba su presencia—,
+// porque una comprobación positiva no caza una reaparición. Si volviera como
+// tabla, además, la cazaría el control de sobrantes de aquí abajo.
 // Las tres vistas del Módulo 3 se comprueban en el bloque 7, con su
 // `security_invoker` incluido, que es lo que impide que se conviertan en un
 // agujero por el que un estudiante vería el cuadrante de todo el centro.
 const vistasEsperadas = [
-  'cursos',
   'v_cuadrante_clases',
   'v_cuadrante_guardias',
   'v_ocupacion_secciones',
@@ -341,11 +341,18 @@ comprobar(
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');
 comprobar('parámetros sembrados', ajustes[0].n > 0, `${ajustes[0].n} filas`);
-// Esta consulta ahora pasa por la **vista** `cursos` (D12), no por una tabla.
-// Sirve de cruce: si la vista proyecta los 5 cursos migrados, es que la
-// absorción a `programs` conservó los datos.
-const cursos = await consultar('select count(*)::int as n from public.cursos;');
-comprobar('cursos sembrados (vía la vista de D12)', cursos[0].n === 5, `${cursos[0].n} filas`);
+// Antes pasaba por la **vista** `cursos` (D12); retirada ésta en `202609250002`,
+// la consulta va directo a la fuente de verdad. El cruce que hacía es el mismo:
+// si `programs` tiene los 5 cursos libres migrados desde Fase 0, la absorción
+// conservó los datos.
+const cursos = await consultar(
+  "select count(*)::int as n from public.programs where type = 'CURSO_LIBRE';",
+);
+comprobar(
+  'cursos libres sembrados (directo de programs, ya sin la vista de D12)',
+  cursos[0].n === 5,
+  `${cursos[0].n} filas`,
+);
 
 console.log('\n  5. Libro mayor de migraciones (D10)\n');
 const libro = await consultar(
@@ -378,29 +385,29 @@ comprobar(
     'ninguno sospechoso',
 );
 
-console.log('\n  6. M2: vista de compatibilidad y tablas del currículo\n');
+console.log('\n  6. M2: la vista retirada y las tablas del currículo\n');
 
-// D12 — `cursos` debe ser una VISTA, no una tabla. `pg_tables` no ve vistas, así
-// que se pregunta por `relkind = 'v'`. Si reapareciera como tabla, el bloque 1
-// ya la habría marcado como sobrante; aquí se comprueba además que tiene
-// `security_invoker` activo, que es lo que impide que la vista se convierta en
-// un agujero de escalada: sin él corre con los privilegios de su dueño y `anon`
-// vería cursos archivados que la RLS de `programs` esconde.
+// D12 cerrada (`202609250002`) — `cursos` ya NO debe existir, ni como tabla ni
+// como vista. La aserción es INVERSA a propósito: mientras la vista existió,
+// comprobar su presencia bastaba; ahora una comprobación positiva no cazaría su
+// reaparición, que es exactamente la regresión que hay que vigilar.
+//
+// Se pregunta por `pg_class.relkind` —y no por `pg_tables`— porque `pg_tables`
+// no ve vistas: reaparecer como vista es tan regresión como reaparecer como
+// tabla, y hay que cubrir las dos. La vista era `security_invoker` para que la
+// RLS de `programs` mandara; retirada ella, esa RLS sigue siendo la que esconde
+// los borradores de `anon` — y la comprueba el bloque 1, no una vista.
 const relaciones = await consultar(
   'select c.relname, c.relkind, c.reloptions from pg_class c ' +
     "join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public';",
 );
 const relacionCursos = relaciones.find((r) => r.relname === 'cursos');
 comprobar(
-  'cursos existe y es una vista (relkind = v)',
-  relacionCursos?.relkind === 'v',
-  relacionCursos ? `relkind = ${relacionCursos.relkind}` : 'AUSENTE',
-);
-const opciones = (relacionCursos?.reloptions ?? []).join(',');
-comprobar(
-  'la vista usa security_invoker (sin ella anon vería lo que la RLS esconde)',
-  opciones.includes('security_invoker=true') || opciones.includes('security_invoker=on'),
-  opciones || 'SIN OPCIONES',
+  'la vista de compatibilidad `cursos` está retirada',
+  relacionCursos === undefined,
+  relacionCursos
+    ? `SIGUE AHÍ: relkind = ${relacionCursos.relkind}`
+    : 'no existe (ni tabla ni vista)',
 );
 
 // M2 — no basta con que las tablas existan: se comprueban las columnas que el

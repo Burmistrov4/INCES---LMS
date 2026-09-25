@@ -270,6 +270,24 @@ async function main() {
 
   // ------------------------------------------------------------ 7. usuarios
   seccion('7. Onboarding atómico (Fase 1) y datos de prueba');
+  //  (D14 Fase 3) La tolerancia al NOMBRE se retiró en `202609250002`, así que
+  //  este fixture tiene que mandar el IDENTIFICADOR del curso. Antes mandaba
+  //  «Herrería» y funcionaba por esa tolerancia; sin ella el resolutor no
+  //  resolvería, `v_es_aspirante` quedaría falso y la aserción «el trigger crea la
+  //  ficha» de más abajo fallaría sin decir por qué.
+  //
+  //  El id se consulta en vez de escribirlo a mano por el mismo motivo que en
+  //  §14: un uuid fijo se rompe el día que la semilla cambie de identificadores.
+  const semillaPrograma = (
+    await db.query(
+      "select id from public.programs where type = 'CURSO_LIBRE' and is_active order by code limit 1",
+    )
+  ).rows[0]?.id;
+  check(
+    'hay un curso libre activo con el que armar la metadata de prueba',
+    Boolean(semillaPrograma),
+    String(semillaPrograma),
+  );
   await db.exec(`
     insert into auth.users (id, email, raw_user_meta_data) values
       ('${ADMIN_ID}',  'admin@inces.test',  '{}'::jsonb),
@@ -277,7 +295,7 @@ async function main() {
         "cedula":"87654321","nombres":"Ana","apellidos":"Pérez",
         "fecha_nac":"2000-05-10","sexo":"F","telefono":"04141234567",
         "direccion":"Calle 1","nivel_educativo":"Bachiller",
-        "curso_seleccionado":"Herrería"
+        "curso_seleccionado":"${semillaPrograma}"
       }'::jsonb);
     update public.profiles set rol = 'admin' where email = 'admin@inces.test';
   `);
@@ -618,30 +636,25 @@ async function main() {
   check('el admin sí ve el borrador', adminProgramas.rows.some((p) => p.code === 'BORR-01'));
 
   // ------------------------------ 14. D12 y D13
-  seccion('14. D12 — programs absorbe cursos');
+  seccion('14. D12 cerrada — programs absorbe cursos y la vista se retira');
 
-  // `information_schema.tables` INCLUYE las vistas (con table_type='VIEW'), así
-  // que no basta con que la fila exista: hay que mirar el tipo.
-  const tipoCursos = (
+  //  (D14 Fase 3, `202609250002`) La vista de compatibilidad se retiró: ya no hay
+  //  ningún objeto `cursos`, ni tabla ni vista. Por eso la aserción se INVIERTE
+  //  —antes exigía `table_type === 'VIEW'`; ahora exige que no haya fila— y se
+  //  escribe así a propósito: una comprobación positiva no caza una reaparición,
+  //  y reaparecer sería una regresión silenciosa de D12.
+  //
+  //  `information_schema.tables` INCLUYE las vistas (con `table_type = 'VIEW'`),
+  //  así que esta única consulta cubre las dos formas en que podría volver.
+  const objetosCursos = (
     await db.query(
-      "select table_type from information_schema.tables where table_schema='public' and table_name='cursos'",
+      "select table_name, table_type from information_schema.tables where table_schema='public' and table_name='cursos'",
     )
-  ).rows[0]?.table_type;
-  check('cursos YA NO es una tabla base', tipoCursos === 'VIEW', String(tipoCursos));
+  ).rows;
   check(
-    'cursos es una vista de compatibilidad',
-    (
-      await db.query(
-        "select count(*)::int as n from information_schema.views where table_schema='public' and table_name='cursos'",
-      )
-    ).rows[0].n === 1,
-  );
-
-  const cursosVista = await db.query('select nombre from public.cursos order by nombre');
-  check(
-    'la vista proyecta los 5 cursos libres de Fase 0',
-    cursosVista.rows.length >= 5,
-    `ve ${cursosVista.rows.length}`,
+    'la vista de compatibilidad `cursos` ya NO existe',
+    objetosCursos.length === 0,
+    objetosCursos.map((o) => o.table_type).join(', ') || 'ni tabla ni vista',
   );
 
   const programasCurso = await db.query(
@@ -678,24 +691,21 @@ async function main() {
     db.exec('commit'),
   );
 
-  // --- RLS de la vista -----------------------------------------------------
-  const anonCursos = await como('anon', null, () => db.query('select nombre from public.cursos'));
-  check(
-    'anon ve los cursos libres activos a través de la vista',
-    anonCursos.rows.length === 6,
-    `ve ${anonCursos.rows.length}`,
-  );
-  check(
-    'security_invoker funciona: un curso libre archivado NO asoma a anon',
-    !anonCursos.rows.some((c) => c.nombre === 'Programa en borrador'),
-  );
-  const authCursos = await como('authenticated', ALUMNO_ID, () =>
-    db.query('select nombre from public.cursos'),
-  );
-  check(
-    'un autenticado sí ve el curso libre en borrador (la vista no lo filtra)',
-    authCursos.rows.some((c) => c.nombre === 'Programa en borrador'),
-  );
+  // --- La RLS de la oferta ya NO se prueba aquí -----------------------------
+  //  Este bloque comprobaba la RLS **a través de la vista**, porque la vista era
+  //  `security_invoker` y ese detalle era lo que había que vigilar: sin él, `anon`
+  //  habría visto los borradores que la política esconde. Retirada la vista
+  //  (`202609250002`), esa propiedad dejó de existir y no queda nada que
+  //  preservar.
+  //
+  //  La RLS de `programs` se prueba en §13 —«anon ve la oferta activa» y «un
+  //  programa en borrador NO asoma a anon»— y allí está **mejor**: afirma sobre la
+  //  presencia/ausencia de una fila concreta, no sobre un recuento que se rompe en
+  //  cuanto el catálogo crezca.
+  //
+  //  Se deja constancia en vez de borrar el hueco en silencio, para que quien
+  //  busque «¿dónde se prueba que un borrador no asoma a anon?» encuentre la
+  //  respuesta sin recorrer el archivo entero.
 
   seccion('15. D13 — sections rediseñada + Regla 2 de M2');
 
@@ -3232,13 +3242,26 @@ async function main() {
     String(errNombreInventado?.code),
   );
 
-  // La tolerancia transitoria: el formulario DESPLEGADO hoy manda el nombre. Si
-  // esto dejara de funcionar, el hueco entre aplicar la migración y desplegar la
-  // Fase 2 rompería la inscripción pública en silencio.
-  await db.query('select public.validar_planilla($1::jsonb)', [
-    JSON.stringify({ ...planillaCompleta, curso_seleccionado: nombreInscribible }),
-  ]);
-  check('el NOMBRE del curso sigue valiendo (tolerancia transitoria de D14)', true);
+  //  (D14 Fase 3) Aquí vivía la aserción que afirmaba lo contrario: «el NOMBRE del
+  //  curso sigue valiendo (tolerancia transitoria de D14)». Se invierte porque la
+  //  tolerancia se retiró en `202609250002`.
+  //
+  //  Y se comprueba con el nombre de un curso que SÍ EXISTE —no con uno inventado,
+  //  que ya se rechazaba antes— porque es el único caso que distingue «la
+  //  tolerancia se retiró» de «el nombre estaba mal escrito». Si alguien
+  //  reintrodujera la tolerancia, esta es la aserción que lo delata.
+  const errNombreExistente = await esperaError(
+    'un nombre de curso que SÍ existe también se rechaza',
+    () =>
+      db.query('select public.validar_planilla($1::jsonb)', [
+        JSON.stringify({ ...planillaCompleta, curso_seleccionado: nombreInscribible }),
+      ]),
+  );
+  check(
+    'el NOMBRE de un curso real ya NO vale: sólo el identificador',
+    errNombreExistente?.code === '23503',
+    String(errNombreExistente?.code),
+  );
 
   // Una CARRERA no está abierta a la inscripción pública (Decisión 1). La regla
   // vive en la función y no sólo en el desplegable de Flutter: `handle_new_user`
@@ -3296,13 +3319,11 @@ async function main() {
     telefono: '04141111111',
     direccion: 'Calle 1',
     nivel_educativo: 'SECUNDARIO',
-    //  (D14) Antes era 'Soldadura', un nombre que no existe en la oferta: con el
-    //  texto libre colaba. Ahora tiene que resolver a un programa real. Se manda
-    //  el NOMBRE a propósito —este fixture representa al cliente VIEJO, el que
-    //  sigue desplegado— así que quien lo sostiene es la tolerancia transitoria
-    //  de `resolver_programa_inscripcion()`. Si esa tolerancia se retirara antes
-    //  de desplegar la Fase 2, esta aserción es la que lo delata.
-    curso_seleccionado: nombreInscribible,
+    //  (D14 Fase 3) Antes iba aquí el NOMBRE del curso, sostenido por la
+    //  tolerancia transitoria de `resolver_programa_inscripcion()`. Retirada esa
+    //  tolerancia en `202609250002`, el fixture manda el IDENTIFICADOR. El nombre
+    //  ya no se acepta ni existiendo: ver la aserción de §14 que lo fija.
+    curso_seleccionado: programaInscribible,
   });
 
   //  (a) cliente VIEJO (el formulario actual): no manda la clave.
@@ -3656,10 +3677,11 @@ async function main() {
   );
 
   //  Y el hueco que queda: sin `program_id` **y** sin `curso_seleccionado` en la
-  //  planilla, salta el NOT NULL. `23502` no está traducido ni en
-  //  `traducir-error.ts` ni en `app_exception.dart`, así que llega al cliente
-  //  como error opaco. La aserción fija que el hueco existe y dónde, para que no
-  //  se descubra en producción.
+  //  planilla, salta el NOT NULL. Ese 23502 llegaba al cliente como error opaco
+  //  —no lo traducía ni `traducir-error.ts` ni `app_exception.dart`—; desde la
+  //  Fase 3 sí (`CAMPO_OBLIGATORIO` en el backend, `validacion` en el cliente).
+  //  La aserción fija DÓNDE se produce el hueco, para que no se descubra en
+  //  producción: el mapeo mejora el mensaje, no cierra el hueco.
   const errSinPrograma = await esperaError(
     'una ficha sin programa y sin curso en la planilla se rechaza (NOT NULL)',
     () =>
@@ -3686,7 +3708,7 @@ async function main() {
       ),
   );
   check(
-    'sin programa y sin curso sale 23502 (NOT NULL, sin traducir todavía)',
+    'sin programa y sin curso sale 23502 (NOT NULL, ya traducido en los dos extremos)',
     errSinPrograma?.code === '23502',
     String(errSinPrograma?.code),
   );

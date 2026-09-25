@@ -127,6 +127,21 @@ class AppException implements Exception {
     if (delCatalogo != null) return delCatalogo;
 
     switch (error.code) {
+      // 23502 = not_null_violation. Faltaba, y su ausencia se notaba: caía al
+      // `servidor` del final y el usuario leía «No pudimos guardar la
+      // información» por un campo que no rellenó — un mensaje que no le dice qué
+      // hacer. `validacion` es la categoría correcta: el problema está en los
+      // datos, no en el servidor, y `esRecuperable` sigue siendo `true`.
+      case '23502': // not_null_violation
+        return AppException(
+          type: AppErrorType.validacion,
+          message:
+              'Faltó un dato obligatorio. Revisa el formulario e inténtalo de '
+              'nuevo.',
+          code: error.code,
+          technical: technical,
+        );
+
       case '23505': // unique_violation
         if (detail.contains('cedula') || detail.contains('cédula')) {
           return AppException(

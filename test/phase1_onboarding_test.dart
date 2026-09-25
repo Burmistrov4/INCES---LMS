@@ -314,6 +314,22 @@ void main() {
       expect(error.type, AppErrorType.validacion);
     });
 
+    test('not_null_violation (23502) se traduce a error de validación', () {
+      final error = AppException.from(
+        const PostgrestException(
+          message:
+              'null value in column "program_id" violates not-null constraint',
+          code: '23502',
+        ),
+      );
+
+      // Antes caía al `servidor` del final: el usuario leía «No pudimos guardar
+      // la información» por un campo que no rellenó, sin saber qué hacer.
+      expect(error.type, AppErrorType.validacion);
+      expect(error.esRecuperable, isTrue);
+      expect(error.code, '23502');
+    });
+
     test('permiso denegado por RLS (42501) se traduce a permisos', () {
       final error = AppException.from(
         const PostgrestException(

@@ -77,6 +77,21 @@ describe('1. clasificación de errores de Supabase', () => {
     );
   });
 
+  it('23502 (NOT NULL) se traduce a 400 de validación, no a un 500 genérico', () => {
+    // Fase 3. Antes caía al `default` y salía como 500 ERROR_BASE_DE_DATOS, que
+    // culpa al servidor de un dato que falta en la petición.
+    const traducido = traducirError(
+      {
+        code: '23502',
+        message: 'null value in column "program_id" violates not-null constraint',
+      },
+      'guardar planilla',
+    );
+
+    expect(traducido.estado).toBe(400);
+    expect(traducido.codigo).toBe('CAMPO_OBLIGATORIO');
+  });
+
   it('un ErrorApi ya tipado se devuelve tal cual, sin reenvolverlo', () => {
     const original = ErrorApi.prohibido('X', 'no puedes');
     expect(traducirError(original, 'contexto')).toBe(original);

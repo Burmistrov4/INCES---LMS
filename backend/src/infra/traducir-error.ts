@@ -109,6 +109,17 @@ export function traducirError(error: unknown, contexto: string): ErrorApi {
     const tecnico = error.message ?? '';
 
     switch (codigo) {
+      // 23502 = not_null_violation. Sin esta rama caía al `default` y el cliente
+      // recibía un 500 «ERROR_BASE_DE_DATOS» por un dato que falta — que es un
+      // problema de la petición, no del servidor. Se mapea a 400, igual que 23514
+      // y 23503: es la misma familia (datos que no cumplen) y la UI ya sabe
+      // reaccionar a un 400 de validación.
+      case '23502':
+        return new ErrorApi(400, 'CAMPO_OBLIGATORIO', 'Falta un dato obligatorio.', {
+          contexto,
+          tecnico,
+        });
+
       case '23505':
         return new ErrorApi(409, 'REGISTRO_DUPLICADO', 'Ese registro ya existe.', {
           contexto,
