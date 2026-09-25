@@ -10,6 +10,12 @@
 .env
 .env.*
 !.env.example
+# La plantilla de la suite E2E: lleva los **nombres** de las variables y para qué
+# sirve cada una, ningún valor real. Hace falta que se versione, porque es la
+# única forma de que quien clone sepa qué rellenar. Sin esta línea, el `.env.*`
+# de arriba se la traga y la plantilla no llega al repositorio — que es
+# exactamente el fallo silencioso que se midió con `git check-ignore`.
+!.env.e2e.example
 *.local
 
 # --- Contexto descartado del proyecto ----------------------------------------
@@ -78,10 +84,17 @@ npm-debug.log*
 # salida de una ejecución concreta, no código: se suben como artefacto del flujo
 # de CI y no se versionan. El `package-lock.json` de `e2e/` **sí** se versiona,
 # porque `npm ci` lo exige y es lo que fija la versión de Playwright.
+#
+# `.env.e2e` guarda las credenciales de la cuenta de administración en claro: es
+# el equivalente local de los secretos del repositorio y **jamás** puede entrar
+# al historial. Se ignora por patrón y por nombre, para que no se cuele ni
+# renombrado.
 e2e/informe/
 e2e/test-results/
 e2e/blob-report/
 e2e/.playwright/
+e2e/.env.e2e
+.env.e2e
 
 # --- Artefactos de build del backend -----------------------------------------
 # `openapi.json` NO se ignora a propósito: es el contrato publicado y su `diff`

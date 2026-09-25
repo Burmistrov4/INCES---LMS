@@ -16,10 +16,15 @@
 #    proyecto compila y defiende. Un verde con otro toolchain no sería evidencia
 #    sobre lo que se entrega.
 #
-# AVISO: este flujo **falla a propósito** mientras falten los secretos. La lista
-# está en `e2e/README.md` y es parte de D9. Un flujo que saltara las pruebas y
-# saliera en verde sería peor que un rojo: nadie lo miraría, y la deuda de la
-# descarga en navegador real seguiría abierta creyéndose cerrada.
+# AVISO: este flujo **falla a propósito** mientras falten los secretos. Un flujo
+# que saltara las pruebas y saliera en verde sería peor que un rojo: nadie lo
+# miraría, y la deuda de la descarga en navegador real seguiría abierta
+# creyéndose cerrada.
+#
+# NOTA sobre el backend: **hay que levantarlo**, aunque el inicio de sesión no lo
+# use. La lista de secciones del panel viene de Fastify
+# (`AdminInscripcionesRepository` → `BackendInscripcionGateway`), no de
+# Supabase. Sin backend no hay tarjetas, y sin tarjetas no hay botón de exportar.
 
 name: E2E (Playwright)
 
@@ -35,6 +40,7 @@ on:
     paths:
       - 'e2e/**'
       - 'lib/**'
+      - 'backend/**'
       - '.github/workflows/e2e.yml'
 
 concurrency:
@@ -44,11 +50,19 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # El frontend se sirve en 127.0.0.1 y el backend escucha en 3001. Las dos
+  # constantes se usan en varios pasos y tienen que coincidir con lo que recibe
+  # el bundle por `--dart-define`, o el navegador llamará a un sitio y el
+  # backend escuchará en otro.
+  URL_FRONTEND: http://127.0.0.1:8090
+  URL_BACKEND: http://127.0.0.1:3001
+
 jobs:
   e2e:
     name: Exportación CSV en navegador real
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Traer el repositorio
@@ -59,25 +73,30 @@ jobs:
       # de Flutter sin relación aparente con la causa, y se pierde el tiempo
       # buscando en el sitio equivocado. Se publica además como anotación, que
       # es pública: los registros del job exigen permisos de administración.
+      #
+      # `SUPABASE_SERVICE_ROLE_KEY` está en la lista y no es un descuido: el
+      # backend la exige para arrancar (`env.ts` la valida sin valor por
+      # defecto), y el panel de inscripciones pasa por el backend.
       - name: Comprobar los secretos
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
           E2E_SECCION: ${{ secrets.E2E_SECCION }}
         run: |
           faltan=""
-          for nombre in SUPABASE_URL SUPABASE_ANON_KEY E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_SECCION; do
+          for nombre in SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD E2E_SECCION; do
             if [ -z "${!nombre}" ]; then
               faltan="$faltan $nombre"
             fi
           done
           if [ -n "$faltan" ]; then
-            echo "::error title=Faltan secretos::La suite E2E no puede correr: falta$faltan. Se añaden en Settings > Secrets and variables > Actions. La lista y para qué sirve cada uno está en e2e/README.md (parte de D9)."
+            echo "::error title=Faltan secretos::La suite E2E no puede correr: falta$faltan. Se añaden en Settings > Secrets and variables > Actions. La lista y para qué sirve cada uno está en e2e/README.md."
             exit 1
           fi
-          echo "Los cinco secretos están presentes."
+          echo "Los seis secretos están presentes."
 
       - name: Instalar Flutter 3.47.0
         uses: subosito/flutter-action@v2
@@ -94,18 +113,21 @@ jobs:
       # `String.fromEnvironment()` **al compilar**. Sin este paso, la app se
       # construye con la URL de Supabase vacía y falla al iniciar sesión con un
       # error que no menciona la causa.
+      #
+      # `API_BASE_URL` apunta al backend local del runner, que se levanta más
+      # abajo. Si quedara vacío, `ApiClient` lanza al primer uso y el panel no
+      # carga.
       - name: Escribir .env.json desde los secretos
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          API_BASE_URL: ${{ secrets.API_BASE_URL }}
         run: |
           cat > .env.json <<JSON
           {
             "_comentario": "Generado por .github/workflows/e2e.yml. No se edita a mano.",
             "SUPABASE_URL": "${SUPABASE_URL}",
             "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}",
-            "API_BASE_URL": "${API_BASE_URL}"
+            "API_BASE_URL": "${URL_BACKEND}"
           }
           JSON
 
@@ -128,15 +150,39 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
+      # El backend se compila pero NO se arranca aquí: lo arranca Playwright
+      # desde su `webServer`, que además sabe esperar a `/salud` y lo apaga al
+      # terminar. Arrancarlo a mano con `&` en un paso funciona hasta que deja
+      # de funcionar, y cuando falla el síntoma es «el panel está vacío».
+      - name: Compilar el backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
       - name: Correr la suite
         working-directory: e2e
         env:
           CI: 'true'
-          E2E_BASE_URL: http://127.0.0.1:8090
+          E2E_BASE_URL: ${{ env.URL_FRONTEND }}
+          E2E_BACKEND_URL: ${{ env.URL_BACKEND }}
           E2E_WEB_DIR: ../build/web
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
           E2E_SECCION: ${{ secrets.E2E_SECCION }}
+
+          # Variables del backend, que hereda el `webServer` de Playwright.
+          PORT: '3001'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          # **Hay que ponerlo explícitamente.** El valor por defecto del backend
+          # es `http://localhost:8090`, y el runner sirve la app en
+          # `http://127.0.0.1:8090`. Para el navegador esos son **dos orígenes
+          # distintos**, así que el CORS por defecto bloquearía cada llamada del
+          # panel — y el fallo se leería como «la lista de secciones está vacía».
+          CORS_ORIGINS: ${{ env.URL_FRONTEND }}
         run: npx playwright test
 
       # El informe HTML es lo que convierte «falló» en «falló aquí, por esto».

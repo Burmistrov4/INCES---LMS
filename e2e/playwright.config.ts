@@ -23,13 +23,91 @@
 // al lanzar su primer hijo (`ERROR_PIPE_BUSY`), y separar compilar de servir es
 // lo que permite que el mismo archivo sirva en local y en CI.
 
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { defineConfig, devices } from '@playwright/test';
+
+// --- Carga del entorno local -------------------------------------------------
+//
+// **Playwright no lee `.env` por su cuenta.** Sin este bloque, para correr en
+// local hay que exportar cinco variables a mano en cada terminal, y lo que se
+// olvida no es el nombre de la sección: es la contraseña, que acaba en el
+// historial del shell.
+//
+// **No pisa lo que ya venga del entorno.** En CI las variables llegan de los
+// secretos del repositorio y este archivo no existe, así que el mismo archivo de
+// configuración sirve en los dos sitios y no hay una rama distinta para local.
+//
+// La ruta es relativa al directorio desde el que se lanza `playwright test`, que
+// es `e2e/` (los scripts de `package.json` y el `working-directory` del flujo).
+// Es la misma suposición que ya hace `webServer.command` con `serve.mjs`.
+const ARCHIVO_LOCAL = resolve(process.cwd(), '.env.e2e');
+
+if (existsSync(ARCHIVO_LOCAL)) {
+  for (const linea of readFileSync(ARCHIVO_LOCAL, 'utf8').split(/\r?\n/)) {
+    const limpia = linea.trim();
+    if (limpia === '' || limpia.startsWith('#')) continue;
+    const corte = limpia.indexOf('=');
+    if (corte < 1) continue;
+    const clave = limpia.slice(0, corte).trim();
+    const valor = limpia.slice(corte + 1).trim().replace(/^["']|["']$/g, '');
+    if (process.env[clave] === undefined) process.env[clave] = valor;
+  }
+}
 
 /** Dónde está la app. En CI lo pone el flujo; en local, el valor por defecto. */
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8090';
 
+/** Dónde escucha el backend. `PORT` de `backend/.env` en local, 3001. */
+const BACKEND_URL = process.env.E2E_BACKEND_URL ?? 'http://127.0.0.1:3001';
+
 /** El directorio del bundle ya compilado. */
 const DIRECTORIO_WEB = process.env.E2E_WEB_DIR ?? 'build/web';
+
+/**
+ * Si hay que levantar el backend.
+ *
+ * **Y hay que levantarlo, aunque el login no lo use.** El inicio de sesión va
+ * directo contra Supabase, pero **la lista de secciones del panel no**:
+ * `AdminInscripcionesRepository` construye por defecto un
+ * `BackendInscripcionGateway`, que habla con Fastify. Sin backend el panel no
+ * pinta ninguna tarjeta, y sin tarjetas no hay botón de exportar — el test
+ * fallaría buscando un botón que nunca iba a existir, y el mensaje señalaría al
+ * botón en vez de al backend apagado.
+ *
+ * Se puede apagar con `E2E_ARRANCAR_BACKEND=0` cuando ya está corriendo a mano.
+ */
+const ARRANCAR_BACKEND = process.env.E2E_ARRANCAR_BACKEND !== '0';
+
+const servidores = [
+  {
+    command: `node serve.mjs "${DIRECTORIO_WEB}" ${new URL(BASE_URL).port}`,
+    url: BASE_URL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
+    stdout: 'pipe' as const,
+    stderr: 'pipe' as const,
+  },
+  ...(ARRANCAR_BACKEND
+    ? [
+        {
+          // `npm run start` ejecuta `dist/server.js`, así que en CI hay que
+          // compilar el backend antes. En local, `backend/.env` ya existe y lo
+          // carga el propio script con `--env-file-if-exists`.
+          command: 'npm --prefix ../backend run start',
+          // `/salud` es liveness y no toca la base; se espera a esa y no a
+          // `/salud/profundo`, porque lo que hace falta saber aquí es que el
+          // proceso escucha, no que la nube responda.
+          url: `${BACKEND_URL}/salud`,
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+          stdout: 'pipe' as const,
+          stderr: 'pipe' as const,
+        },
+      ]
+    : []),
+];
 
 export default defineConfig({
   testDir: './tests',
@@ -92,14 +170,7 @@ export default defineConfig({
     },
   ],
 
-  // Sirve el bundle ya compilado. En local, si ya hay algo escuchando en el
-  // puerto (por ejemplo `node serve.mjs` a mano), se reutiliza.
-  webServer: {
-    command: `node serve.mjs "${DIRECTORIO_WEB}" ${new URL(BASE_URL).port}`,
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  // Sirve el bundle ya compilado y levanta el backend. En local, si ya hay algo
+  // escuchando en esos puertos, se reutiliza.
+  webServer: servidores,
 });

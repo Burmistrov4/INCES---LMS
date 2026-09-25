@@ -67,6 +67,10 @@ haría fallar la suite por el sitio equivocado.
 
 ### En local
 
+**El entorno vive en `e2e/.env.e2e`**, que está en `.gitignore` y que
+`playwright.config.ts` carga al arrancar. No hay que exportar nada a mano en cada
+terminal.
+
 ```bash
 # 1. Compilar el bundle (necesita .env.json; ver más abajo)
 flutter build web --dart-define-from-file=.env.json
@@ -74,11 +78,30 @@ flutter build web --dart-define-from-file=.env.json
 # 2. Instalar la suite una vez
 cd e2e && npm ci && npm run navegador
 
-# 3. Pasarle las credenciales y la sección
-export E2E_ADMIN_EMAIL="..."; export E2E_ADMIN_PASSWORD="..."; export E2E_SECCION="SA26-2"
+# 3. Escribir .env.e2e una vez (plantilla: .env.e2e.example)
+#    E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, E2E_SECCION, ...
 
-# 4. Correr (levanta el servidor solo)
+# 4. Correr (levanta el servidor y el backend solo)
 npm test
+```
+
+El cargador **no pisa lo que ya venga del entorno**. Eso tiene dos
+consecuencias que se usaron para medirlo:
+
+- **En CI el archivo no existe** y las variables llegan de los secretos, así que
+  el mismo `playwright.config.ts` sirve en los dos sitios, sin una rama «modo
+  local».
+- **Una variable en la línea de órdenes gana sobre el archivo.** Verificado
+  arrancando la suite con `E2E_SECCION="SA26-2"` teniendo otro valor en el
+  archivo: ganó el de la línea de órdenes. Es lo que permite probar contra otra
+  sección sin editar nada.
+
+`playwright.config.ts` **levanta también el backend** (`npm --prefix ../backend
+run start`, esperando a `/salud`), porque el panel pide la lista de secciones a
+Fastify y sin él no hay tarjetas. Si ya lo tienes corriendo a mano:
+
+```bash
+E2E_ARRANCAR_BACKEND=0 npm test
 ```
 
 En **Windows con sandbox**, el paso 1 no funciona: el CLI de Flutter muere al
@@ -88,7 +111,7 @@ y en local sólo se sirve un bundle ya compilado:
 
 ```bash
 node serve.mjs build/web 8090     # en una terminal
-npm test                          # en otra; reutiliza el servidor
+E2E_ARRANCAR_BACKEND=0 npm test   # en otra; reutiliza el servidor
 ```
 
 Para usar el Chrome del sistema en vez del Chromium de Playwright:
@@ -106,19 +129,50 @@ El flujo completo está en `.github/workflows/e2e.yml`.
 
 ## Secretos que hacen falta
 
+Son **seis**, y el sexto no es evidente.
+
 | Secreto | Para qué |
 | --- | --- |
-| `SUPABASE_URL` | Viaja al bundle por `--dart-define-from-file` |
+| `SUPABASE_URL` | Viaja al bundle por `--dart-define-from-file` y lo usa el backend |
 | `SUPABASE_ANON_KEY` | Íd. — es la clave pública; la RLS es la que protege |
+| `SUPABASE_SERVICE_ROLE_KEY` | **La exige el backend para arrancar.** Ver abajo |
 | `E2E_ADMIN_EMAIL` | Una cuenta **de administración y de prueba** |
 | `E2E_ADMIN_PASSWORD` | Íd. |
-| `E2E_SECCION` | Una sección **con matriculados** (si no, la app avisa que no hay nómina) |
+| `E2E_SECCION` | El **título de la tarjeta** de una sección con matriculados |
+
+### Por qué el sexto
+
+`backend/src/config/env.ts` declara `SUPABASE_SERVICE_ROLE_KEY` con `min(20)` y
+**sin valor por defecto**: es la única variable de Supabase que no es opcional.
+Un backend sin ella no levanta. Y el panel de inscripciones **pasa por el
+backend** —`AdminInscripcionesRepository` construye un `BackendInscripcionGateway`,
+no un gateway de Supabase—, así que sin backend no hay tarjetas, y sin tarjetas
+no hay botón que pulsar. La suite fallaría buscando el botón y el mensaje
+señalaría al botón, no al backend apagado.
+
+Salta la RLS: **es la credencial más delicada de las seis.** En un repositorio
+público, un secreto de Actions no se puede leer una vez guardado, y eso es lo
+único que lo protege.
+
+### `E2E_SECCION` es el título de la tarjeta, no el código de período
+
+**Medido el 2026-09-25 contra la base real:** la sección sembrada tiene
+`name = 'SA'` y `period_code = 'SA26-2'`. El título que pinta el panel es
+`materiaNombre ?? nombre` (`cpanel_inscripciones_panel.dart`), o sea
+**`Programación I [SEMILLA]`**. El `period_code` sólo aparece en el **subtítulo**
+(`'$programaNombre · $periodo'`).
+
+Poner `SA26-2` funcionaría **por accidente** —el localizador busca el texto en
+cualquier nodo semántico, incluido el subtítulo—, pero estaría fijando el test a
+un dato que no es el que la pantalla muestra. Si algún día el subtítulo cambia,
+el test se rompe por una razón que no tiene nada que ver con la exportación.
 
 **Recomendación:** no uses la cuenta del administrador real. La suite inicia
 sesión de verdad contra el Supabase real, así que cada corrida crea una sesión
-en `auth.users` y deja trazas en la auditoría de accesos.
+en `auth.users` y deja trazas en la auditoría de accesos. El flujo corre además
+**cada noche a las 06:00 UTC**, así que esas trazas se acumulan solas.
 
-Estos cinco secretos son parte de **D9**, que sigue pendiente. El flujo
+Estos seis secretos son parte de **D9**, que sigue pendiente. El flujo
 `e2e.yml` **falla a propósito** mientras falten, con una anotación que dice
 cuáles: un verde con las pruebas saltadas sería peor que un rojo, porque nadie
 lo miraría.
