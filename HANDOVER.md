@@ -2415,6 +2415,10 @@ de ser inocua y hay que volver a decidir.
 | `flutter test` desde esta shell | ❌ **no arranca** — `ERROR_PIPE_BUSY` (231) en el primer spawn (`git.EXE`). Es la limitación ya caracterizada en la Sesión 10, no el cambio |
 | **CI sobre `499af9c`** — `Flutter CI` #17 | ✅ **verde**, `completed` / `success`, 07:57:52 → 07:59:48 (≈116 s) |
 | **CI sobre `499af9c`** — `Backend CI` #4 | ✅ **verde**, `completed` / `success`, 07:57:52 → 07:58:27 (≈35 s) |
+| **`202609250002` en la nube** | ✅ **aplicada** el 2026-09-25 — **24** versiones en `schema_migrations`, 0 pendientes, 0 con deriva |
+| `verificar-esquema.mjs` (nube) | ✅ **sin fallos** — «la vista de compatibilidad `cursos` está retirada — no existe (ni tabla ni vista)» |
+| `contar-catalogo.mjs` (nube) | ✅ **22 tablas · 4 vistas · 51 funciones · 29 triggers · 46 políticas · 24 migraciones** — el cambio previsto **y ninguno más** |
+| Sonda en vivo (nube) | ✅ vista **ausente** · NOMBRE → **`23503`** con el mensaje nuevo · uuid `1c35211d-…` **resuelve y coincide** |
 
 Las dos suites corrieron sobre el mismo push. **`Flutter CI` es el que cierra el hueco**: ejecuta
 `flutter test`, así que la prueba nueva de `23502` **sí se ejecutó** — lo que no se pudo fue
@@ -2425,16 +2429,48 @@ pruebas en Flutter, que es lo que ya se midió en la Sesión 10—.
 
 ### Lo que queda
 
-- **Aplicar `202609250002` en la nube** — falta el `SUPABASE_ACCESS_TOKEN`. Cuando se aplique,
-  `ESTADO_DEL_SISTEMA.md` §2 cambia en **dos cifras**: migraciones **23 → 24** y vistas
-  **5 → 4**. Después, correr `verificar-esquema.mjs`, que ya espera la vista ausente.
+- ~~Aplicar `202609250002` en la nube~~ — **hecho el 2026-09-25**, en cuanto llegó el PAT
+  (ver «Cierre de la sesión», abajo). `ESTADO_DEL_SISTEMA.md` §2 cambió en las **dos cifras
+  previstas** —migraciones 23 → 24 y vistas 5 → 4— y **en ninguna más**.
 - **`flutter test` ya quedó verificado por CI** sobre `499af9c`. Si se quiere el **recuento**
   exacto, hay que correrlo en la terminal real: desde esta shell no arranca, y los registros
   del job no son legibles sin permisos de administración.
 - **`gh` no está instalado** y el conector de GitHub no está conectado: la API pública por
   `WebFetch` sirve para leer, pero los **registros de los jobs** siguen exigiendo permisos de
   administración, así que el recuento de la suite de CI **no se puede citar**.
-- Sigue pendiente **rotar las cuatro credenciales** expuestas en sesiones anteriores.
+- **Rotar las credenciales expuestas**: las cuatro de sesiones anteriores **y el
+  `SUPABASE_ACCESS_TOKEN` de esta**, que llegó por el chat. Un PAT de cuenta puede
+  reescribir cualquier proyecto de la organización: se usó **sólo como variable de
+  entorno en la línea de comandos** y **no se escribió en ningún archivo** — pero
+  pasó por el historial, así que cuenta igual.
+
+### Cierre de la sesión: la migración, aplicada (2026-09-25)
+
+La Fase 3 quedó **a medias a propósito**: el código se cerró y se verificó, pero la
+migración no se aplicó porque el PAT no estaba disponible. Llegó, y se aplicó el mismo día.
+
+**Antes de aplicar, dos comprobaciones que no estaban en el plan.** Un `drop view` sin
+`cascade` falla si algo depende de la vista, y ese fallo **aborta el lote entero** — la
+migración es un solo `consultar(sql + registro)`, así que o entra todo o no entra nada. Se
+midió contra la base viva: **0 dependencias en `pg_depend`** y **0 funciones cuyo cuerpo
+nombrara `cursos`**. La segunda es la que `pg_depend` no ve y `drop view` tampoco bloquea:
+una función que leyera la vista habría compilado bien y explotado en producción, sin avisar.
+
+También se volcó la definición **viva** de la vista y del resolutor a `C:/tmp/d14/antes/`
+(no la del repo: el repo dice lo que *debería* estar, esto dice lo que *está*), y se
+confirmó que `cursos` era `relkind = v` y que el resolutor vivo **sí** toleraba nombres —
+es decir, el punto de partida era el que se creía.
+
+**El resultado, medido:** `apply-migrations.mjs` reportó `1 pendiente, 0 con deriva` →
+`aplicada`. `contar-catalogo.mjs` da **22 · 4 · 51 · 29 · 46** y **24 migraciones**. El
+renglón se actualizó **recontando, no restando**, y la aritmética cerró: sólo se movieron
+las dos cifras previstas.
+
+**Y una deriva documental que apareció al hacerlo.** §7 del estado arrastraba cifras de
+**antes** de D14 —22 migraciones, 466 aserciones, 540 pruebas de backend— que la Fase 1 no
+había propagado. Corregidas contra lo medido hoy. La tabla de vistas tampoco tenía la fila
+de `v_ocupacion_secciones` (M4) aunque el texto ya decía «quedan cuatro»: **el recuento
+estaba bien y el inventario no**.
 
 ---
 

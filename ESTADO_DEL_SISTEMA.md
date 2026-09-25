@@ -12,9 +12,11 @@
 > Puertos y CORS alineados. Repositorio publicado en GitHub.
 >
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
-> `cursos` y fuera la tolerancia transitoria al nombre del curso). **El estado por
-> módulo que manda es el de §2 y §6**; este encabezado es un resumen y puede ir por
-> detrás — de hecho iba por detrás en la fecha, que arrastraba el 2026-09-17.
+> `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
+> nube el mismo día**, así que el repositorio y el proyecto ya no divergen:
+> **24 migraciones, 4 vistas**. **El estado por módulo que manda es el de §2 y §6**;
+> este encabezado es un resumen y puede ir por detrás — de hecho iba por detrás en la
+> fecha, que arrastraba el 2026-09-17.
 >
 > **El Módulo 3 está completo (frontend incluido).** Las 14 rutas ya existen, están
 > registradas en Fastify y documentadas en `openapi.json` (el recuento pasó de
@@ -127,17 +129,18 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 163 archivos** con el servidor de análisis real |
-| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `80432c1`**. Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto |
-| `npm run verify` (backend) | **540 / 540** en verde (**21** archivos) — **medido el 2026-09-22** |
+| `flutter test` | **632 / 632** en verde — **medido el 2026-09-25** en la terminal del usuario (`exit 0`, 02:22). Desde el **2026-09-24** el repo tiene CI (`flutter_ci.yml`) que corre la suite en cada push a `main`: **verde sobre `499af9c`** (`Flutter CI` #17, `success`). Desde la shell del agente **no arranca** (ver el aviso de §"Verificación"): es del arnés, no del proyecto |
+| `npm run verify` (backend) | **562 / 562** en verde (**22** archivos) — **medido el 2026-09-25** (Fase 3 de D14), typecheck y lint incluidos |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **466 / 466** aserciones en verde — **medido el 2026-09-25**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4 y D14 |
-| **Migraciones en el repositorio** | **22** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609240002_mod4_planilla_guardia.sql` |
-| **Migraciones en la nube** | **22** registradas en `schema_migrations` — **las 22 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
+| Validador SQL contra PostgreSQL real (pglite) | **463 / 463** aserciones en verde — **medido el 2026-09-25** (tras la Fase 3 de D14). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4 y D14. **La cifra bajó de 466 a 463**: §14 pasó de seis aserciones sobre la vista a una **inversa** («ya no existe») y §7 ganó una — un neto de **−4** frente a la medición anterior, así que 463 **no cuadra al aserción** con el cálculo. Se anota **lo medido**, que es lo que se puede reproducir |
+| **Migraciones en el repositorio** | **24** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250002_d14_fase3_retirar_tolerancia_y_vista.sql` |
+| **Migraciones en la nube** | **24** registradas en `schema_migrations` — **las 24 del repositorio, ninguna pendiente**. **Re-medido el 2026-09-25** con `apply-migrations.mjs --check`: 0 pendientes, 0 con deriva |
+| **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
-| **Libro mayor de migraciones (D10)** | **22** versiones aplicadas con checksum SHA-256 válido |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24) — **22 tablas** + **5 vistas**, con RLS activo en las 22 (ver §3) |
+| **Libro mayor de migraciones (D10)** | **24** versiones aplicadas con checksum SHA-256 válido |
+| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases)** el 2026-09-25) — **22 tablas** + **4 vistas**, con RLS activo en las 22 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ `202609210001_mod5_archivos.sql` aplicada el 2026-09-18 — `files_metadata` + 3 RPC `security definer` + 2 parámetros. **Y `202609210002_mod5_habilitar_modulo.sql` creada pero ⚠️ pendiente de aplicar**: es la que enciende la bandera |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -238,24 +241,30 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veintitrés** migraciones se
+**La base de datos ya está aplicada y verificada.** Las **veinticuatro** migraciones se
 aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**22 tablas** con RLS activo **en las 22**, **5 vistas** (`cursos` de D12, las
-tres del Módulo 3 y `v_ocupacion_secciones` de M4), **51 funciones**, **29
-triggers** y **46 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
-lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
-`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-25** con
-`supabase/contar-catalogo.mjs`.
+**22 tablas** con RLS activo **en las 22**, **4 vistas** (las tres del Módulo 3 y
+`v_ocupacion_secciones` de M4), **51 funciones**, **29 triggers** y **46 políticas
+RLS**, más 10 módulos sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 5
+cursos — que desde la migración de D12 viven dentro de `programs` como
+`CURSO_LIBRE`. **Recontado el 2026-09-25** con `supabase/contar-catalogo.mjs`.
 
-> **Pendiente en la nube: `202609250002`.** Escrita y **verificada contra
-> PostgreSQL real (PGlite)** el 2026-09-25 —la suite de `supabase/tests/` queda en
-> **463 aserciones, 0 fallidas**—, pero **todavía no aplicada** al proyecto de
-> Supabase. Cuando se aplique, esta sección cambia en **dos cifras y sólo dos**:
-> migraciones **23 → 24** y vistas **5 → 4** (desaparece `cursos`). Lo demás no se
-> mueve: la migración suelta una vista y **sustituye el cuerpo** de una función que
-> ya existía, así que **22 tablas, 51 funciones, 29 triggers y 46 políticas RLS
-> siguen igual**. El renglón se actualizará **recontando**, no restando.
+> **`202609250002` aplicada el 2026-09-25.** Cierra D12 del todo: retira la vista
+> `public.cursos` —el andamiaje de transición— y deja a `resolver_programa_inscripcion()`
+> con **un solo vocabulario (uuid)**. El renglón cambió en **dos cifras y sólo dos**,
+> como se había previsto: migraciones **23 → 24** y vistas **5 → 4**. Lo demás **no se
+> movió**: 22 tablas, 51 funciones, 29 triggers y 46 políticas RLS **siguen igual**,
+> porque la migración suelta una vista y **sustituye el cuerpo** de una función que ya
+> existía. Se actualizó **recontando, no restando** — y la aritmética cerró.
+>
+> **Sonda en vivo** el mismo día, antes y después: se comprobó que **nada dentro de la
+> base dependía de la vista** (0 dependencias en `pg_depend`, 0 funciones que la
+> nombraran en su cuerpo) y, tras aplicar, que `public.cursos` **no existe**; que un
+> **NOMBRE** de curso se rechaza con **`23503`** («El identificador de la propuesta
+> formativa no es válido: se esperaba el identificador de un curso de formación
+> continua, no un nombre.») y que un uuid real (`1c35211d-…`, «Estética (cejas y
+> pestañas)») **resuelve y coincide**. Sondas en `C:/tmp/d14/`, fuera del repo.
 
 > **La aritmética de D14 cierra en +1 función y nada más.** `202609250001` añade
 > `resolver_programa_inscripcion()` y **sustituye el cuerpo** de tres funciones que
@@ -687,6 +696,7 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `v_cuadrante_clases` | **M3** | El cuadrante enriquecido: materia, sección, aula, día legible y nombre del docente. `security_invoker` |
 | `v_cuadrante_guardias` | **M3** | Las guardias con su aula y su día legible. `security_invoker` |
 | `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
+| `v_ocupacion_secciones` | **M4** | Ocupación real de cada sección con su `cupo_efectivo`, `cupos_ocupados` y `oferta_vigente`. `security_invoker` |
 
 > **Las tres vistas de M3 llevan `security_invoker`, y no es un detalle.** Sin
 > él corren con los privilegios de su dueño y **se saltan la RLS de las tablas
