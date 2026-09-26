@@ -39,6 +39,11 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  # Asistencia concurrente (M7). El docente proyecta un QR que caduca cada 15 s
+  # y el canal WS actualiza el tablero sin polling.
+  qr_flutter: ^4.1.0
+  web_socket_channel: ^3.0.1
+  crypto: ^3.0.3
   # API del navegador (DOM) para elegir archivos y abrir descargas — M5, Capa 7.
   # Ya venía resuelta como transitiva de Flutter (1.1.1 en pubspec.lock), así que
   # declararla no descarga nada; sin declararla, importarla da

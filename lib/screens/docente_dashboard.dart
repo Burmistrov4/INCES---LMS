@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../services/aula_service.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'docente/asistencia_qr_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mi_horario_panel.dart';
 import 'mis_aulas_panel.dart';
@@ -88,7 +89,7 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       icono: Icons.fact_check_outlined,
       titulo: 'Asistencia',
       categoria: 'Control de aulas',
-      disponible: false,
+      disponible: true,
     ),
     ItemNavegacion(
       icono: Icons.grading_outlined,
@@ -159,6 +160,12 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
         return PanelMisAulas(
           gateway: _aulasPropias,
           aulaGateway: _aulaContenido,
+        );
+
+      case 'Asistencia':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const AsistenciaQrPanel(),
         );
 
       case 'Mi horario':

@@ -15,6 +15,7 @@ import '../services/aula_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import 'aspirante/marcar_asistencia_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mis_aulas_panel.dart';
 
@@ -127,6 +128,13 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       categoria: 'Académico',
       disponible: true,
     ),
+    // M7 — el estudiante marca su asistencia tecleando o escaneando el QR.
+    ItemNavegacion(
+      icono: Icons.fact_check_outlined,
+      titulo: 'Asistencia',
+      categoria: 'Académico',
+      disponible: true,
+    ),
     // Se enciende al llegar la ruta de listado (D17). Lo que todavía **no**
     // puede mostrar es contenido: un estudiante no sabe qué `entidadId`
     // corresponde a las guías de su módulo hasta que el Aula Virtual (M6) ate
@@ -234,6 +242,13 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
             entityType: TipoEntidadArchivo.taskSubmission,
             subtitulo: 'Sube aquí los trabajos que te pida el docente.',
           ),
+        );
+
+      // (M7) El estudiante marca su asistencia tecleando el código del QR.
+      case 'Asistencia':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const MarcarAsistenciaPanel(),
         );
 
       case 'Material de apoyo':
