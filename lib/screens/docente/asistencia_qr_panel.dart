@@ -275,8 +275,14 @@ class _AsistenciaQrPanelState extends State<AsistenciaQrPanel> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 16),
-        for (final aula in mis.aulas)
-          Card(
+        if (_cargando)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          for (final aula in mis.aulas)
+            Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               leading: const Icon(Icons.qr_code_scanner),
