@@ -144,6 +144,20 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   });
 
   // Resuelve `request.usuario` y `request.repos` antes que cualquier handler.
+  //
+  // **Excepción WS**: los WebSocket de un navegador no pueden mandar encabezados
+  // arbitrarios, así que `/api/v1/asistencia/rt` recibe el JWT como `?token=`.
+  // Este onRequest va ANTES del plugin de autenticación para que, al llegar
+  // allí, `request.usuario` ya se haya podido resolver. Es la adaptación al
+  // canal, no una puerta aparte.
+  app.addHook('onRequest', async (request) => {
+    if (request.headers.authorization) return;
+    const { token } = (request.query ?? {}) as Record<string, string | undefined>;
+    if (token) {
+      request.headers.authorization = `Bearer ${token}`;
+    }
+  });
+
   registrarAutenticacion(app, {
     verificarToken: deps.verificarToken,
     reposDePeticion: deps.reposDePeticion,

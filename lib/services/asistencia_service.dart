@@ -94,9 +94,8 @@ class AsistenciaService {
       );
       final sesion = resp['sesion'] as Map<String, dynamic>?;
       if (sesion == null) {
-        throw const AppException(
-          codigo: 'RESPUESTA_VACIA',
-          mensaje: 'La sesión no vino en la respuesta.',
+        throw const AppException.validacion(
+          'La sesión no vino en la respuesta.',
         );
       }
       return sesion;
@@ -148,21 +147,16 @@ class AsistenciaService {
    * marca al llegar el evento.
    */
   Stream<EventoAsistencia> enVivo({required String sesionId}) {
-    final uri = Uri.parse('$_rutaWs?sesion=$sesionId');
-    final canal = WebSocketChannel.connect(
-      uri,
-      protocols: const [],
-      headers: {'Authorization': 'Bearer ${_token()}'},
+    // En web lo que portan los WebSocket NO tiene encabezados de protocolo
+    // personalizados: el JWT va en la query, que es lo que el servidor lee.
+    final base = AppConfig.apiBaseUrl.replaceFirst(RegExp('^http', caseSensitive: false), 'ws');
+    final uri = Uri.parse(
+      '$base$_ruta/rt?sesion=$sesionId&token=${Uri.encodeQueryComponent(_token())}',
     );
+    final canal = WebSocketChannel.connect(uri);
     return canal.stream.map((evento) => EventoAsistencia.deJson(
           jsonDecode(evento as String) as Map<String, dynamic>,
         ));
-  }
-
-  String get _rutaWs {
-    // ApiClient habla http; el canal WS es el mismo origen con ws:// o wss://.
-    final base = AppConfig.apiBaseUrl.replaceFirst(RegExp('^http', caseSensitive: false), 'ws');
-    return '$base$_ruta/rt';
   }
 
   /**
