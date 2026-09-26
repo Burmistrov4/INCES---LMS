@@ -89,6 +89,31 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
     }
   }
 
+  /// Lleva al usuario al destino correcto según haya sesión o no.
+  ///
+  /// **Con sesión activa** («Ir a mi panel») basta con desapilar hasta la raíz:
+  /// la raíz es el `AuthGate`, que con sesión ya resuelve el panel del rol.
+  ///
+  /// **Sin sesión** («Ir al inicio de sesión») hay que REEMPLAZAR el historial
+  /// entero. `popUntil(isFirst)` ya no sirve: desde que existe la portada
+  /// pública, la raíz sin sesión es la Landing, así que desapilar dejaba al
+  /// aspirante en la portada —con un botón «Inscribirse» que vuelve a empezar—
+  /// en vez de en el formulario de acceso. `pushNamedAndRemoveUntil` con el
+  /// predicado `(route) => false` vacía la pila y monta `/login` limpio, de modo
+  /// que el botón «atrás» no puede devolverlo a esta pantalla de éxito.
+  ///
+  /// No se unifica en una sola llamada a propósito: mandar a `/login` a quien
+  /// ya tiene sesión sería un retroceso —el login no es su destino—, y ese es
+  /// exactamente el caso «Ir a mi panel».
+  void _irAlDestino() {
+    final navigator = Navigator.of(context);
+    if (sesionIniciada) {
+      navigator.popUntil((route) => route.isFirst);
+      return;
+    }
+    navigator.pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
   void _mostrarAviso(String mensaje, {required bool esError}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -202,11 +227,8 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
                 SizedBox(
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: () {
-                      // Vuelve a la raíz: el AuthGate decide qué mostrar según
-                      // haya sesión o no (panel del aspirante o login).
-                      Navigator.of(context).popUntil((route) => route.isFirst);
-                    },
+                    onPressed: _irAlDestino,
+                    style: ElevatedButton.styleFrom(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
