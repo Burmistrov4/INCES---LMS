@@ -16,8 +16,11 @@ import 'cpanel_inscripciones_cola_dialog.dart';
 /// acciones de cupo:
 ///
 ///  · **Expirar ofertas** — vence las ofertas caducadas (idempotente).
-///  · **Reincorporar** — da de alta a alguien dado de baja; puede dejar la
-///    sección por encima de su capacidad, por eso lleva aviso.
+///  · **Reincorporar** — da de alta a alguien dado de baja en esa sección; puede
+///    dejar la sección por encima de su capacidad, por eso lleva aviso. El
+///    diálogo ofrece los `DROPPED` **de esa sección**: son los únicos que el
+///    backend acepta (a quien nunca cursó le responde 404
+///    `SIN_HISTORIAL_EN_SECCION`).
 ///  · **Promover siguiente** — sube al primero de la cola a `ENROLLED`. Está
 ///    pensado para usarse **tras ampliar la capacidad**: si la sección está
 ///    llena o ya tiene una oferta en el aire, la RPC no promueve a nadie y el
@@ -26,12 +29,17 @@ import 'cpanel_inscripciones_cola_dialog.dart';
 ///    fila por matriculado) desde `v_exportacion_hacer`, lista para la
 ///    plataforma del INCES.
 ///
-/// **Por qué la exportación va por sección y no en un botón de la cabecera.**
+/// **Por qué las acciones de sección van en la tarjeta y no en la cabecera.**
 /// El panel no tiene un selector de sección: pinta **una tarjeta por sección**, y
 /// cada tarjeta es ya el contexto de su sección. Un botón global tendría que
 /// preguntar «¿cuál?» en un diálogo, que es un paso de más para algo que la
-/// pantalla ya sabe. El botón va donde está la sección, junto a «Ver cola» y
-/// «Promover siguiente».
+/// pantalla ya sabe. Las acciones de sección —«Ver cola», «Exportar»,
+/// «Reincorporar» y «Promover siguiente»— van donde está la sección.
+///
+/// «Reincorporar» nació en la cabecera, y el resultado se lee en lo que pedía:
+/// dos **UUIDs escritos a mano**, porque un botón global no tiene la sección y no
+/// había de dónde sacarla. Un control que no puede funcionar es peor que uno
+/// ausente: ocupa sitio y promete algo.
 class CpanelInscripcionesPanel extends StatefulWidget {
   const CpanelInscripcionesPanel({
     super.key,
@@ -148,10 +156,19 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
     );
   }
 
-  Future<void> _abrirReincorporar() async {
+  /// Abre el diálogo de reincorporación para **una** sección.
+  ///
+  /// Recibe la sección en vez de pedirla en el diálogo: la tarjeta que se pulsó
+  /// ya es el contexto, y es además lo que permite listar sólo a los `DROPPED`
+  /// de esa sección —los únicos que el backend acepta reincorporar—.
+  Future<void> _abrirReincorporar(OcupacionSeccion o) async {
     final hecho = await showDialog<bool>(
       context: context,
-      builder: (_) => _DialogoReincorporar(repo: _repo),
+      builder: (_) => _DialogoReincorporar(
+        repo: _repo,
+        seccionId: o.seccionId,
+        seccionNombre: o.materiaNombre ?? o.nombre,
+      ),
     );
     if (hecho != true || !mounted) return;
     _cargar();
@@ -261,12 +278,11 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
               : const Icon(Icons.hourglass_disabled_outlined, size: 17),
           label: Text(_expirando ? 'Venciendo…' : 'Expirar ofertas'),
         ),
-        const SizedBox(width: 10),
-        FilledButton.icon(
-          onPressed: _abrirReincorporar,
-          icon: const Icon(Icons.person_add_alt_1_outlined, size: 17),
-          label: const Text('Reincorporar'),
-        ),
+        // «Reincorporar» ya NO vive aquí. Era el único botón global y por eso
+        // tenía que preguntar en un diálogo cuál era la sección —y, al no tener
+        // el contexto, acabó pidiendo el uuid a mano—. Ahora va en la tarjeta de
+        // la sección, junto a «Ver cola» y «Promover siguiente», que es la regla
+        // que este mismo archivo declara para la exportación.
       ],
     );
   }
@@ -448,6 +464,17 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                         : 'Exportar Planilla HACER (.csv)',
                   ),
                 ),
+                // Reincorporar va aquí, con la sección delante, y no en la
+                // cabecera: la tarjeta ya sabe de qué sección se trata, así que
+                // el diálogo no tiene que preguntarlo y puede listar sólo a los
+                // dados de baja DE ESTA sección —los únicos que el backend
+                // acepta—. Va antes de «Promover siguiente» para que la acción
+                // más consecuente siga siendo la última.
+                OutlinedButton.icon(
+                  onPressed: () => _abrirReincorporar(o),
+                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 16),
+                  label: const Text('Reincorporar'),
+                ),
                 FilledButton.icon(
                   onPressed: ocupado ? null : () => _promover(o),
                   icon: ocupado
@@ -510,32 +537,76 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
 /// Reincorpora a un estudiante dado de baja. El backend lo permite aunque la
 /// sección quede por encima de su capacidad (`sobrecupo`), por eso el aviso lo
 /// deja claro antes de confirmar.
+/// Diálogo para reincorporar a alguien dado de baja en **una** sección.
+///
+/// **Antes pedía dos UUIDs por teclado** («ID del estudiante», «ID de la
+/// sección»). Existía, compilaba, pasaba sus pruebas y **no se podía usar**:
+/// ningún administrador conoce el uuid de un estudiante. Un control que no puede
+/// funcionar es peor que uno ausente, porque ocupa sitio y promete algo.
+///
+/// Ahora se **elige**, y la lista de candidatos no es una comodidad: es la única
+/// que puede funcionar. `reincorporar_inscripcion` exige que el estudiante
+/// **tenga historial en esa sección** —a quien nunca cursó se le responde 404
+/// `SIN_HISTORIAL_EN_SECCION`—, así que los únicos elegibles son los `DROPPED`
+/// de la sección que el administrador ya tenía delante. Un buscador libre de
+/// estudiantes habría invitado a un error que el backend rechaza por diseño.
+///
+/// La sección **no se pregunta**: llega por parámetro desde la tarjeta que se
+/// pulsó. Es la misma razón por la que la exportación va por tarjeta —un diálogo
+/// que preguntara «¿cuál sección?» sería un paso de más para algo que la pantalla
+/// ya sabe— y, además, es lo que permite acotar los candidatos a esa sección.
 class _DialogoReincorporar extends StatefulWidget {
-  const _DialogoReincorporar({required this.repo});
+  const _DialogoReincorporar({
+    required this.repo,
+    required this.seccionId,
+    required this.seccionNombre,
+  });
 
   final AdminInscripcionesRepository repo;
+  final String seccionId;
+  final String seccionNombre;
 
   @override
   State<_DialogoReincorporar> createState() => _DialogoReincorporarState();
 }
 
 class _DialogoReincorporarState extends State<_DialogoReincorporar> {
-  final _forma = GlobalKey<FormState>();
-  final _estudiante = TextEditingController();
-  final _seccion = TextEditingController();
+  List<InscripcionDetallada> _candidatos = const [];
+  String? _estudianteId;
+  bool _cargando = true;
   bool _guardando = false;
   String? _error;
 
   @override
-  void dispose() {
-    _estudiante.dispose();
-    _seccion.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _cargarCandidatos();
+  }
+
+  /// Los únicos reincorporables de la sección: los que ya cursaron y se dieron
+  /// de baja. `ENROLLED` ya está dentro, `WAITLISTED` nunca entró y `PENDING_BID`
+  /// tiene una oferta viva; ninguno de los tres tiene una baja que revertir.
+  static List<InscripcionDetallada> _bajasDe(List<InscripcionDetallada> todas) =>
+      todas.where((i) => i.estado == EstadoInscripcion.dropped).toList();
+
+  Future<void> _cargarCandidatos() async {
+    final resultado =
+        await widget.repo.obtenerInscripcionesDeSeccion(widget.seccionId);
+    if (!mounted) return;
+
+    setState(() {
+      _cargando = false;
+      switch (resultado) {
+        case Success(value: final todas):
+          _candidatos = _bajasDe(todas);
+        case Failure(error: final fallo):
+          _error = fallo.message;
+      }
+    });
   }
 
   Future<void> _guardar() async {
-    if (_guardando) return;
-    if (!_forma.currentState!.validate()) return;
+    if (_guardando || _estudianteId == null) return;
 
     setState(() {
       _guardando = true;
@@ -543,8 +614,8 @@ class _DialogoReincorporarState extends State<_DialogoReincorporar> {
     });
 
     final resultado = await widget.repo.reincorporar(
-      estudianteId: _estudiante.text.trim(),
-      seccionId: _seccion.text.trim(),
+      estudianteId: _estudianteId!,
+      seccionId: widget.seccionId,
     );
     if (!mounted) return;
     setState(() => _guardando = false);
@@ -555,58 +626,48 @@ class _DialogoReincorporarState extends State<_DialogoReincorporar> {
     );
   }
 
+  /// Etiqueta de un candidato: el nombre si lo hay, el correo si no, y el id
+  /// sólo como último recurso —nunca como primera opción, que es justo lo que
+  /// este diálogo viene a quitar de encima—.
+  static String _etiquetaCandidato(InscripcionDetallada i) =>
+      i.estudianteNombre ?? i.estudianteEmail ?? i.estudianteId;
+
   @override
   Widget build(BuildContext context) {
+    final puedeGuardar = !_guardando && _estudianteId != null;
+
     return AlertDialog(
       title: const Text('Reincorporar estudiante'),
       content: SizedBox(
         width: 420,
         child: SingleChildScrollView(
-          child: Form(
-            key: _forma,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const AvisoEnLinea(
-                  texto: 'Reincorpora a alguien dado de baja. Puede dejar la '
-                      'sección por encima de su capacidad: úsalo tras ampliar el '
-                      'cupo o cuando la demanda lo justifica.',
-                  icono: Icons.info_outline,
-                  tono: TonoAviso.advertencia,
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _estudiante,
-                  decoration: const InputDecoration(
-                    labelText: 'ID del estudiante',
-                    isDense: true,
-                  ),
-                  validator: (v) => v == null || v.trim().isEmpty
-                      ? 'Indica el ID del estudiante.'
-                      : null,
-                ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const AvisoEnLinea(
+                texto: 'Reincorpora a alguien dado de baja. Puede dejar la '
+                    'sección por encima de su capacidad: úsalo tras ampliar el '
+                    'cupo o cuando la demanda lo justifica.',
+                icono: Icons.info_outline,
+                tono: TonoAviso.advertencia,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Sección: ${widget.seccionNombre}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 12),
+              _selectorCandidato(),
+              if (_error != null) ...[
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _seccion,
-                  decoration: const InputDecoration(
-                    labelText: 'ID de la sección',
-                    isDense: true,
-                  ),
-                  validator: (v) => v == null || v.trim().isEmpty
-                      ? 'Indica el ID de la sección.'
-                      : null,
+                AvisoEnLinea(
+                  texto: _error!,
+                  icono: Icons.error_outline,
+                  tono: TonoAviso.peligro,
                 ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  AvisoEnLinea(
-                    texto: _error!,
-                    icono: Icons.error_outline,
-                    tono: TonoAviso.peligro,
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -616,10 +677,65 @@ class _DialogoReincorporarState extends State<_DialogoReincorporar> {
           child: const Text('Cancelar'),
         ),
         FilledButton(
-          onPressed: _guardando ? null : _guardar,
+          onPressed: puedeGuardar ? _guardar : null,
           child: Text(_guardando ? 'Guardando…' : 'Reincorporar'),
         ),
       ],
+    );
+  }
+
+  Widget _selectorCandidato() {
+    if (_cargando) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(),
+      );
+    }
+
+    if (_candidatos.isEmpty) {
+      // No es un error: es la respuesta. Una sección sin bajas no tiene a quién
+      // reincorporar, y el botón de confirmar queda deshabilitado —mejor eso que
+      // un desplegable vacío que parece una avería—.
+      return const AvisoEnLinea(
+        texto: 'En esta sección no hay nadie dado de baja, así que no hay a '
+            'quién reincorporar.',
+        icono: Icons.info_outline,
+        tono: TonoAviso.info,
+      );
+    }
+
+    // `DropdownButton` y no `DropdownButtonFormField`: el primero recibe el
+    // valor por `value` y se repinta al cambiarlo, mientras que el segundo lo
+    // toma como `initialValue` de un `FormField` y **no propaga un cambio**
+    // posterior. Con `DropdownButtonFormField` la selección no se vería hasta
+    // cerrar y reabrir, que es la trampa documentada de `TextFormField`.
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Estudiante dado de baja',
+        isDense: true,
+        border: OutlineInputBorder(),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _estudianteId,
+          isExpanded: true,
+          isDense: true,
+          hint: const Text('Elige a quién reincorporar'),
+          items: [
+            for (final candidato in _candidatos)
+              DropdownMenuItem(
+                value: candidato.estudianteId,
+                child: Text(
+                  _etiquetaCandidato(candidato),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: _guardando
+              ? null
+              : (valor) => setState(() => _estudianteId = valor),
+        ),
+      ),
     );
   }
 }

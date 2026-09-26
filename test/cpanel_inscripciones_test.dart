@@ -148,40 +148,75 @@ void main() {
       expect(fake.llamadas, contains('expirarOfertas'));
     });
 
-    testWidgets('Reincorporar valida los ids antes de llamar al repositorio',
+    testWidgets('«Reincorporar» ofrece las bajas de ESA sección y llama al repo',
         (tester) async {
+      // Esta prueba antes **tecleaba dos UUIDs** en los campos del diálogo, y así
+      // consagraba el defecto como contrato: el control existía, pasaba, y no se
+      // podía usar. Ahora el contrato es el de verdad —qué se pide, qué se
+      // ofrece y qué NO—, no el de dos `enterText` sobre campos que un humano no
+      // puede rellenar.
       final fake = FakeInscripcionGateway()
-        ..ocupacionDevuelta = [ocupacionSeccionEjemplo(id: 'sec-1')];
+        ..ocupacionDevuelta = [ocupacionSeccionEjemplo(id: 'sec-1')]
+        ..inscripcionesDeSeccionDevueltas = [
+          // La única reincorporable: cursó y se dio de baja.
+          inscripcionDetalladaEjemplo(
+            estudianteId: 'est-9',
+            estado: EstadoInscripcion.dropped,
+            estudianteNombre: 'Ana Baja',
+          ),
+          // Matriculado: ya está dentro, no hay baja que revertir.
+          inscripcionDetalladaEjemplo(
+            estudianteId: 'est-1',
+            estado: EstadoInscripcion.enrolled,
+            estudianteNombre: 'Luis Dentro',
+          ),
+        ];
       final repo = AdminInscripcionesRepository(gateway: fake);
       await montarPanel(tester, CpanelInscripcionesPanel(repositorio: repo));
 
-      // Abre el diálogo.
-      await tester.tap(botonFilled('Reincorporar'));
+      // El botón vive en la tarjeta de la sección (es un `OutlinedButton`), no
+      // en la cabecera: era la única acción global, y ése es el motivo de que su
+      // diálogo acabara pidiendo el uuid a mano.
+      await pulsar(tester, botonOutlined('Reincorporar'));
       await tester.pumpAndSettle();
       expect(find.text('Reincorporar estudiante'), findsOneWidget);
 
-      // Confirmar con los campos vacíos: el validador lo bloquea, no hay llamada.
+      // Pidió las inscripciones DE ESA sección —y sólo de esa—.
+      expect(fake.llamadas, contains('obtenerInscripcionesDeSeccion:sec-1'));
+
+      // Sin elegir estudiante el botón está deshabilitado: ya no hay un validador
+      // de texto que se pueda burlar, simplemente no hay acción.
       final confirmar = find.descendant(
         of: find.byType(AlertDialog),
         matching: botonFilled('Reincorporar'),
       );
-      await tester.tap(confirmar);
-      await tester.pump();
+      expect(tester.widget<FilledButton>(confirmar).onPressed, isNull);
       expect(fake.llamadas.any((c) => c.startsWith('reincorporar:')), isFalse);
 
-      // Con los ids completos, sí llama.
-      await tester.enterText(
-        find.byType(TextFormField).at(0),
-        'est-9',
+      // El desplegable ofrece la baja…
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byType(DropdownButton<String>),
+        ),
       );
-      await tester.enterText(
-        find.byType(TextFormField).at(1),
-        'sec-9',
-      );
+      await tester.pumpAndSettle();
+      expect(find.text('Ana Baja'), findsWidgets);
+
+      // …y NO al matriculado. Ésta es la aserción que justifica filtrar por
+      // `DROPPED`: el backend responde 404 `SIN_HISTORIAL_EN_SECCION` a quien
+      // nunca cursó la sección, así que ofrecerlo sería invitar a un error que
+      // la base rechaza por diseño.
+      expect(find.text('Luis Dentro'), findsNothing);
+
+      await tester.tap(find.text('Ana Baja').last);
+      await tester.pumpAndSettle();
+
       await tester.tap(confirmar);
       await tester.pumpAndSettle();
 
-      expect(fake.llamadas, contains('reincorporar:est-9:sec-9'));
+      // Se reincorpora a quien se eligió, en la sección de la tarjeta.
+      expect(fake.llamadas, contains('reincorporar:est-9:sec-1'));
     });
   });
 
