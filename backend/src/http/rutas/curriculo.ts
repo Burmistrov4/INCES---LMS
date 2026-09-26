@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorApi } from '../../dominio/errores.js';
+import type { DependenciasRutas } from '../dependencias.js';
 import {
   esquemaActualizarPrograma,
   esquemaCrearMateria,
@@ -11,6 +12,7 @@ import {
   esquemaReemplazarPensum,
 } from '../esquemas.js';
 import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Rutas del Módulo 2 — Currículo y Pensum.
@@ -18,6 +20,14 @@ import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
  * Todas exigen rol `admin`, comprobado en la API **y** en las políticas RLS de
  * Postgres (los repositorios viajan con el token del llamante). Ninguna de las
  * dos barreras se apoya en la otra.
+ *
+ * **Y el módulo entero se apaga con su bandera.** Las siete rutas llevan
+ * `exigirModulo('m2_curriculo')` y responden 403 `MODULO_DESHABILITADO` si el
+ * administrador lo apaga desde el cPanel. Es una excepción a lo de arriba, y no
+ * lo contradice: que el módulo esté encendido **no lo sabe la base** —ninguna
+ * política RLS ni RPC consulta `system_modules`—, así que comprobarlo aquí no
+ * duplica ninguna regla. Sin esta guardia, apagar el módulo sólo escondería el
+ * ítem del menú y la bandera sería decorativa.
  *
  * **Ninguna ruta borra.** Archivar es `isActive: false`. Un `DELETE` sobre un
  * programa se llevaría por delante el histórico, y
@@ -50,14 +60,34 @@ const PROGRAMA_INEXISTENTE = 'PROGRAMA_INEXISTENTE';
 /**
  * Registra las rutas de currículo.
  *
- * No recibe dependencias: este módulo no usa cachés, ni correo, ni la URL del
- * frontend. Se declara sin parámetro en vez de aceptar uno vacío, para que se
- * vea de un vistazo que no necesita nada inyectado.
+ * Recibe `deps` por una sola cosa: la caché de módulos que alimenta la guardia
+ * `exigirModulo('m2_curriculo')`. Antes se declaraba sin parámetro —«este módulo
+ * no necesita nada inyectado»—, y esa frase dejó de ser cierta el día que la
+ * bandera del módulo pasó a imponerse en la API y no sólo en el menú del
+ * frontend.
  */
-export function rutasCurriculo(app: FastifyInstance): void {
+export function rutasCurriculo(app: FastifyInstance, deps: DependenciasRutas): void {
+  /**
+   * La guardia del módulo, construida **una sola vez**.
+   *
+   * `exigirModulo` es una fábrica: recibe la caché y la clave, y devuelve el
+   * `preHandler`. Se construye aquí arriba para que la clave `m2_curriculo`
+   * aparezca una sola vez en el archivo —si el módulo se renombrara, hay un único
+   * sitio que corregir—. El hook no tiene estado, así que compartirlo entre todas
+   * las rutas del bloque es seguro.
+   *
+   * **Va después de `exigirAdmin()`, y el orden no es cosmético.** Con la guardia
+   * delante, una petición anónima recibiría 403 `MODULO_DESHABILITADO` —o 404, si
+   * faltara la semilla— en vez del **401** que le corresponde, y `openapi.test.ts`
+   * fallaría: inyecta cada ruta documentada sin token y exige 401, no 404.
+   */
+  const exigirCurriculo = exigirModulo(deps.caches.modulos, 'm2_curriculo');
+
   app.register(
     async (admin) => {
       admin.addHook('preHandler', exigirAdmin());
+      // Segundo a propósito: ver el porqué en la guardia de arriba.
+      admin.addHook('preHandler', exigirCurriculo);
 
       // --- Programas --------------------------------------------------------
 

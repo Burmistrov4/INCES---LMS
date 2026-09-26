@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorApi } from '../../dominio/errores.js';
+import type { DependenciasRutas } from '../dependencias.js';
 import {
   esquemaActualizarAula,
   esquemaActualizarClase,
@@ -20,12 +21,20 @@ import {
   esquemaRejilla,
 } from '../esquemas.js';
 import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Rutas del Módulo 3 — Cuadrante, Horarios, Aulas y Guardias Docentes.
  *
  * Trece rutas de administración bajo `/api/v1/admin` (guardia `exigirAdmin()`) y
  * una de lectura por rol en `/api/v1/mi-horario` (guardia `exigirSesion()`).
+ *
+ * **Las catorce llevan además `exigirModulo('m3_cuadrante')`** y responden 403
+ * `MODULO_DESHABILITADO` si el administrador apaga el módulo desde el cPanel. Va
+ * después de la guardia de rol en cada caso, y es una excepción a lo de arriba
+ * que no lo contradice: que el módulo esté encendido **no lo sabe la base**
+ * —ninguna política RLS consulta `system_modules`—, así que comprobarlo aquí no
+ * duplica ninguna regla.
  *
  * **Ninguna ruta borra.** Archivar es `activa: false`. Las dos columnas
  * `classroom_id` de `teacher_duties` y `schedule_slots` están en `on delete
@@ -60,14 +69,36 @@ const PERFIL_SIN_ROL = 'PERFIL_SIN_ROL';
 /**
  * Registra las rutas del cuadrante.
  *
- * No recibe dependencias: este módulo no usa cachés, ni correo, ni la URL del
- * frontend. Se declara sin parámetro en vez de aceptar uno vacío, para que se
- * vea de un vistazo que no necesita nada inyectado.
+ * Recibe `deps` por una sola cosa: la caché de módulos que alimenta la guardia
+ * `exigirModulo('m3_cuadrante')`. Antes se declaraba sin parámetro —«este módulo
+ * no necesita nada inyectado»—, y esa frase dejó de ser cierta el día que la
+ * bandera del módulo pasó a imponerse en la API y no sólo en el menú del
+ * frontend.
  */
-export function rutasCuadrante(app: FastifyInstance): void {
+export function rutasCuadrante(app: FastifyInstance, deps: DependenciasRutas): void {
+  /**
+   * La guardia del módulo, construida **una sola vez**.
+   *
+   * `exigirModulo` es una fábrica: recibe la caché y la clave, y devuelve el
+   * `preHandler`. Se construye aquí arriba para que la clave `m3_cuadrante`
+   * aparezca una sola vez en el archivo, y porque el hook no tiene estado:
+   * compartirlo entre las catorce rutas del módulo —las trece de administración
+   * del bloque y `/api/v1/mi-horario`— es seguro.
+   *
+   * **Va después de la guardia de rol en cada caso.** En el bloque, tras
+   * `exigirAdmin()`; en `/mi-horario`, tras `exigirSesion()`. El orden no es
+   * cosmético: con la guardia delante, una petición anónima recibiría 403
+   * `MODULO_DESHABILITADO` —o 404, si faltara la semilla— en vez del **401** que
+   * le corresponde, y `openapi.test.ts` fallaría: inyecta cada ruta documentada
+   * sin token y exige 401, no 404.
+   */
+  const exigirCuadrante = exigirModulo(deps.caches.modulos, 'm3_cuadrante');
+
   app.register(
     async (admin) => {
       admin.addHook('preHandler', exigirAdmin());
+      // Segundo a propósito: ver el porqué en la guardia de arriba.
+      admin.addHook('preHandler', exigirCuadrante);
 
       // --- Aulas ------------------------------------------------------------
 
@@ -270,7 +301,7 @@ export function rutasCuadrante(app: FastifyInstance): void {
    * nombres, y dos nombres para una cosa es cómo se acaba arreglando una y
    * olvidando la otra.
    */
-  app.get('/api/v1/mi-horario', { preHandler: [exigirSesion()] }, async (request) => {
+  app.get('/api/v1/mi-horario', { preHandler: [exigirSesion(), exigirCuadrante] }, async (request) => {
     const usuario = request.usuario;
     if (!usuario) throw ErrorApi.noAutorizado();
 

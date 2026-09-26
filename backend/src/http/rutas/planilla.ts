@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import type { DependenciasRutas } from '../dependencias.js';
 import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Catálogo público del formulario de inscripción (Módulo 4).
@@ -51,13 +53,40 @@ import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
  * **La escritura de la planilla no está aquí**: vive en `PUT /api/v1/yo/planilla`
  * (`rutas/yo.ts`), que sí exige sesión y es su propio recurso. Este archivo sólo
  * lee.
+ *
+ * ========================================================================
+ *  LA GUARDIA DE MÓDULO, Y POR QUÉ NO CONTRADICE LO DE ARRIBA
+ * ========================================================================
+ * Las dos rutas llevan `exigirModulo('m4_inscripciones')` y responden 403
+ * `MODULO_DESHABILITADO` si el administrador apaga el módulo desde el cPanel. No
+ * contradice la defensa de la ruta pública: `exigirSesion()` pregunta **quién
+ * llama** —y aquí no hay nada que preguntar, porque el formulario se pinta antes
+ * de que exista una cuenta—, mientras que `exigirModulo()` pregunta **si el
+ * módulo está encendido**. Son dos ejes distintos, y con el módulo apagado no hay
+ * formulario que pintar. La bandera la respeta el frontend escondiendo el ítem
+ * del menú; que la imponga también la API es lo que la vuelve una barrera y no un
+ * adorno.
  */
-export function rutasPlanilla(app: FastifyInstance): void {
-  app.get('/api/v1/inscripcion/campos', async (request) => {
-    // Sin `preHandler` a propósito: ver la cabecera. `reposDe(request)` sigue
-    // siendo válido sin sesión —el plugin de autenticación asigna los
-    // repositorios siempre, y sin token actúan como `anon`—, así que la consulta
-    // sale con la clave publishable y es la RLS la que decide qué se ve.
+export function rutasPlanilla(app: FastifyInstance, deps: DependenciasRutas): void {
+  /**
+   * La guardia del módulo, construida **una sola vez** para las dos rutas.
+   *
+   * `exigirModulo` es una fábrica y el hook no tiene estado, así que compartirlo
+   * es seguro. En el bloque de administración va después de `exigirAdmin()` —como
+   * en `inscripciones.ts`, `curriculo.ts` y `cuadrante.ts`— para que una petición
+   * anónima reciba **401** y no el 403 del módulo.
+   */
+  const exigirInscripciones = exigirModulo(deps.caches.modulos, 'm4_inscripciones');
+
+  app.get('/api/v1/inscripcion/campos', { preHandler: [exigirInscripciones] }, async (request) => {
+    // Sin `exigirSesion()` a propósito: ver la cabecera. Pero **sí** lleva la
+    // guardia del módulo, y son dos preguntas distintas: `exigirSesion()` habla de
+    // quién llama, `exigirModulo()` de si el módulo está encendido. Con el módulo
+    // apagado no hay formulario que pintar, y por eso el catálogo se apaga con él.
+    // Sin sesión, `reposDe(request)` sigue siendo válido —el plugin de
+    // autenticación asigna los repositorios siempre, y sin token actúan como
+    // `anon`—, así que la consulta sale con la clave publishable y es la RLS la
+    // que decide qué se ve.
     const campos = await reposDe(request).planilla.campos();
 
     return { campos };
@@ -76,6 +105,8 @@ export function rutasPlanilla(app: FastifyInstance): void {
   app.register(
     async (admin) => {
       admin.addHook('preHandler', exigirAdmin());
+      // Segundo a propósito: ver el porqué en la guardia de arriba.
+      admin.addHook('preHandler', exigirInscripciones);
 
       admin.get('/planilla/:usuarioId/pdf', async (request, reply) => {
         const { usuarioId } = request.params as { usuarioId: string };

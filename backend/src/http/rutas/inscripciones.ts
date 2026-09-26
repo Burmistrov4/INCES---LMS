@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorApi } from '../../dominio/errores.js';
 import { descripcionDeEstado } from '../../dominio/reglas-inscripciones.js';
+import type { DependenciasRutas } from '../dependencias.js';
 import {
   esquemaIdSeccion,
   esquemaListadoOfertas,
@@ -9,6 +10,7 @@ import {
   esquemaSolicitarInscripcion,
 } from '../esquemas.js';
 import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Rutas del Módulo 4 — Inscripciones y cupos.
@@ -30,6 +32,15 @@ import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js'
  * las de administración van en un bloque con prefijo y una sola guardia (Patrón
  * A). Es la misma mezcla que hace `cuadrante.ts`.
  *
+ * **Las once rutas llevan `exigirModulo('m4_inscripciones')`**, y en cada caso
+ * después de la guardia de rol —tras `exigirSesion()` las de estudiante, tras
+ * `exigirAdmin()` las del bloque—. Apagar el módulo desde el cPanel devuelve 403
+ * `MODULO_DESHABILITADO` en todas. Es una excepción a lo de arriba y no lo
+ * contradice: que el módulo esté encendido **no lo sabe la base** —ninguna
+ * política RLS ni RPC consulta `system_modules`—, así que comprobarlo aquí no
+ * duplica ninguna regla. La misma guardia llevan las dos rutas de `planilla.ts`,
+ * que también son M4.
+ *
  * El contrato completo, con el porqué de cada decisión, está en
  * `docs/BRIEFING_BACKEND_MODULO4.md`.
  */
@@ -44,13 +55,30 @@ import { exigirAdmin, exigirSesion, reposDe } from '../plugins/autenticacion.js'
  */
 const esquemaRutaIdSeccion = z.object({ id: esquemaIdSeccion });
 
-export function rutasInscripciones(app: FastifyInstance): void {
+export function rutasInscripciones(app: FastifyInstance, deps: DependenciasRutas): void {
+  /**
+   * La guardia del módulo, construida **una sola vez**.
+   *
+   * `exigirModulo` es una fábrica: recibe la caché y la clave, y devuelve el
+   * `preHandler`. Se construye aquí arriba para que la clave `m4_inscripciones`
+   * aparezca una sola vez en el archivo, y porque el hook no tiene estado:
+   * compartirlo entre las once rutas —las cinco de estudiante y las seis del
+   * bloque de administración— es seguro.
+   *
+   * **Va después de la guardia de rol en cada caso**, tras `exigirSesion()` en las
+   * de estudiante y tras `exigirAdmin()` en el bloque. El orden no es cosmético:
+   * con la guardia delante, una petición anónima recibiría 403
+   * `MODULO_DESHABILITADO` —o 404, si faltara la semilla— en vez del **401** que
+   * le corresponde, y `openapi.test.ts` fallaría: inyecta cada ruta documentada
+   * sin token y exige 401, no 404.
+   */
+  const exigirInscripciones = exigirModulo(deps.caches.modulos, 'm4_inscripciones');
   // --- Estudiante -----------------------------------------------------------
   //  Patrón B: ruta completa inline y la guardia en las opciones de la ruta.
 
   app.get(
     '/api/v1/ofertas',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirInscripciones] },
     async (request) => {
       const { periodo, programaId, materiaId, soloConCupo, busqueda, limite, desplazamiento } =
         esquemaListadoOfertas.parse(request.query);
@@ -75,7 +103,7 @@ export function rutasInscripciones(app: FastifyInstance): void {
 
   app.get(
     '/api/v1/mis-inscripciones',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirInscripciones] },
     async (request) => {
       const usuario = request.usuario;
       if (!usuario) throw ErrorApi.noAutorizado();
@@ -90,7 +118,7 @@ export function rutasInscripciones(app: FastifyInstance): void {
 
   app.post(
     '/api/v1/inscripciones',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirInscripciones] },
     async (request, reply) => {
       const { seccionId } = esquemaSolicitarInscripcion.parse(request.body);
 
@@ -108,7 +136,7 @@ export function rutasInscripciones(app: FastifyInstance): void {
 
   app.post<{ Params: { id: string } }>(
     '/api/v1/inscripciones/:id/aceptar',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirInscripciones] },
     async (request) => {
       const { id } = esquemaRutaIdSeccion.parse(request.params);
 
@@ -120,7 +148,7 @@ export function rutasInscripciones(app: FastifyInstance): void {
 
   app.post<{ Params: { id: string } }>(
     '/api/v1/inscripciones/:id/renunciar',
-    { preHandler: [exigirSesion()] },
+    { preHandler: [exigirSesion(), exigirInscripciones] },
     async (request) => {
       const { id } = esquemaRutaIdSeccion.parse(request.params);
 
@@ -139,6 +167,8 @@ export function rutasInscripciones(app: FastifyInstance): void {
   app.register(
     async (admin) => {
       admin.addHook('preHandler', exigirAdmin());
+      // Segundo a propósito: ver el porqué en la guardia de arriba.
+      admin.addHook('preHandler', exigirInscripciones);
 
       admin.get('/ocupacion', async (request) => {
         const { periodo, programaId, materiaId, soloConCupo, busqueda, limite, desplazamiento } =

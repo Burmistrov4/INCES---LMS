@@ -926,11 +926,29 @@ el número 6 estaba tomado por Asistencia desde la semilla original y las claves
 
 `m6_asistencia`, `m7_calificaciones` y `m8_pasantias` siguen apagados.
 
-**`m5_archivos` es el primer módulo cuyo apagado tiene efecto en la API.** Las
-seis rutas de `rutas/archivos.ts` llevan `exigirModulo('m5_archivos')`, así que
-apagarlo desde el cPanel devuelve **403 `MODULO_DESHABILITADO`** dentro del TTL de
-la caché. En `m1`–`m4` la bandera sigue siendo decorativa a nivel de API —la
-respeta sólo el frontend—, y esa asimetría es deuda conocida, no un descuido.
+**`m5_archivos` fue el primer módulo cuyo apagado tuvo efecto en la API, y ya no
+es el único.** Las seis rutas de `rutas/archivos.ts` llevan
+`exigirModulo('m5_archivos')`, así que apagarlo desde el cPanel devuelve **403
+`MODULO_DESHABILITADO`** dentro del TTL de la caché.
+
+**Desde el 2026-09-26 la guardia cubre M2, M3 y M4.** La asimetría que quedaba
+—«en `m1`–`m4` la bandera es decorativa a nivel de API y sólo la respeta el
+frontend»— era deuda conocida y está cerrada para M2, M3 y M4: las **siete**
+rutas de `rutas/curriculo.ts` llevan `exigirModulo('m2_curriculo')`; las
+**catorce** de `rutas/cuadrante.ts` —trece de administración más
+`/api/v1/mi-horario`— llevan `exigirModulo('m3_cuadrante')`; y las **once** de
+`rutas/inscripciones.ts` más las **dos** de `rutas/planilla.ts` llevan
+`exigirModulo('m4_inscripciones')`. La guardia va **siempre después** de la de rol
+—`exigirSesion()` o `exigirAdmin()`—, y el orden es lo que hace que una petición
+anónima reciba **401** y no el 403 del módulo: `openapi.test.ts` exige 401 exacto
+en cada ruta protegida. Cada módulo tiene su prueba de «apagado → 403 sin tocar
+nada» y su prueba de «sin la fila → 404 `MODULO_DESCONOCIDO`», que es un error
+distinto y manda a buscar el problema a otro sitio.
+
+**Queda una excepción, y es deliberada: `rutas/secciones.ts` no lleva guardia.**
+Sus rutas sirven a M3 y a M4 a la vez —una sección la cuelga el cuadrante y la
+elige quien se inscribe—, así que apagarlas bajo una de las dos banderas rompería
+el flujo de la otra.
 
 ### Semilla de parámetros
 

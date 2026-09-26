@@ -183,23 +183,28 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   rutasSalud(app, depsRutas);
   rutasYo(app, depsRutas);
   rutasAdmin(app, depsRutas);
-  rutasCurriculo(app);
-  rutasCuadrante(app);
+  rutasCurriculo(app, depsRutas);
+  rutasCuadrante(app, depsRutas);
   // El catálogo de secciones antes que las inscripciones: M4 se inscribe *en* una
   // sección, así que sin poder crearlas el motor de cupos no tiene sobre qué
   // operar. Son módulos distintos por alcance (M3) y por consumo (M4).
+  //
+  // **`secciones.ts` no lleva guardia de módulo a propósito**: sus rutas sirven a
+  // M3 y a M4 a la vez, y apagarlas bajo una de las dos banderas rompería el flujo
+  // de la otra. Ver la cabecera de `rutas/secciones.ts`.
   rutasSecciones(app);
   // El catálogo de la planilla va con las de M4, pero se registra aparte porque
   // su visibilidad es la contraria: es la única ruta PÚBLICA del módulo —el
   // formulario se pinta antes de que el aspirante tenga cuenta— mientras que
   // todas las de abajo exigen sesión. Ver `rutas/planilla.ts`.
-  rutasPlanilla(app);
-  rutasInscripciones(app);
+  rutasPlanilla(app, depsRutas);
+  rutasInscripciones(app, depsRutas);
   // M7: asistencia concurrente (QR efímero + WebSocket). Las escrituras pasan
   // por REST y las valida la RLS; el WS sólo avisa a la pantalla del docente.
   rutasAsistencia(app);
-  // M5 necesita el almacenamiento inyectado, así que recibe `depsRutas` — a
-  // diferencia de M3 y M4, que no dependen de ningún servicio externo.
+  // M5 necesita el almacenamiento inyectado; M2, M3 y M4, la caché de módulos
+  // para su guardia de bandera. Reciben `depsRutas` los cuatro, y ya no queda
+  // ningún registrador que no necesite nada inyectado.
   rutasArchivos(app, depsRutas);
   // M6 reutiliza los archivos de M5 (las guías y las entregas cuelgan de sus
   // tablas) y necesita la caché de módulos para su propia guardia.

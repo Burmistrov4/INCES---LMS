@@ -1195,7 +1195,26 @@ export interface OpcionesArnés {
 export const MODULOS_POR_DEFECTO: ModuloSistema[] = [
   modulo({ clave: 'm0_cpanel', nombre: 'Administrador Maestro', orden: 0, rolesPermitidos: ['admin'] }),
   modulo({ clave: 'm1_onboarding', nombre: 'Autenticación', orden: 10 }),
-  modulo({ clave: 'm4_inscripciones', nombre: 'Inscripciones', orden: 40, habilitado: false }),
+  // M2 y M3 se siembran **encendidos**, como quedan en la nube tras
+  // `202609180003_r06_periodo_sa26_2_y_modulos.sql`, y ahora es obligatorio que lo
+  // estén: las siete rutas de currículo llevan `exigirModulo('m2_curriculo')` y
+  // las catorce del cuadrante, `exigirModulo('m3_cuadrante')`.
+  //
+  // Y no basta con encenderlos: la fila **no existía** en esta semilla, así que
+  // sin añadirla el error sería **404 `MODULO_DESCONOCIDO`** («no está
+  // registrado») y no 403 `MODULO_DESHABILITADO` («está apagado»). Las pruebas de
+  // M2 y M3 habrían fallado por un motivo que no es el suyo y el diagnóstico
+  // habría apuntado al sitio equivocado. Es la misma trampa que documentan las
+  // filas de M5 y M6 de abajo.
+  modulo({ clave: 'm2_curriculo', nombre: 'Currículo y Pensum', orden: 20 }),
+  modulo({ clave: 'm3_cuadrante', nombre: 'Cuadrante y Horarios', orden: 30 }),
+  // M4 se siembra **encendido**, como lo dejó `202609200002_mod4_habilitar_modulo.sql`
+  // en la nube. Aquí estaba en `false` —el arnés se quedó en el estado anterior a
+  // esa migración— y esa deriva era inofensiva mientras ninguna ruta mirara la
+  // bandera; ahora las once rutas de M4 la miran, así que un `false` haría que
+  // todas respondieran 403 por un motivo que no es el suyo. El camino «apagado»
+  // tiene su propia prueba, que pasa esta lista con la fila en `false`.
+  modulo({ clave: 'm4_inscripciones', nombre: 'Inscripciones', orden: 40 }),
   // M5 se siembra **encendido**, como queda en la nube tras `202609210002`.
   //
   // Y no basta con «ponerlo en true»: la fila **no existía** en esta semilla. Eso
@@ -1217,6 +1236,17 @@ export const MODULOS_POR_DEFECTO: ModuloSistema[] = [
   // pruebas fallarían por un motivo que no es el suyo. El camino «apagado» tiene
   // su propia prueba, que pasa esta lista con la fila en `false`.
   modulo({ clave: 'm6_aula_virtual', nombre: 'Aula Virtual', orden: 55, habilitado: true }),
+  // Un módulo **apagado de verdad**, para que las pruebas que comprueban que la
+  // lista esconde los apagados tengan sobre qué hacerlo. Hasta ahora ese papel lo
+  // hacía `m4_inscripciones`, y al encenderlo —que es lo que la nube tiene— esas
+  // pruebas se quedaron sin su ejemplo.
+  //
+  // Se elige una fila que **existe en la nube y está apagada** (`m8_pasantias`,
+  // orden 80) y que **no tiene ninguna ruta cableada**, para que encenderla en una
+  // prueba no arrastre efectos colaterales. `m7_calificaciones` está en la misma
+  // situación; se toma la última porque es la que menos cerca queda de los módulos
+  // que sí tienen código.
+  modulo({ clave: 'm8_pasantias', nombre: 'Pasantías', orden: 80, habilitado: false }),
 ];
 
 const PARAMETROS_POR_DEFECTO: ParametroSistema[] = [

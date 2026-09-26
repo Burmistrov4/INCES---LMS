@@ -8,11 +8,13 @@ import {
   ID_ADMIN,
   ID_ALUMNO,
   ID_ALUMNO_2,
+  MODULOS_POR_DEFECTO,
   PERFIL_ALUMNO_2,
   PERFILES_POR_DEFECTO,
   TOKEN_ADMIN,
   TOKEN_ALUMNO,
   TOKEN_ALUMNO_2,
+  type Arnés,
 } from './support/arnes.js';
 
 /**
@@ -465,5 +467,67 @@ describe('guardado de la planilla', () => {
     expect(respuesta.statusCode).toBe(404);
     expect(arnes.estado.planillas[ID_ALUMNO]).toEqual({});
     expect(arnes.estado.planillas[ID_ADMIN]).toBeUndefined();
+  });
+});
+
+/**
+ * La guardia de la bandera `m4_inscripciones` sobre las dos rutas de la planilla.
+ *
+ * Las dos rutas de este archivo son las que hacen visible que la guardia del
+ * módulo y la guardia de sesión son **dos ejes distintos**, y por eso se prueban
+ * juntas: una es pública y la otra exige rol admin, y las dos llevan la misma
+ * bandera.
+ */
+describe('la guardia del módulo (m4_inscripciones)', () => {
+  /** El arnés con `m4_inscripciones` apagado, como si el administrador lo apagara. */
+  function conModuloApagado(): Arnés {
+    return crearArnés({
+      modulos: MODULOS_POR_DEFECTO.map((m) =>
+        m.clave === 'm4_inscripciones' ? { ...m, habilitado: false } : m,
+      ),
+    });
+  }
+
+  it('con el módulo apagado, el catálogo público responde 403 aunque no haya sesión', async () => {
+    // Se pregunta **sin token** a propósito. Con el módulo encendido esta misma
+    // petición da 200 —lo fija el bloque de control de acceso—, así que el 403
+    // sólo puede venir de la bandera. Es la prueba de que `exigirModulo()` no es
+    // `exigirSesion()` disfrazada: aquí no hay identidad que comprobar y, aun
+    // así, hay una barrera. Con el módulo apagado no hay formulario que pintar.
+    const arnés = conModuloApagado();
+    app = arnés.app;
+
+    const respuesta = await app.inject({ method: 'GET', url: RUTA_CAMPOS });
+
+    expect(respuesta.statusCode).toBe(403);
+    expect(respuesta.json().error.codigo).toBe('MODULO_DESHABILITADO');
+  });
+
+  it('con el módulo apagado, la planilla en PDF del administrador también responde 403', async () => {
+    const arnés = conModuloApagado();
+    app = arnés.app;
+
+    const respuesta = await app.inject({
+      method: 'GET',
+      url: `/api/v1/inscripcion/planilla/${ID_ALUMNO}/pdf`,
+      headers: conToken(TOKEN_ADMIN),
+    });
+
+    expect(respuesta.statusCode).toBe(403);
+    expect(respuesta.json().error.codigo).toBe('MODULO_DESHABILITADO');
+  });
+
+  it('sin la fila del módulo el error es 404 MODULO_DESCONOCIDO, y no 403', async () => {
+    // La distinción no es cosmética. `comprobarModulo` separa «no está
+    // registrado» de «está apagado» a propósito: confundirlos manda a buscar el
+    // problema al sitio equivocado —a la bandera, cuando lo que falta es la
+    // semilla—.
+    const arnés = crearArnés({ modulos: [] });
+    app = arnés.app;
+
+    const respuesta = await app.inject({ method: 'GET', url: RUTA_CAMPOS });
+
+    expect(respuesta.statusCode).toBe(404);
+    expect(respuesta.json().error.codigo).toBe('MODULO_DESCONOCIDO');
   });
 });

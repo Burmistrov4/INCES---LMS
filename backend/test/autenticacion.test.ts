@@ -146,7 +146,7 @@ describe('/api/v1/modulos', () => {
     );
 
     expect(claves).toContain('m0_cpanel');
-    expect(claves).not.toContain('m4_inscripciones');
+    expect(claves).not.toContain('m8_pasantias');
   });
 
   it('oculta los módulos restringidos a otros roles', async () => {

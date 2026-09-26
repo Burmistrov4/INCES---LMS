@@ -66,7 +66,7 @@ describe('gestión de módulos', () => {
       (m) => m.clave,
     );
 
-    expect(claves).toContain('m4_inscripciones');
+    expect(claves).toContain('m8_pasantias');
   });
 
   it('enciende un módulo apagado', async () => {
@@ -75,14 +75,14 @@ describe('gestión de módulos', () => {
 
     const respuesta = await app.inject({
       method: 'PATCH',
-      url: '/api/v1/admin/modulos/m4_inscripciones',
+      url: '/api/v1/admin/modulos/m8_pasantias',
       headers: conToken(TOKEN_ADMIN),
       payload: { habilitado: true },
     });
 
     expect(respuesta.statusCode).toBe(200);
-    expect(respuesta.json()).toMatchObject({ modulo: { clave: 'm4_inscripciones', habilitado: true } });
-    expect(arnés.estado.modulos.find((m) => m.clave === 'm4_inscripciones')?.habilitado).toBe(true);
+    expect(respuesta.json()).toMatchObject({ modulo: { clave: 'm8_pasantias', habilitado: true } });
+    expect(arnés.estado.modulos.find((m) => m.clave === 'm8_pasantias')?.habilitado).toBe(true);
   });
 
   it('permite reordenar y restringir por rol', async () => {
@@ -197,11 +197,11 @@ describe('invalidación de la caché al cambiar un módulo', () => {
     const clavesAntes = (antes.json() as { modulos: { clave: string }[] }).modulos.map(
       (m) => m.clave,
     );
-    expect(clavesAntes).not.toContain('m4_inscripciones');
+    expect(clavesAntes).not.toContain('m8_pasantias');
 
     await app.inject({
       method: 'PATCH',
-      url: '/api/v1/admin/modulos/m4_inscripciones',
+      url: '/api/v1/admin/modulos/m8_pasantias',
       headers: conToken(TOKEN_ADMIN),
       payload: { habilitado: true },
     });
@@ -215,7 +215,7 @@ describe('invalidación de la caché al cambiar un módulo', () => {
       (m) => m.clave,
     );
 
-    expect(clavesDespues).toContain('m4_inscripciones');
+    expect(clavesDespues).toContain('m8_pasantias');
   });
 
   it('mientras nada cambie, la caché evita consultas repetidas', async () => {
@@ -335,7 +335,7 @@ describe('auditoría', () => {
 
     await app.inject({
       method: 'PATCH',
-      url: '/api/v1/admin/modulos/m4_inscripciones',
+      url: '/api/v1/admin/modulos/m8_pasantias',
       headers: conToken(TOKEN_ADMIN),
       payload: { habilitado: true },
     });
@@ -349,7 +349,7 @@ describe('auditoría', () => {
     const cuerpo = respuesta.json() as { entradas: { clave: string; tabla: string }[] };
     expect(cuerpo.entradas).toHaveLength(1);
     expect(cuerpo.entradas[0]).toMatchObject({
-      clave: 'm4_inscripciones',
+      clave: 'm8_pasantias',
       tabla: 'system_modules',
     });
   });
@@ -358,7 +358,7 @@ describe('auditoría', () => {
     const arnés = crearArnés();
     app = arnés.app;
 
-    for (const clave of ['m1_onboarding', 'm4_inscripciones']) {
+    for (const clave of ['m1_onboarding', 'm8_pasantias']) {
       await app.inject({
         method: 'PATCH',
         url: `/api/v1/admin/modulos/${clave}`,

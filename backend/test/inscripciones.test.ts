@@ -10,10 +10,12 @@ import {
   ID_SECCION_SA,
   ID_SECCION_SC,
   PERFIL_ALUMNO_2,
+  MODULOS_POR_DEFECTO,
   PERFILES_POR_DEFECTO,
   TOKEN_ADMIN,
   TOKEN_ALUMNO,
   TOKEN_ALUMNO_2,
+  type Arnés,
   type InscripcionFalsa,
   type SeccionFalsa,
 } from './support/arnes.js';
@@ -882,5 +884,76 @@ describe('expirar ofertas', () => {
       headers: conToken(TOKEN_ALUMNO),
     });
     expect(mias.json().inscripciones[0].estado).toBe('PENDING_BID');
+  });
+});
+
+/**
+ * La guardia de la bandera `m4_inscripciones`.
+ *
+ * Va aparte del bloque de control de acceso porque comprueba **otra pregunta**:
+ * allí se pregunta quién llama; aquí, si el módulo está encendido. Separarlos
+ * hace que un fallo diga cuál de las dos se rompió.
+ */
+describe('la guardia del módulo (m4_inscripciones)', () => {
+  /** El arnés con `m4_inscripciones` apagado, como si el administrador lo apagara. */
+  function conModuloApagado(): Arnés {
+    return crearArnés({
+      modulos: MODULOS_POR_DEFECTO.map((m) =>
+        m.clave === 'm4_inscripciones' ? { ...m, habilitado: false } : m,
+      ),
+    });
+  }
+
+  it('con el módulo apagado, las once rutas responden 403 y no llegan a tocar nada', async () => {
+    // Ésta es la prueba que da sentido a la bandera, y sin ella la guardia sería
+    // fe. El módulo arranca **encendido**, así que una guardia cableada a la clave
+    // equivocada —una errata en `m4_inscripciones`— nunca se notaría: todas las
+    // demás pruebas seguirían verdes. Apagarlo es la única forma de distinguir «la
+    // guardia funciona» de «la guardia no se ejecuta».
+    const arnés = conModuloApagado();
+    app = arnés.app;
+
+    const inscripcionesAntes = arnés.estado.inscripciones.length;
+
+    // Cada mitad con el token que le toca. Con el de admin en las de estudiante,
+    // la prueba pasaría por el rol equivocado; al revés, saltaría SOLO_ADMIN antes
+    // que la guardia y no estaría comprobando lo que dice.
+    for (const ruta of [...RUTAS_ESTUDIANTE, ...RUTAS_ADMIN]) {
+      const esAdmin = ruta.url.startsWith('/api/v1/admin');
+      const respuesta = await app.inject({
+        ...ruta,
+        headers: conToken(esAdmin ? TOKEN_ADMIN : TOKEN_ALUMNO),
+      });
+
+      expect(respuesta.statusCode, `${ruta.method} ${ruta.url}`).toBe(403);
+      expect(respuesta.json().error.codigo, `${ruta.method} ${ruta.url}`).toBe(
+        'MODULO_DESHABILITADO',
+      );
+    }
+
+    // Y el corte ocurre **antes** del efecto: ni una inscripción de más. Una
+    // guardia que dejara pasar la escritura y fallara al responder no sería una
+    // guardia, sería un 403 que esconde un daño ya hecho. Importa más aquí que en
+    // ningún otro módulo: la escritura de cupos pasa por un cerrojo en la base, y
+    // un 403 que llegara después de tomarlo dejaría el asiento vendido.
+    expect(arnés.estado.inscripciones).toHaveLength(inscripcionesAntes);
+  });
+
+  it('sin la fila del módulo el error es 404 MODULO_DESCONOCIDO, y no 403', async () => {
+    // La distinción no es cosmética. `comprobarModulo` separa «no está
+    // registrado» de «está apagado» a propósito: confundirlos manda a buscar el
+    // problema al sitio equivocado —a la bandera, cuando lo que falta es la
+    // semilla—.
+    const arnés = crearArnés({ modulos: [] });
+    app = arnés.app;
+
+    const respuesta = await app.inject({
+      method: 'GET',
+      url: '/api/v1/ofertas',
+      headers: conToken(TOKEN_ALUMNO),
+    });
+
+    expect(respuesta.statusCode).toBe(404);
+    expect(respuesta.json().error.codigo).toBe('MODULO_DESCONOCIDO');
   });
 });

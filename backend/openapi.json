@@ -33,19 +33,19 @@
     },
     {
       "name": "Currículo",
-      "description": "Módulo 2: programas de formación, banco de materias y pensum. Requiere rol admin."
+      "description": "Módulo 2: programas de formación, banco de materias y pensum. Requiere rol admin. Las siete rutas comprueban la bandera `m2_curriculo` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador la apaga."
     },
     {
       "name": "Cuadrante",
-      "description": "Módulo 3: aulas, lapsos, guardias docentes y la rejilla del cuadrante. Las rutas de administración exigen rol admin; `/api/v1/mi-horario` sirve el horario propio a docentes y estudiantes."
+      "description": "Módulo 3: aulas, lapsos, guardias docentes y la rejilla del cuadrante. Las rutas de administración exigen rol admin; `/api/v1/mi-horario` sirve el horario propio a docentes y estudiantes. Las catorce rutas comprueban la bandera `m3_cuadrante` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador la apaga."
     },
     {
       "name": "Secciones",
-      "description": "El catálogo de secciones: el grupo concreto de una materia en un lapso. Es lo que el cuadrante usa para colgar sus clases y lo que un estudiante elige al inscribirse. Requiere rol admin."
+      "description": "El catálogo de secciones: el grupo concreto de una materia en un lapso. Es lo que el cuadrante usa para colgar sus clases y lo que un estudiante elige al inscribirse. Requiere rol admin. **No comprueba bandera de módulo a propósito**: sus rutas sirven a M3 y a M4 a la vez, y apagarlas bajo una de las dos banderas rompería el flujo de la otra."
     },
     {
       "name": "Inscripciones",
-      "description": "Módulo 4: cupos, cola FIFO, ofertas con vencimiento y la planilla de inscripción. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura de cupos pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito. **La planilla es la excepción de visibilidad**: `GET /api/v1/inscripcion/campos` es pública —el formulario necesita saber qué preguntar antes de que exista una cuenta— y `PUT /api/v1/yo/planilla` exige sesión. La obligatoriedad de la planilla la impone un trigger en la base, no esta API."
+      "description": "Módulo 4: cupos, cola FIFO, ofertas con vencimiento y la planilla de inscripción. Las rutas bajo `/api/v1/admin` exigen rol admin; `/api/v1/ofertas`, `/api/v1/mis-inscripciones` y `/api/v1/inscripciones` sirven al estudiante. Toda escritura de cupos pasa por RPC `security definer`: la tabla `enrollments` tiene la escritura revocada a propósito. **La planilla es la excepción de visibilidad**: `GET /api/v1/inscripcion/campos` es pública —el formulario necesita saber qué preguntar antes de que exista una cuenta— y `PUT /api/v1/yo/planilla` exige sesión. La obligatoriedad de la planilla la impone un trigger en la base, no esta API. Las once rutas de `inscripciones.ts` y las dos de `planilla.ts` comprueban la bandera `m4_inscripciones` con `exigirModulo()` y responden 403 `MODULO_DESHABILITADO` si el administrador la apaga —incluida la pública, porque son dos ejes distintos: `exigirSesion()` pregunta quién llama y `exigirModulo()` si el módulo está encendido—."
     },
     {
       "name": "Archivos",
