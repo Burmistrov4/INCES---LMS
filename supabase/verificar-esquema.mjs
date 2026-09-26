@@ -89,6 +89,11 @@ const tablas = await consultar(
 const esperadas = [
   'academic_periods',
   'aspirantes',
+  // Las dos de la asistencia QR (M7, `202609260001`). Mismo caso que M6: la
+  // migración existe en el repo y en la nube, así que si faltan es una avería,
+  // no andamiaje heredado.
+  'attendance_marks',
+  'attendance_sessions',
   'auth_logs',
   'classrooms',
   'config_audit_log',
@@ -124,6 +129,7 @@ const esperadas = [
 // `security_invoker` incluido, que es lo que impide que se conviertan en un
 // agujero por el que un estudiante vería el cuadrante de todo el centro.
 const vistasEsperadas = [
+  'v_attendance_sesiones',
   'v_cuadrante_clases',
   'v_cuadrante_guardias',
   'v_exportacion_hacer',
@@ -291,19 +297,18 @@ console.log('\n  4. Semillas del cPanel\n');
 const modulos = await consultar(
   'select clave, habilitado, orden from public.system_modules order by orden;',
 );
-comprobar('módulos sembrados', modulos.length === 10, `${modulos.length} filas`);
+comprobar('módulos sembrados', modulos.length === 11, `${modulos.length} filas`);
 comprobar(
   'm0_cpanel arranca habilitado',
   modulos.some((m) => m.clave === 'm0_cpanel' && m.habilitado === true),
 );
 // La semilla ORIGINAL (202609120002) encendía sólo dos módulos, pero las
 // migraciones posteriores encienden `m2_curriculo`, `m3_cuadrante`,
-// `m4_inscripciones` (202609200002), `m5_archivos` (202609210002) y
-// `m6_aula_virtual` (202609220003) a propósito: están construidos y verificados
-// de extremo a extremo. Exigir «sólo dos» quedaría obsoleto y marcaría como fallo
-// un estado correcto. Se fija el estado real: m0…m6 encendidos y m7…m8 apagados
-// hasta que se construyan (cada uno lo encenderá su propia migración cuando el
-// dueño lo decida).
+// `m4_inscripciones` (202609200002), `m5_archivos` (202609210002),
+// `m6_aula_virtual` (202609220003) y `m7_asistencia` (202609260002) a propósito:
+// están construidos y verificados de extremo a extremo. Exigir «sólo dos» quedaría
+// obsoleto y marcaría como fallo un estado correcto. Se fija el estado real, que
+// se vuelve a medir cada vez que este script corre.
 //
 // Ojo al leer el reparto, porque es fácil atribuirlo mal:
 // `202609210001_mod5_archivos.sql` **no** enciende esta bandera —crea la tabla,
@@ -312,12 +317,17 @@ comprobar(
 // que hizo M4: `202609200001` construye y `202609200002` enciende. Una versión
 // anterior de este comentario afirmaba lo contrario y contradecía a la aserción
 // que tiene justo debajo.
+//
+// `m7_asistencia` (2026-09-26) es la última que se sumó, y la que rompió este
+// control cuando el script se corrió contra una nube al día: la lista de
+// habilitados y el total de filas seguían congelados en M6. Es exactamente la
+// deriva que este script existe para cazar, sólo que aquí el desviado era él.
 const habilitados = modulos
   .filter((m) => m.habilitado)
   .map((m) => m.clave)
   .sort();
 comprobar(
-  'm0…m6 habilitados y m7…m8 apagados',
+  'm0…m7 habilitados; apagados sólo m6_asistencia, m7_calificaciones y m8_pasantias',
   JSON.stringify(habilitados) ===
     JSON.stringify([
       'm0_cpanel',
@@ -327,6 +337,7 @@ comprobar(
       'm4_inscripciones',
       'm5_archivos',
       'm6_aula_virtual',
+      'm7_asistencia',
     ]) &&
     // La lista de APAGADOS es explícita, no un `m[7-8]_` por expresión regular.
     // La regular daba por hecho que todo lo apagado era M7 o M8, y `m6_asistencia`
@@ -890,6 +901,91 @@ comprobar(
     limitesM5.find((s) => s.clave === 'm5_max_bytes')?.valor === 10485760 &&
     limitesM5.find((s) => s.clave === 'm5_max_archivos_por_entidad')?.valor === 10,
   limitesM5.map((s) => `${s.clave}=${JSON.stringify(s.valor)}`).join(', ') || 'AUSENTE',
+);
+
+console.log('\n  10. M7: asistencia QR, la barrera anti-trampas y la vista\n');
+
+// Las columnas que sostienen el ciclo. Sin `qr_secret` no hay código que derivar
+// y sin `ventana_seg` no hay ventana que caduque, así que una tabla que «existe»
+// pero perdió una de las dos está rota en silencio.
+const colsSesiones = await columnasDe('attendance_sessions');
+comprobar(
+  'attendance_sessions tiene section_id, opened_by, qr_secret, ventana_seg y status',
+  ['section_id', 'opened_by', 'qr_secret', 'ventana_seg', 'status'].every((c) =>
+    colsSesiones.includes(c),
+  ),
+  colsSesiones.join(', '),
+);
+const colsMarcas = await columnasDe('attendance_marks');
+comprobar(
+  'attendance_marks tiene session_id, student_id, code y marked_at',
+  ['session_id', 'student_id', 'code', 'marked_at'].every((c) => colsMarcas.includes(c)),
+  colsMarcas.join(', '),
+);
+
+// Las cinco políticas por su NOMBRE. La que importa es la del estudiante: es la
+// que llama a `asistencia_codigo_vigente`, o sea la barrera anti-trampas. Si
+// desapareciera, la tabla seguiría con RLS y el INSERT seguiría fallando por otra
+// razón —o, peor, pasando— y nada lo diría.
+const politicasM7 = await consultar(
+  'select tablename, policyname from pg_policies ' +
+    "where schemaname = 'public' and tablename like 'attendance%' order by policyname;",
+);
+const nombresPoliticasM7 = politicasM7.map((p) => `${p.tablename}.${p.policyname}`);
+for (const politica of [
+  'attendance_sessions.attendance_sessions_admin_all',
+  'attendance_sessions.attendance_sessions_docente_insert',
+  'attendance_sessions.attendance_sessions_docente_select',
+  'attendance_marks.attendance_marks_docente_select',
+  'attendance_marks.attendance_marks_estudiante_insert',
+]) {
+  comprobar(`política ${politica}`, nombresPoliticasM7.includes(politica));
+}
+
+// Las tres funciones, con lo que cada una DEBE ser. `asistencia_codigo_vigente`
+// es la única `definer` que llama una política, y por eso se comprueba aparte:
+// sin `definer`, la RLS del alumno la dejaría ciega y cualquier código pasaría.
+// Y se comprueba la volatilidad porque es contraintuitiva: `vigente` es
+// **VOLATILE** (ninguna migración declara marcador y Postgres toma el defecto),
+// mientras que `actual` sí declara `stable`. Escribir «stable» de memoria sería
+// cómodo y falso.
+const funcionesM7 = await consultar(
+  'select p.proname, p.prosecdef, p.provolatile from pg_proc p ' +
+    "join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' " +
+    "and p.proname like 'asistencia_codigo%' order by p.proname;",
+);
+const m7PorNombre = Object.fromEntries(funcionesM7.map((f) => [f.proname, f]));
+comprobar(
+  'asistencia_codigo_en_ventana es immutable y NO definer (no lee tablas)',
+  m7PorNombre.asistencia_codigo_en_ventana?.provolatile === 'i' &&
+    m7PorNombre.asistencia_codigo_en_ventana?.prosecdef === false,
+  JSON.stringify(m7PorNombre.asistencia_codigo_en_ventana ?? 'AUSENTE'),
+);
+comprobar(
+  'asistencia_codigo_vigente es security DEFINER (la llama una política RLS)',
+  m7PorNombre.asistencia_codigo_vigente?.prosecdef === true,
+  JSON.stringify(m7PorNombre.asistencia_codigo_vigente ?? 'AUSENTE'),
+);
+comprobar(
+  'asistencia_codigo_actual es security DEFINER y stable',
+  m7PorNombre.asistencia_codigo_actual?.prosecdef === true &&
+    m7PorNombre.asistencia_codigo_actual?.provolatile === 's',
+  JSON.stringify(m7PorNombre.asistencia_codigo_actual ?? 'AUSENTE'),
+);
+
+// La vista del tablero, con su `security_invoker`. Igual que en M3 y M4: sin él
+// correría con los privilegios de su dueño y se saltaría la RLS de las tablas
+// base, que es justo lo que acota quién ve la asistencia de quién.
+const vistaAsistencia = relaciones.find((r) => r.relname === 'v_attendance_sesiones');
+const opcionesAsistencia = (vistaAsistencia?.reloptions ?? []).join(',');
+comprobar(
+  'v_attendance_sesiones existe, es vista y usa security_invoker',
+  vistaAsistencia?.relkind === 'v' &&
+    (opcionesAsistencia.includes('security_invoker=true') ||
+      opcionesAsistencia.includes('security_invoker=on')),
+  vistaAsistencia
+    ? `relkind = ${vistaAsistencia.relkind}, opciones = ${opcionesAsistencia || 'NINGUNA'}`
+    : 'AUSENTE',
 );
 
 console.log(

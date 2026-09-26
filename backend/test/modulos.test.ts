@@ -89,6 +89,40 @@ describe('guardián de módulos (regla pura)', () => {
     });
   });
 
+  it('una lista blanca que excluye al rol que usa el módulo lo deja inservible', async () => {
+    // Incidente medido el 2026-09-26, y el motivo de que esta prueba exista.
+    //
+    // La fila REAL de la nube tenía `m5_archivos.roles_permitidos = ["admin"]`
+    // —puesta a mano el 2026-09-22, fuera del libro mayor— mientras las seis rutas
+    // del módulo llevan `exigirModulo('m5_archivos')` desde el 2026-09-19. Con las
+    // dos piezas juntas, el estudiante que sube su entrega y el docente que sube
+    // su guía recibían 403: el módulo entero dejaba de funcionar, y nada lo decía.
+    // Ni el arnés —que siembra la lista vacía por defecto— ni ninguna prueba lo
+    // veían; se encontró midiendo la nube, no ejecutando la suite.
+    //
+    // `roles_permitidos` **no es sólo un filtro del menú**: `comprobarModulo` lo usa
+    // como lista blanca de la API. Esta prueba fija esa equivalencia, para que
+    // «guardia de módulo + lista blanca estrecha» no vuelva a pasar inadvertida.
+    // Lo corrige la migración `202609260005`.
+    const estrecha = cacheCon([modulo({ clave: 'm5_archivos', rolesPermitidos: ['admin'] })]);
+
+    await expect(comprobarModulo(estrecha, 'm5_archivos', 'estudiante')).rejects.toMatchObject({
+      estado: 403,
+      codigo: 'MODULO_NO_AUTORIZADO',
+    });
+    await expect(comprobarModulo(estrecha, 'm5_archivos', 'docente')).rejects.toMatchObject({
+      codigo: 'MODULO_NO_AUTORIZADO',
+    });
+
+    // Y con la lista vacía —el valor que `202609120002` sembró y `202609210002`
+    // documenta— los dos pasan, que es lo que el módulo necesita para cumplir su
+    // contrato.
+    const abierta = cacheCon([modulo({ clave: 'm5_archivos' })]);
+
+    await expect(comprobarModulo(abierta, 'm5_archivos', 'estudiante')).resolves.toBeUndefined();
+    await expect(comprobarModulo(abierta, 'm5_archivos', 'docente')).resolves.toBeUndefined();
+  });
+
   it('avisa con 404 si el módulo no está registrado', async () => {
     const cache = cacheCon([]);
 

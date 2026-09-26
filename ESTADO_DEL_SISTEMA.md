@@ -4,7 +4,9 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-25 · **Módulo 3 completo y desplegado**
+> **Última actualización:** 2026-09-26 · **Módulo 7 (Asistencia QR en vivo)
+> construido y desplegado**, y **la bandera de módulo ya no es decorativa en M2, M3
+> ni M4**. **Módulo 3 completo y desplegado**
 > (esquema, backend de 14 rutas y frontend), con su humo de integración en verde
 > contra la nube. **Módulo 4 — Inscripciones y Cupos: Fases 1 (esquema) y 2
 > (backend) cerradas**; queda el frontend. Módulo 1 cerrado y
@@ -14,9 +16,10 @@
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
 > `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
 > nube el mismo día**, así que el repositorio y el proyecto ya no divergen **en eso**.
-> **El repositorio y la nube ya están alineados: 26 migraciones escritas, 26
-> aplicadas** (y **5 vistas escritas, 5 aplicadas**). `202609250004` —la vista de
-> exportación hacia HACER— quedó **aplicada el 2026-09-25**: el esquema se
+> **El repositorio y la nube ya están alineados: 31 migraciones escritas, 31
+> aplicadas** (y **6 vistas escritas, 6 aplicadas**), medido el **2026-09-26** con
+> `apply-migrations.mjs --check` — **0 pendientes, 0 con deriva**. `202609250004` —la
+> vista de exportación hacia HACER— quedó **aplicada el 2026-09-25**: el esquema se
 > reverificó contra la nube y una **sonda viva con JWT reales** (18/18) comprobó lo
 > que de verdad importaba —que un estudiante **no** pueda descargarse la nómina del
 > centro—. **CI está en verde** (`Flutter CI` #22 sobre `4dc56c8`,
@@ -120,7 +123,11 @@
 | **Módulo 6 Aula Virtual (backend)** | Las 10 rutas del aula (tablón, trabajo, entregas, calificar, devolver, libro) con `exigirAula` | ✅ **Completo** |
 | **Módulo 6 Aula Virtual (frontend)** | Aula del alumno + **Centro de Mando del Docente**: `crear_anuncio_panel`, `crear_tarea_panel`, `libro_calificaciones_panel` | ✅ **Construido y probado** (2026-09-22): **10 pruebas de widget** nuevas, con dobles estrictos. El bucle docente→alumno es demostrable: publicar → sembrar entregas → entregar → calificar → devolver |
 | **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. **Aplicado a la nube el 2026-09-22**; medido encendido el 2026-09-24 |
-| **Fase 7+** | M6 Asistencia, M7 Calificaciones, M8 Pasantías | ⏳ Pendiente |
+| **Módulo 7 Asistencia QR (esquema)** | `attendance_sessions`, `attendance_marks`, la vista `v_attendance_sesiones`, 3 funciones y 5 políticas RLS | ✅ **Aplicado y verificado en la nube** (`202609260001`..`202609260004`, 2026-09-26) |
+| **Módulo 7 Asistencia QR (backend)** | Las 4 rutas REST de `/api/v1/asistencia` y el canal WebSocket `GET /rt` | ✅ **Completo**. **Sin guardia de módulo a propósito**: ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`**, que es quien marca — ver §3 |
+| **Módulo 7 Asistencia QR (frontend)** | `asistencia_qr_panel` (tablero del docente, QR efímero y marcas en vivo) y `marcar_asistencia_panel` (el alumno marca), montados en sus dashboards | 🟡 **Construido, sin pruebas propias.** Ningún archivo de `test/` menciona los dos paneles: **es deuda**, y en este proyecto una pantalla sin prueba es una pantalla que nadie ha visto fallar |
+| **Módulo 7 Asistencia QR (bandera)** | `m7_asistencia` | ✅ **ENCENDIDA** por `202609260002`, con `roles_permitidos = ['docente','admin']` |
+| **Fase 7+** | M6 Asistencia (fila muerta de la semilla), M7 Calificaciones y M8 Pasantías | ⏳ Pendiente |
 
 **Verificación al cierre de esta iteración** — suites del **2026-09-22**
 (backend **540**, Flutter **456**, SQL **402**); migraciones de M3 aplicadas y
@@ -139,21 +146,21 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 167 archivos** (`lib/` + `test/`) con el servidor de análisis real: **0 errores, 0 avisos, 0 informativos** |
 | `flutter test` | **673 / 673** en verde — **medido en CI** (`Flutter CI` #22 sobre `4dc56c8`, `success`), **no aquí**: desde la shell del agente la suite **no arranca** (tuberías nombradas), así que **CI es el verificador**. El `#21` sobre `bc614bd` informó «**671 tests passed, 2 failed**» — o sea **673** pruebas — y las dos que fallaban eran **preexistentes**: el aviso nuevo que explica la exportación empujó la tarjeta de la sección por debajo del pliegue a 800×600 y el `tap` dejó de acertar (`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`: la trampa del `Stepper`, en otra pantalla). Se arregló con un ayudante `pulsar()` que hace `ensureVisible` antes de pulsar. **Antes:** 632 / 632 el 2026-09-25 en la terminal del usuario, y `Flutter CI` #20 sobre `269698d` en verde |
 | **Exportación hacia HACER (M4)** | ✅ **Escrita, aplicada y sondeada en vivo.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real, y desde el **2026-09-25 están en la nube** (26/26 migraciones, esquema reverificado sin fallos). La **sonda viva** (`C:/tmp/sonda-exportar/`, fuera del repo) creó una sección y tres usuarios temporales, entró con **JWT reales** por *password grant* y midió la RLS de verdad: el admin ve **4** filas, el estudiante matriculado ve **1** (la suya), el ajeno ve **0**, y `anon` recibe **401 `42501 permission denied for view`** — bloqueado por el `GRANT`, no por una política. La purga dejó **0 restos**. **Sigue abierto D17**: la vista expone lo que se puede exponer sin especificación. **El orden de despliegue sigue importando** —primero la migración, después el frontend— porque `AppException` **no distingue el error de objeto ausente**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
-| `npm run verify` (backend) | **562 / 562** en verde (**22** archivos) — **medido el 2026-09-25** (Fase 3 de D14), typecheck y lint incluidos |
+| `npm run verify` (backend) | **583 / 583** en verde (**23** archivos) — **medido el 2026-09-26**, typecheck y lint incluidos. Eran **562 / 562** el 2026-09-25; los 21 de más son de la **guardia de módulo de M2/M3/M4** y del incidente de `roles_permitidos`, **no** de M7 — que no tiene pruebas de comportamiento en el backend (ver **D18**) |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | **492 / 492** aserciones en verde — **medido el 2026-09-25** (tras cerrar la trampa condicional **y añadir §22, la exportación hacia HACER**). Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
-| **Migraciones en el repositorio** | **26** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609250004_v_exportacion_hacer.sql` |
-| **Migraciones en la nube** | **26** registradas en `schema_migrations` — **recontadas el 2026-09-25, no arrastradas**. La secuencia medida: `apply-migrations.mjs --check` dijo **1 pendiente, 0 con deriva**; se aplicó `202609250004`; el libro mayor cerró en **26 versiones**. **Repositorio y nube coinciden: 0 pendientes, 0 con deriva** |
+| Validador SQL contra PostgreSQL real (pglite) | 🔴 **ROJO desde el 2026-09-26: no llega a contar aserciones.** `node validate.mjs` aborta con `error: null value in column "section_id" of relation "attendance_sessions" violates not-null constraint`, porque la autocomprobación de `202609260004` inserta una sesión tomando el `id` de `sections`, y en una base **limpia** —la que construye este validador aplicando sólo migraciones— esa tabla está vacía. **La última medición verde fue 492 / 492 el 2026-09-25**, antes de M7. **No lo cazó nadie porque este validador no está en CI.** Ver **D20**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
+| **Migraciones en el repositorio** | **31** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609260005_m5_permisos_roles.sql` |
+| **Migraciones en la nube** | **31** registradas en `schema_migrations` — **recontadas el 2026-09-26, no arrastradas**. El 2026-09-25 el libro cerró en **26 versiones**; las **cuatro** de M7 (`202609260001`..`202609260004`, la asistencia QR) más **`202609260005`** —la corrección de permisos de M5— lo llevaron a **31**. `apply-migrations.mjs --check` del 2026-09-26: **0 pendientes, 0 con deriva**. **Repositorio y nube coinciden** |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
-| **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-25**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4 **y** la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) |
-| **Libro mayor de migraciones (D10)** | **26** versiones aplicadas con checksum SHA-256 válido. **Ya no queda ninguna esperando** |
+| **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-26**, ya con el **bloque 10 (M7)**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4, la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) y, desde el 2026-09-26, las dos tablas de M7, sus cinco políticas, sus tres funciones y su vista. **Y esa misma ejecución encontró 3 fallos que eran del script, no de la base**: su lista de tablas esperadas, su total de módulos (**10**) y su lista de encendidos seguían congelados en M6, así que marcaba en rojo un esquema correcto. Corregido el script — y anotado, porque una red de seguridad desactualizada grita lobo y enseña a ignorarla |
+| **Libro mayor de migraciones (D10)** | **31** versiones aplicadas con checksum SHA-256 válido. **Ya no queda ninguna esperando** |
 | **Sonda viva de `v_exportacion_hacer`** | ✅ 2026-09-25: **18/18**. Sección y tres usuarios **temporales** (admin + dos estudiantes), **JWT reales** por *password grant*, y la vista leída **por PostgREST** —el camino del cliente Flutter, no la `service_role`, que saltaría la RLS y aprobaría cualquier cosa—. El admin ve **4** filas; el matriculado **1** (la suya); el ajeno **0**, también sin filtro; `anon` recibe **401 `42501`**. El `left join` a `aspirantes` conserva la fila sin ficha, y la planilla vacía sale `NULL` y **no** `"null"`. Purga verificada: **0 restos**. `C:/tmp/sonda-exportar/` (fuera del repo) |
-| **Migraciones de M2, M3, M4, M5 y M6 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25) — **22 tablas** + **5 vistas** aplicadas, con RLS activo en las 22 (ver §3) |
+| **Migraciones de M2, M3, M4, M5, M6 y M7 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25; **las cuatro de M7 —asistencia QR— y la corrección de permisos de M5** el 2026-09-26) — **24 tablas** + **6 vistas** aplicadas, con RLS activo en las 24 (ver §3) |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
-| **Migración de M5 en la nube** | ✅ **Las dos aplicadas.** `202609210001_mod5_archivos.sql` — `files_metadata` + 3 RPC `security definer` + 2 parámetros — y `202609210002_mod5_habilitar_modulo.sql`, que enciende la bandera. (Este renglón decía «pendiente de aplicar» de la segunda; el libro mayor de **26 versiones** lo desmiente: `verificar-esquema.mjs` da `m5_archivos` como habilitado.) |
+| **Migración de M5 en la nube** | ✅ **Las dos aplicadas.** `202609210001_mod5_archivos.sql` — `files_metadata` + 3 RPC `security definer` + 2 parámetros — y `202609210002_mod5_habilitar_modulo.sql`, que enciende la bandera. (Este renglón decía «pendiente de aplicar» de la segunda; el libro mayor de **31 versiones** lo desmiente: `verificar-esquema.mjs` da `m5_archivos` como habilitado.) |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
 | **Operabilidad de M4 (que no repita R-20)** | ✅ Un **no-admin real** llama `solicitar_inscripcion` y llega a la lógica (`23514`); `promover_siguiente` y `reincorporar_inscripcion` le dan **42501** |
 | **Frontera de escritura de M5, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `files_metadata` → **42501**; `anon` no ejecuta las RPC; el propietario ve sólo lo suyo y el admin lo ve todo |
@@ -163,7 +170,7 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | **Humo de integración de archivos (M5, R2 real)** | **52 / 52** (`supabase/humo-archivos.mjs`), sin residuo — el ciclo firmar → `PUT` a R2 → `HeadObject` → confirmar, el rechazo del `Content-Type` no firmado, el aislamiento A/B con JWT reales y el 413 borrando el objeto. **Medido el 2026-09-18.** Lleva 1 divergencia marcada (no un fallo): ver §M5 |
 | **Sonda del camino real de M3 contra la nube** | ✅ Alta de guardia como `authenticated` real **OK**; colisión → `23514`; mismo bloque otro día → permitido |
 | **Humo de extremo a extremo de la API contra la nube** | **25 / 25** (`backend/test-humo.mjs`) con la API real hablando con Supabase real — **re-ejecutado el 2026-09-24**. Se levanta el backend en local con `tsx` y el humo habla con la nube. Las dos aserciones que dependían de las migraciones pendientes —**`m5_archivos` y `m6_aula_virtual` encendidos**— **pasan**, así que la previsión de 23/25 ya no aplica |
-| Documento OpenAPI | OpenAPI 3.1.0 · **60 rutas · 68 operaciones · 108 esquemas** — **medido el 2026-09-22** con `medir-conteos.mjs`. Este documento decía 56/86 y estaba desviado: una versión anterior ya advertía de ese desfase y no se corrigió, que es exactamente la deriva que este script evita |
+| Documento OpenAPI | OpenAPI 3.1.0 · **69 rutas · 77 operaciones · 112 esquemas** — **medido el 2026-09-26** con `medir-conteos.mjs`. El 2026-09-22 el mismo script daba **60 / 68 / 108**; lo que subió son las rutas de M7. Este renglón decía 56/86 y ya estaba desviado entonces: una versión anterior del documento advertía de ese desfase y no se corrigió, que es exactamente la deriva que este script evita |
 | Proyecto Supabase en la nube | `ACTIVE_HEALTHY` (región sa-east-1, PostgreSQL 17.6) |
 | Repositorio GitHub | `Burmistrov4/INCES---LMS` (rama `main`) |
 
@@ -252,15 +259,28 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **veintiséis** migraciones se
-aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
+**La base de datos ya está aplicada y verificada.** Las **treinta y una** migraciones
+se aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
-**22 tablas** con RLS activo **en las 22**, **5 vistas** (las tres del Módulo 3,
-`v_ocupacion_secciones` de M4 y `v_exportacion_hacer`), **53 funciones**, **29
-triggers** y **46 políticas RLS**, más 10 módulos sembrados, **11 parámetros**, 1
-lapso (`SA26-2`) y los 5 cursos — que desde la migración de D12 viven dentro de
-`programs` como `CURSO_LIBRE`. **Recontado el 2026-09-25** con
-`supabase/contar-catalogo.mjs`, después de aplicar `202609250004`.
+**24 tablas** con RLS activo **en las 24**, **6 vistas** (las tres del Módulo 3,
+`v_ocupacion_secciones` de M4, `v_exportacion_hacer` y `v_attendance_sesiones` de
+M7), **56 funciones**, **29 triggers** y **51 políticas RLS**, más 11 módulos
+sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 5 cursos — que desde la
+migración de D12 viven dentro de `programs` como `CURSO_LIBRE`. **Recontado el
+2026-09-26** contra el catálogo de la nube, después de aplicar `202609260005`. El
+2026-09-25 el mismo recuento daba **26 · 22 · 5 · 53 · 29 · 46**, con
+`supabase/contar-catalogo.mjs`.
+
+> **La aritmética de M7 también cierra al dígito.** Las cuatro migraciones de la
+> asistencia QR (`202609260001`..`202609260004`) añaden **+2 tablas**
+> (`attendance_sessions` y `attendance_marks`), **+1 vista**
+> (`v_attendance_sesiones`), **+3 funciones** (`asistencia_codigo_en_ventana`,
+> `asistencia_codigo_vigente` y `asistencia_codigo_actual`) y **+5 políticas RLS**
+> —las tres de sesiones, la de lectura del docente y la anti-trampas
+> `attendance_marks_estudiante_insert`—, y **no tocan ni un trigger**: `202609260003`
+> y `202609260004` sólo **sustituyen el cuerpo** de funciones que ya existían, y
+> `202609260005` no crea objetos. De ahí **26 · 22 · 5 · 53 · 29 · 46 → 31 · 24 · 6 ·
+> 56 · 29 · 51**, recontado contra el catálogo y **no restado**.
 
 > **`202609250004` quedó aplicada el 2026-09-25, y la predicción se cumplió al
 > dígito.** Antes de aplicarla se escribió aquí la aritmética esperada —**+1 vista y
@@ -760,11 +780,13 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `schedule_slots` | **M3** | El cuadrante: sección + docente + aula + día/bloque. El lapso se deriva de la sección |
 | `inscripcion_campos` | **M4** (`202609240001`) | **El catálogo de la planilla de inscripción.** Una fila por campo: tipo, `obligatorio`, orden, opciones, condición de visibilidad y a qué programa aplica. Es la fuente de verdad del formulario — la pantalla lo renderiza y el administrador marca obligatorio/opcional **sin tocar código**. Legible por `anon` a propósito: el aspirante no tiene sesión cuando se pinta el formulario |
 | `schema_migrations` | **D10** | Libro mayor: versión, checksum SHA-256, `applied_at` |
+| `attendance_sessions` | **M7** (`202609260001`) | Una sesión de asistencia abierta por un docente para una sección: `section_id`, `opened_by`, `qr_secret`, `ventana_seg` y `status` (`OPEN`/`CLOSED`). **El `qr_secret` viaja al docente una sola vez** —en la respuesta de `POST /sesiones`— y no se vuelve a leer: la app deriva el código de cada ventana a partir de él |
+| `attendance_marks` | **M7** (`202609260001`) | Una marca por alumno y sesión. **La valida la RLS, no la API**: la política `attendance_marks_estudiante_insert` llama a `asistencia_codigo_vigente` y rechaza con **`42501`** un código caducado, así que saltarse la app y hablar directo a PostgREST no sirve de nada (ADR-003) |
 
 ### Vistas
 
 > **`cursos` ya no está.** Fue la vista de compatibilidad de D12 hasta el
-> 2026-09-25; `202609250002` la retiró. Quedan **cinco** vistas **en la nube**, todas
+> 2026-09-25; `202609250002` la retiró. Quedan **seis** vistas **en la nube**, todas
 > de módulo y todas `security_invoker`. La RLS de la oferta formativa no se pierde con
 > ella: la aplicaba `programs` —la vista era `security_invoker` justo para eso—, y
 > sigue aplicándose.
@@ -774,6 +796,9 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 > con sesión **no** descarga la nómina del centro (ver §2; la sonda, con JWT reales, está en
 > `C:/tmp/sonda-exportar/`, fuera del repo — **no** es una sección del validador: el
 > validador corre contra PGlite y no alcanza la nube).
+>
+> **La sexta llegó el 2026-09-26.** `v_attendance_sesiones` (`202609260001`) sirve el
+> tablero del docente de M7. También `security_invoker`.
 
 | Vista | Origen | Propósito |
 | --- | --- | --- |
@@ -782,12 +807,13 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `v_periodo_vigente` | **M3** | El lapso cuyo `code` coincide con `system_settings.periodo_activo`. `security_invoker` |
 | `v_ocupacion_secciones` | **M4** | Ocupación real de cada sección con su `cupo_efectivo`, `cupos_ocupados` y `oferta_vigente`. `security_invoker` |
 | `v_exportacion_hacer` | **M4** (`202609250004`) | Una fila por inscripción **`ENROLLED`** de una sección: contexto académico + identidad del aspirante + los **29 campos de la planilla aplanados** + el `datos_planilla` crudo al final (**61 columnas**). `security_invoker`. **Aplicada el 2026-09-25** y sondeada en vivo |
+| `v_attendance_sesiones` | **M7** (`202609260001`) | Las sesiones de asistencia con su sección y su docente, para el tablero. `security_invoker` |
 
 > **Las tres vistas de M3 llevan `security_invoker`, y no es un detalle.** Sin
 > él corren con los privilegios de su dueño y **se saltan la RLS de las tablas
 > base**: un estudiante vería el cuadrante de todo el centro, que es justo el
 > dato que las políticas existen para acotar. `verificar-esquema.mjs` cubre las
-> **cinco** de la nube, y sobre `v_exportacion_hacer` comprueba además que exista,
+> **seis** de la nube, y sobre `v_exportacion_hacer` comprueba además que exista,
 > que sea `relkind = v`, que lleve `security_invoker` y que declare nueve columnas
 > clave.
 
@@ -827,6 +853,9 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `reincorporar_inscripcion(uuid, uuid)` | **RPC** (`security definer`, M4) | **Solo admin.** Devuelve un `DROPPED` a `ENROLLED` (la excepción sobre el `unique`) y **PUEDE exceder la capacidad**: «si el admin autoriza, el sistema obedece». La comprobación de cupo se quitó **a propósito**; quedan el rol, el cerrojo y el anti-acaparamiento |
 | `promover_siguiente_de_cola(uuid)` | Función interna (`security definer`, M4) | El trabajo sucio de `promover_siguiente`. **Revocada a `public, anon, authenticated`**: no es una puerta, es un pasillo. **No promueve si hay oferta viva** |
 | `planilla_texto(jsonb, text)` | Función (`immutable`, M4, `202609250004`) | Aplana **un** valor de `datos_planilla` a texto: ausente/`null`/cadena vacía/`[]`/`{}` → `NULL`; una lista se une con `" | "`; un booleano sale `true`/`false`. **No es `security definer` y no puede serlo**: **no lee ninguna tabla**, así que no hay RLS que saltar — y marcarla `definer` sugeriría lo contrario. Replica la semántica de «vacío» que ya tenía `validar_planilla()`, para que el archivo y la validación no discrepen |
+| `asistencia_codigo_en_ventana(p_secreto text, p_sesion uuid, p_ventana bigint)` | Función (`immutable`, **no** `definer`, M7, `202609260003`) | Deriva el código del QR de **una** ventana concreta a partir del secreto y el número de ventana. `immutable` **a propósito**: el mismo trío da siempre el mismo código, y eso es justo lo que permite al docente derivarlo en su PC **sin volver a pedir el secreto**. No es `definer` porque **no lee ninguna tabla** — no hay RLS que saltar, y marcarla `definer` sugeriría lo contrario. La «ventana chica» (15 s) es el antídoto barato contra que un alumno fotografíe la pantalla |
+| `asistencia_codigo_vigente(p_sesion uuid, p_codigo text)` | Función (`security definer`, M7, `202609260004`) — devuelve `table (vigente boolean, ventana bigint)` | Comprueba si un código **es** el de la ventana vigente y devuelve cuál es. La llama la **política RLS** de `attendance_marks`, así que **tiene** que ser `definer`: con la RLS del alumno el cálculo sería ciego. **Ojo con la volatilidad: es `VOLATILE`, no `stable`** — ninguna de las tres migraciones que la definen (`202609260001`, `202609260003`, `202609260004`) declara marcador, así que Postgres toma el defecto. Se anota porque una nota que dijera «stable» sería cómoda y falsa |
+| `asistencia_codigo_actual(p_sesion uuid)` | Función (`security definer`, `stable`, M7, `202609260002`) | El código que vale **ahora**, como texto. **Con barrera de propiedad**: sólo el que abrió la sesión, el docente de la sección o un admin; a cualquier otro le responde **`42501`**. Sin esa barrera, un alumno que escaneara el QR una vez podría pedirse el código y **dejar de depender de ver la pantalla**, que es exactamente lo que el punto anti-trampas evita. `202609260001` la dejó sin barrera y `202609260002` la cerró |
 
 ### Políticas RLS
 
@@ -849,6 +878,8 @@ PostgreSQL sobre Supabase. **Relacional.** La migración a MongoDB se evaluó y 
 | `classrooms` | Autenticados. **`anon` no tiene ni el `GRANT`** | **Solo admin.** Sin `DELETE`: archivar es `is_active = false` |
 | `teacher_duties` | El docente ve **solo las suyas**; `anon` no tiene `GRANT`; **el estudiante no tiene política ninguna** | **Solo admin** |
 | `schedule_slots` | El docente ve las suyas; el estudiante ve **las de su sección** (vía `enrollments`); `anon` no tiene `GRANT` | **Solo admin** |
+| `attendance_sessions` *(M7)* | El **docente** ve las suyas (`attendance_sessions_docente_select`); el admin, todas (`attendance_sessions_admin_all`); **el estudiante, ninguna** | Sólo el docente que la abre (`attendance_sessions_docente_insert`). Cerrar es un `PATCH`, no un `DELETE` |
+| `attendance_marks` *(M7)* | El docente ve las de su sesión (`attendance_marks_docente_select`); **el estudiante, ninguna** | **El estudiante sólo `INSERT`** (`attendance_marks_estudiante_insert`), y **la política es la que valida el código**: llama a `asistencia_codigo_vigente` y rechaza con **`42501`** si ya caducó. La barrera anti-trampas vive en la base, no en la app — saltarse el cliente y hablar directo a PostgREST da el mismo rechazo |
 | `v_cuadrante_clases`, `v_cuadrante_guardias`, `v_periodo_vigente` *(vistas)* | Heredan la RLS de las tablas base gracias a `security_invoker` | — es una proyección |
 | `v_ocupacion_secciones` *(vista, M4)* | Autenticados (lectura). `anon` no tiene `GRANT` | — es una proyección. Cuenta **sólo `ENROLLED`** con funciones `definer` y expone la columna **`oferta_vigente`** (asiento comprometido). Una vista `invoker` que contara `enrollments` directo mostraría a cada alumno **sólo su propia fila** |
 | `v_exportacion_hacer` *(vista, M4, `202609250004`)* | Autenticados (lectura). `anon` no tiene `GRANT`: recibe **401 `42501 permission denied for view v_exportacion_hacer`** — **medido en vivo el 2026-09-25**, y es el `GRANT` quien lo bloquea, no una política devolviendo cero filas | — es una proyección. **Medido con JWT reales** (sonda `C:/tmp/sonda-exportar/`, 18/18): el admin ve **4** filas, **un alumno ve exactamente la suya** (hereda `enrollments_read_own` por ser `security_invoker`) y **un alumno ajeno ve cero**, también sin filtro — no puede barrer el centro. El que está **en la cola** no aparece, porque la vista filtra por `ENROLLED`. El nombre del docente se resuelve con `nombre_para_mostrar()` —**no** relajando `profiles_read_own`—, así que no expone cédula ni correo (R-14). **Aplicada y sondeada** |
@@ -949,6 +980,49 @@ distinto y manda a buscar el problema a otro sitio.
 Sus rutas sirven a M3 y a M4 a la vez —una sección la cuelga el cuadrante y la
 elige quien se inscribe—, así que apagarlas bajo una de las dos banderas rompería
 el flujo de la otra.
+
+### `m7_asistencia`: la guardia que no se pone sin una decisión de producto
+
+La tabla de arriba es la **semilla**; la nube tiene hoy **11 filas**, medidas el
+2026-09-26. La que falta en la tabla es **`m7_asistencia`** («Asistencia QR en
+vivo», orden 7), que no viene de la semilla sino de `202609260002` —la misma
+migración que le puso la barrera de propiedad a `asistencia_codigo_actual`—. Su
+fila está **encendida** y con **`roles_permitidos = ['docente','admin']`**.
+(`m6_asistencia`, en el orden 60 y apagada, es otra cosa: una fila muerta de la
+semilla original a la que nunca se le cablearon rutas.)
+
+**Sus rutas no llevan guardia de módulo, y eso está medido.** `asistencia.ts`
+—`POST /sesiones`, `GET /sesiones/:id/marcas`, `POST /marcar`,
+`PATCH /sesiones/:id/cerrar` y el WebSocket `GET /rt`, todas bajo
+`/api/v1/asistencia`— cuelga de un único `exigirSesion()`. Hoy la lista estrecha es
+por tanto inofensiva: nadie la consulta.
+
+**Y no se le pone la guardia tal cual, porque el módulo lo usa el estudiante.**
+`POST /marcar` es la ruta del alumno —es quien marca—, así que
+`exigirModulo('m7_asistencia')` sobre ese bloque devolvería **403
+`MODULO_NO_AUTORIZADO` al estudiante**, que es exactamente a quien el módulo
+necesita. Ensanchar la lista a `'{}'` para arreglarlo resolvería el 403 y, a
+cambio, **mostraría el tablero del docente en el menú del estudiante**, porque la
+lista también filtra el menú. Las dos salidas son coherentes y **excluyentes**:
+
+1. **Ensanchar la lista** (`'{}'` o con `estudiante`) y proteger las cuatro rutas
+   más el WS, resolviendo la pantalla del docente por otra vía; o
+2. **Proteger sólo las rutas del docente** —`POST /sesiones`,
+   `GET /sesiones/:id/marcas`, `PATCH /sesiones/:id/cerrar` y el WS— y dejar
+   `/marcar` bajo `exigirSesion()` sola.
+
+Es una **decisión de producto**, no un arreglo mecánico, así que **no se toca sin
+ella**. Queda anotada aquí para que el próximo que vea la fila encendida sin
+guardia no la «arregle» y rompa la asistencia.
+
+**Aviso de deriva documental, corregido aquí y no en su origen.** El comentario de
+cabecera de `202609260002` afirma que enciende el módulo porque «sin la fila, el
+menú del docente no pinta la entrada ni aunque compile la pantalla en Flutter (la
+guardia `exigirModulo` de M5/M6, **y aquí para M7**)». **Esa última parte es
+falsa**: M7 no lleva la guardia, y se comprueba en una línea
+(`grep exigirModulo backend/src/http/rutas/asistencia.ts` → 0 coincidencias). No se
+corrige editando la migración —cambiar un solo byte altera su checksum y el libro
+mayor grita deriva—, sino aquí, que es el documento que manda.
 
 ### Semilla de parámetros
 
@@ -1065,7 +1139,26 @@ Base: `/api/v1`. Todo error responde con la misma forma:
 > `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` revocados para `anon` y `authenticated`
 > (R-23): todo pasa por RPC `security definer`. Ver §11 y `REPORTE_ARIA.md` R-23.
 
-**56 rutas en total**, contadas en el documento OpenAPI. Sólo las sondas de salud
+**Rutas de M7** (asistencia QR — cuatro REST bajo `/api/v1/asistencia` más un canal
+WebSocket; todas con `exigirSesion()`, **sin guardia de módulo**, ver §3):
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `POST` | `/api/v1/asistencia/sesiones` | **Docente**: abre una sesión y recibe el **secreto del QR**, que no se vuelve a leer |
+| `GET` | `/api/v1/asistencia/sesiones/:id/marcas` | **Docente/admin**: las marcas de una sesión, en orden de llegada |
+| `POST` | `/api/v1/asistencia/marcar` | **Estudiante**: marca asistencia. **La RLS valida el código efímero**, no esta ruta |
+| `PATCH` | `/api/v1/asistencia/sesiones/:id/cerrar` | **Docente**: cierra la sesión. Las marcas se conservan |
+| `GET` | `/api/v1/asistencia/rt?sesion=` | **WebSocket** unidireccional (servidor → cliente): el tablero del docente recibe un evento por cada marca, sin polling. Se suscribe con el mismo JWT de Supabase que usa REST, no con una puerta aparte |
+
+> **El canal es unidireccional por diseño:** el estudiante marca por REST y el WS
+> **sólo avisa**, así que un cliente no puede colar una marca por ahí. Y el upgrade
+> va por `wsHandler` y no por `websocket: true`, porque esto último **sustituye el
+> handler por un 404 fijo** y el contrato OpenAPI —que exige que cada ruta
+> documentada responda algo distinto de 404— reprobaría la ruta.
+
+**69 rutas en total** (**77 operaciones**, **112 esquemas**), contadas en el
+documento OpenAPI el **2026-09-26** con `supabase/tests/medir-conteos.mjs`. Sólo las
+sondas de salud
 y `/auth/activar` no exigen un JWT de sesión: `/auth/activar` va protegida por el
 token de un solo uso, porque el docente todavía no tiene sesión cuando abre el
 enlace. Por eso esa ruta consulta la base con `service_role`.
@@ -1218,6 +1311,16 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `lib/screens/admin/cpanel_inscripciones_cola_dialog.dart` | ✅ | **Módulo 4**: la cola de espera y las inscripciones de una sección |
 | `lib/screens/admin/cpanel_inscripcion_campos_panel.dart` | ✅ | **Módulo 4**: el catálogo de la planilla. Grupos en `ExpansionTile`, obligatorio/activo por interruptor, orden por **intercambio con el vecino del grupo**. `codigo`/`tipo` inmutables por firma |
 | `lib/services/hacer_export_service.dart` | ✅ | **Módulo 4**: la secuencia «consultar → serializar → descargar» de la exportación hacia HACER, extraída del `State` del panel para poder probarla sin montar pantalla. **Compone** piezas que ya existían (`ExportacionHacerRepository` + `csvDeExportacionHacer` + `SelectorDeArchivos`); no duplica ni la consulta ni la serialización. Devuelve un `sealed` de cuatro desenlaces —uno de ellos «no hay nada que exportar», que **no** es un error— y **nunca lanza** |
+| `lib/screens/docente/asistencia_qr_panel.dart` | 🟡 | **Módulo 7**: el tablero del docente — QR que se redibuja en cada ventana de 15 s y marcas que entran **por WebSocket**, sin recargar. Montado en `docente_dashboard.dart`. **Sin pruebas propias** |
+| `lib/screens/aspirante/marcar_asistencia_panel.dart` | 🟡 | **Módulo 7**: el alumno marca. Montado en `aspirante_dashboard.dart`. **Sin pruebas propias** |
+| `lib/services/asistencia_service.dart` | 🟡 | **Módulo 7**: las cuatro llamadas REST y la suscripción al canal `rt`. **Sin pruebas propias** |
+
+> ⚠️ **Los tres archivos de M7 son lo único de este proyecto que llega a la
+> aplicación sin una sola prueba que los nombre.** Medido el 2026-09-26: ningún
+> archivo de `test/` menciona `AsistenciaQrPanel`, `MarcarAsistenciaPanel` ni
+> `asistencia`. En un módulo cuyo punto delicado —el código efímero— **sí** está
+> cubierto por la RLS y por el validador SQL, lo que queda sin red es justo lo que
+> el usuario ve. Es la deuda abierta de M7.
 
 > **La descarga del CSV está doblada en las pruebas, y eso hay que saberlo.** El
 > botón de exportación baja el archivo por `SelectorDeArchivos.descargarTexto()`, un
@@ -1286,7 +1389,7 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 | `src/http/plugins/modulos.ts` | Guardias de módulo y mantenimiento (lógica pura) |
 | `src/http/plugins/errores.ts` | Cuerpo de error uniforme |
 | `src/http/esquemas.ts` | Validación de entrada + coherencia de tipos |
-| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth`, `curriculo`, `cuadrante`, `secciones`, `inscripciones`, `archivos` |
+| `src/http/rutas/` | `salud`, `yo`, `admin`, `auth`, `curriculo`, `cuadrante`, `secciones`, `inscripciones`, `planilla`, `archivos`, `aula`, `asistencia` |
 | `src/app.ts` | Construye la app con todo inyectado |
 | `src/server.ts` | Único punto que lee `process.env` |
 
@@ -1533,6 +1636,9 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D15** | Dos convenciones de período incompatibles: `system_settings.periodo_activo` = `"2026-1"` frente a los períodos del documento (`'SA26-2'`). La Regla 2 compara ambas cadenas, así que **nunca dispararía** | ✅ **RESUELTA (2026-09-15): `periodo_activo` = `"SA26-2"` y `academic_periods` tiene esa fila (migración 202609180003). Ver `REPORTE_ARIA.md` R-06** |
 | **D16** | El bucket `inces-lms-media` **no tenía política de CORS** → un navegador no podía usar las URLs prefirmadas | ✅ **RESUELTA (2026-09-19)**. La política está aplicada (`docs/r2-cors.json`) y verificada: el preflight pasa de **403 sin cabeceras** a **204** con `allow-origin`, `allow-methods: GET, PUT` y `allow-headers: content-type`; `probe-r2-cors.mts` sale con **exit 0**. Confirmación independiente: la API de Cloudflare devolvía `10059 The CORS configuration does not exist` antes de aplicarla. **Desbloquea la Capa 7 en Web.** Falta añadir el origen de producción a la política **y** a `CORS_ORIGINS` (son listas independientes) |
 | **D17** | **No existe la especificación de campos que espera HACER.** El MVP dice que el LMS **alimenta** a HACER, pero nadie ha escrito qué columnas, en qué orden y con qué formato las espera la plataforma del INCES | 🟡 **Abierta y declarada, no escondida.** `AUDITORIA_M4.md` lo midió: en el repositorio la palabra «HACER» **sólo aparece como comentario de consumidor futuro**. `202609250004` se escribió con esa pregunta **abierta en el encabezado de la migración**: expone contexto + identidad + la planilla aplanada + el `datos_planilla` crudo (**61 columnas**), y **no finge que la respuesta llegó**. Está **aplicada y sondeada desde el 2026-09-25**, y eso **no cierra D17**: la vista ya funciona, pero sigue sin saberse si es la forma que HACER espera. La capa que cambia cuando la especificación llegue es **una sola**: `columnasExportacionHacer` + `csvDeExportacionHacer` en Dart, más el `select` de la vista. `datos_planilla` viaja al final justo para que **ningún campo sea irrecuperable** mientras tanto. **Qué falta**: preguntar a HACER — no programar. **Precisión del 2026-09-25:** la mitad de la deuda que era «cómo se escribe el archivo» **ya está respondida** (separador, BOM, CRLF, mayúsculas, `documento_identidad` — ver §5); lo que sigue abierto es **qué columnas y en qué orden** |
+| **D18** | **M7 no tiene una sola prueba propia, ni en Flutter ni en el backend.** En Flutter, `asistencia_qr_panel.dart`, `marcar_asistencia_panel.dart` y `asistencia_service.dart` no aparecen en ningún archivo de `test/`. Y en el backend **no existe `test/asistencia.test.ts`** | 🟡 **Abierta, medida el 2026-09-26.** Lo que **sí** hay, y conviene no confundirlo con cobertura: (a) la **barrera anti-trampas** está cubierta por la vía fuerte —la política RLS `attendance_marks_estudiante_insert` llama a `asistencia_codigo_vigente`, así que un código caducado se rechaza **en la base**, no en la pantalla—; (b) el **bloque 10** de `verificar-esquema.mjs`, añadido el 2026-09-26, comprueba contra la nube las dos tablas, las cinco políticas, las tres funciones y la vista; y (c) `openapi.test.ts` inyecta las cuatro rutas REST y el WS y exige **401 sin token**. Lo que **no** hay es **comportamiento**: nadie ha probado abrir una sesión, marcar, cerrar, ni que el evento llegue al WebSocket. En este proyecto, una pantalla sin prueba es una pantalla que nadie ha visto fallar |
+| **D19** | **`m7_asistencia` está encendida y con lista blanca, pero sus rutas no llevan guardia de módulo** — y ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`** | 🟡 **Abierta a propósito, esperando una decisión de producto.** `roles_permitidos` filtra **también el menú**, así que ensanchar la lista arreglaría el 403 y a la vez mostraría el tablero del docente al estudiante. Las dos salidas coherentes —ensanchar y proteger todo, o proteger sólo las rutas del docente— están escritas en §3. **No se toca sin esa decisión**: un arreglo mecánico rompería la asistencia, que es precisamente lo que el módulo existe para hacer |
+| **D20** | **El validador SQL (PGlite) está ROJO, y la red que se cayó es la más fuerte.** La autocomprobación de `202609260004` inserta una sesión con `section_id = (select id from public.sections limit 1)`. En una base **limpia** —la que construye `supabase/tests` aplicando **sólo** migraciones— `sections` y `profiles` están **vacías**, así que `section_id` sale `NULL` y el `NOT NULL` **aborta la migración entera** | 🔴 **Regresión del 2026-09-26, medida y reproducida.** `cd supabase/tests && node validate.mjs` → `error: null value in column "section_id" of relation "attendance_sessions" violates not-null constraint`. **No la causó nada de este documento**: se reprodujo **moviendo aparte `202609260005`** para dejar el repo como HEAD, y el fallo siguió. **Las otras autocomprobaciones de M7 sí son herméticas** —`202609260001` sólo inspecciona `pg_proc`, `pg_policies` e `information_schema`—; `202609260004` **rompió esa convención** al depender de datos que ninguna migración siembra. Y **no lo cazó nadie porque el validador no está en CI**. **No se corrige sin decisión:** arreglarlo exige editar una migración **ya aplicada**, lo que cambia su checksum y hace que `apply-migrations.mjs` reporte **deriva** y se niegue a seguir; el script ofrece `--adoptar` (re-registrar el contenido **sin ejecutarlo**), pero contradice la regla escrita «nunca edites una que ya corrió». **Las tres salidas, con su coste, están en §7** |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1636,7 +1742,7 @@ npm run build
 # El token de la Management API vive en backend/.env: se lee de ahí en vez de
 # esperarlo exportado. Los dos verificadores de esquema/catálogo son de SOLO LECTURA.
 TOKEN="$(sed -n 's/^SUPABASE_ACCESS_TOKEN=//p' backend/.env | tr -d '\r')"
-SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/verificar-esquema.mjs   # 102 comprobaciones, 0 fallos (medido el 2026-09-24)
+SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/verificar-esquema.mjs   # 135 comprobaciones, 0 fallos (medido el 2026-09-26; eran 102 el 2026-09-24)
 SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/contar-catalogo.mjs     # recuento del catálogo, listo para pegar en §2
 SUPABASE_ACCESS_TOKEN="$TOKEN" node supabase/apply-migrations.mjs    # aplicar migraciones
 node supabase/crear-admin.mjs correo@dominio.com                     # primer admin
@@ -1663,9 +1769,44 @@ node supabase/eliminar-cuenta.mjs correo@dominio.com                # inventario
 > Aquí decía «478 pruebas» cuando la tabla de §2 ya medía 540: el mismo número
 > escrito en dos sitios se desincroniza, y el que envejece es siempre el que nadie
 > volvió a ejecutar. **La tabla de §2 manda**, y sus cifras llevan fecha de
-> medición. Los tres números que sí siguen arriba (102, 25, y los de cada humo)
-> son los que se midieron el **2026-09-24** y sólo cambian si cambia el código que
-> los produce.
+> medición. Los números que sí siguen arriba (135, 25, y los de cada humo) llevan
+> su fecha en el propio comentario y sólo cambian si cambia el código que los
+> produce.
+>
+> **Y una lección del 2026-09-26: la red de seguridad también se desactualiza.**
+> Al re-ejecutar `verificar-esquema.mjs` contra la nube salió **rojo** —3 fallos—
+> con la base **correcta**. Los tres eran del script: no conocía las dos tablas de
+> M7, esperaba **10** módulos donde hay **11**, y daba por apagado `m7_asistencia`.
+> Es el mismo error que el proyecto ya tiene escrito para los tests —**no confundir
+> «el tool no arrancó» con «está rojo»**—, un piso más arriba: **no confundir «el
+> verificador dice rojo» con «hay una avería»**. Un verificador que grita lobo
+> enseña a ignorarlo, y a partir de ahí deja de proteger. Cada vez que una
+> migración añade objetos, el verificador es parte de lo que hay que actualizar — y
+> el bloque 10 de M7 nació de ese hueco.
+>
+> **Las tres salidas para D20, y lo que cuesta cada una.** El validador SQL no
+> puede volver a verde sin tocar algo que ya corrió, así que la elección es del
+> dueño:
+>
+> 1. **Editar la autocomprobación de `202609260004`** para que sea hermética
+>    —comprobar `asistencia_codigo_en_ventana` llamándola con un secreto ficticio,
+>    que es lo que de verdad se quería probar: que el `cast` a `bigint` no estalle
+>    por tipos— y **re-baselinar el libro mayor con `--adoptar`**. *Es la que
+>    devuelve la red a verde de verdad.* Coste: se edita una migración aplicada,
+>    contra la regla escrita, aunque el cambio **no altera ni un objeto del
+>    esquema** —sólo el bloque `do $$`, que ya se ejecutó—; quien tenga el archivo
+>    viejo verá deriva hasta que haga `pull`.
+> 2. **Sembrar en el validador** las filas mínimas de `sections` y `profiles`
+>    antes de aplicar. Barato, pero **deshonesto**: taparía la no-hermeticidad en
+>    vez de arreglarla, y el validador dejaría de significar «migraciones sobre
+>    base limpia» para pasar a ser «migraciones sobre base sembrada a mano».
+> 3. **Dejar el rojo y quitar el validador de la lista de verificación.**
+>    Honesto, pero deja al proyecto sin su red más fuerte justo cuando M7 acaba de
+>    añadir dos tablas, una vista, tres funciones y cinco políticas.
+>
+> Recomendación: **la 1**, y **añadir el validador a CI en el mismo movimiento** —
+> sin CI, cualquier arreglo vuelve a pudrirse en silencio, que es exactamente cómo
+> se llegó aquí.
 
 ### Datos semilla de M4 y M6 (`sembrar-datos.mjs`)
 
@@ -1897,7 +2038,7 @@ El JWT resultante lo firma GoTrue con el secreto del proyecto, así que ejercita
    (2026-09-15):** la migración `202609180003` los habilita en `system_modules`.
 9. ~~**Exponer las rutas de M5** recibiendo `PuertaAlmacenamiento` inyectado~~ —
    **HECHO (2026-09-18)**: las 5 rutas existen, están documentadas en `openapi.json`
-   (47 rutas y 84 esquemas **entonces**; hoy **56 y 86**) y cubiertas por
+   (47 rutas y 84 esquemas **entonces**; hoy **69 rutas y 112 esquemas**) y cubiertas por
    `test/archivos.test.ts` (34 pruebas entonces, **44** hoy). El `413` quedó
    separado del `400`. **D9 sigue abierta, pero su redacción original era
    optimista**: cerrarla **no es sólo** una regla de ciclo de vida. El bucket no
