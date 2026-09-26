@@ -141,6 +141,7 @@ import {
   pareceErrorPostgres,
   traducirError,
 } from './traducir-error.js';
+import { renderizarPlanillaPdf, type EntradaPlanillaPdf } from './planilla-pdf.js';
 
 /**
  * Implementación de los puertos sobre Supabase.
@@ -3294,6 +3295,67 @@ class PlanillaSupabase implements PuertaPlanilla {
     }
 
     return traducido;
+  }
+
+  async generarPdf(usuarioId: string): Promise<Uint8Array> {
+    const respuesta = await this.cliente
+      .from(TABLA_ASPIRANTES)
+      .select(
+        'datos_planilla, cedula, nombres, apellidos, email, fecha_nac, sexo, telefono, direccion, nivel_educativo, curso_seleccionado',
+      )
+      .eq('user_id', usuarioId)
+      .single();
+
+    // PostgREST no distingue «la fila no existe» de «la RLS no te deja verla»:
+    // las dos son `PGRST116`. Aquí, como en `guardar`, la política
+    // `aspirantes_lectura_own`/`aspirantes_admin_all` hace que una lectura sin
+    // fila sólo pueda significar una cosa: el llamante no tiene ficha.
+    if (respuesta.error) {
+      const traducido = traducirError(respuesta.error, 'generar la planilla en PDF');
+      if (traducido.codigo === 'NO_ENCONTRADO') {
+        throw ErrorApi.noEncontrado(
+          'SIN_FICHA_DE_ASPIRANTE',
+          'Todavía no tienes una ficha de aspirante, así que no hay planilla que imprimir. ' +
+            'La ficha se crea al inscribirte.',
+        );
+      }
+      throw traducido;
+    }
+
+    const fila = (respuesta.data as Fila | null) ?? {};
+    const datosPlanilla =
+      (objetoOpcional(fila.datos_planilla) as Record<string, unknown> | null) ?? {};
+
+    // El catálogo activo ordenado: la fuente de verdad de qué grupos y campos pintar.
+    const campos = await this.campos();
+
+    // Respaldo con las columnas de identidad de `aspirantes` para los campos del
+    // catálogo que el formulario pudo no haber escrito con la misma clave.
+    const identidad: Record<string, string | null> = {
+      cedula: texto(fila.cedula),
+      email: texto(fila.email),
+      telefono: texto(fila.telefono),
+      fecha_nac: texto(fila.fecha_nac),
+      sexo: texto(fila.sexo),
+      direccion: texto(fila.direccion),
+      nivel_educativo: texto(fila.nivel_educativo),
+      curso_seleccionado: texto(fila.curso_seleccionado),
+      primer_nombre: texto(fila.nombres)?.split(/\s+/)[0] ?? null,
+      primer_apellido: texto(fila.apellidos)?.split(/\s+/)[0] ?? null,
+    };
+
+    const entrada: EntradaPlanillaPdf = {
+      cedula: texto(fila.cedula),
+      nombres: texto(fila.nombres),
+      apellidos: texto(fila.apellidos),
+      email: texto(fila.email),
+      campos,
+      datosPlanilla,
+      identidad,
+      generadoEn: new Date(),
+    };
+
+    return renderizarPlanillaPdf(entrada);
   }
 }
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { reposDe } from '../plugins/autenticacion.js';
+import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
 
 /**
  * Catálogo público del formulario de inscripción (Módulo 4).
@@ -62,4 +62,35 @@ export function rutasPlanilla(app: FastifyInstance): void {
 
     return { campos };
   });
+
+  /**
+   * Genera la planilla de inscripción del INCES **llena** en PDF para **cualquier**
+   * aspirante, a partir de su UUID.
+   *
+   * Es la variante de administrador de `GET /api/v1/yo/planilla/pdf`: la misma
+   * ficha pintada, pero dirigida por un UUID que llega en la ruta y no en la
+   * sesión. La RLS `aspirantes_admin_all` es la que autoriza leer la fila ajena;
+   * aquí sólo se exige el rol de administrador. Si el UUID no corresponde a una
+   * ficha, el adaptador responde `SIN_FICHA_DE_ASPIRANTE` (404).
+   */
+  app.register(
+    async (admin) => {
+      admin.addHook('preHandler', exigirAdmin());
+
+      admin.get('/planilla/:usuarioId/pdf', async (request, reply) => {
+        const { usuarioId } = request.params as { usuarioId: string };
+
+        const pdf = await reposDe(request).planilla.generarPdf(usuarioId);
+
+        return reply
+          .type('application/pdf')
+          .header(
+            'Content-Disposition',
+            `attachment; filename="planilla-inscripcion-${usuarioId}.pdf"`,
+          )
+          .send(Buffer.from(pdf));
+      });
+    },
+    { prefix: '/api/v1/inscripcion' },
+  );
 }

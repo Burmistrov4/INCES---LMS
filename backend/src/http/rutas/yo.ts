@@ -80,4 +80,28 @@ export function rutasYo(app: FastifyInstance, deps: DependenciasRutas): void {
     // y no es un eco — jsonb normaliza lo que guarda.
     return { planilla: guardada };
   });
+
+  /**
+   * Genera la planilla de inscripción del INCES **llena** en PDF, lista para
+   * imprimir o descargar.
+   *
+   * Es la contraparte de lectura de `PUT /api/v1/yo/planilla`: la misma ficha,
+   * pero pintada. El PDF se construye en el backend (no en el cliente) porque
+   * la maqueta física —grupos, tipos de campo, tablas de familiares y misiones—
+   * es presentación de datos que ya viven en `aspirantes.datos_planilla`, y
+   * conviene una sola implementación que la lea del catálogo y no se desincronice
+   * del formulario. El `usuario.id` sale de la sesión, nunca del cuerpo: nadie
+   * imprime la planilla de otro por esta ruta.
+   */
+  app.get('/api/v1/yo/planilla/pdf', { preHandler: [exigirSesion()] }, async (request, reply) => {
+    const usuario = request.usuario;
+    if (!usuario) throw ErrorApi.noAutorizado();
+
+    const pdf = await reposDe(request).planilla.generarPdf(usuario.id);
+
+    return reply
+      .type('application/pdf')
+      .header('Content-Disposition', `attachment; filename="planilla-inscripcion-${usuario.id}.pdf"`)
+      .send(Buffer.from(pdf));
+  });
 }

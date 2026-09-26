@@ -901,6 +901,29 @@ export interface PuertaPlanilla {
    * guardó exactamente eso sin haberlo comprobado.
    */
   guardar(usuarioId: string, planilla: PlanillaInscripcion): Promise<PlanillaInscripcion>;
+
+  /**
+   * Genera la **planilla de inscripción del INCES llena** en PDF para un
+   * aspirante, lista para imprimir o descargar.
+   *
+   * Lee `aspirantes` (la fila de identidad + `datos_planilla`) y el catálogo
+   * activo, y los pasa al renderizador (`infra/planilla-pdf.ts`), que pinta los
+   * grupos y los tipos de campo. No valida nada: el PDF es una **presentación**
+   * de lo que ya está guardado, y si falta un campo obligatorio el hueco se
+   * imprime en blanco, igual que la planilla de papel. La validación ya ocurrió
+   * al guardar (trigger `validar_planilla`).
+   *
+   * `usuarioId` se pasa explícito por la misma razón que en `guardar`: la RLS
+   * `aspirantes_admin_all` deja a un administrador leer cualquier fila, así que
+   * «la de quién» no puede quedar al criterio de la base. Sin el parámetro, una
+   * petición de administrador generaría la planilla de una ficha arbitraria.
+   *
+   * Puede fallar con `SIN_FICHA_DE_ASPIRANTE` (404) si el usuario no tiene fila
+   * en `aspirantes` —el mismo caso que `guardar`, por el mismo motivo: el
+   * trigger de alta sólo crea la ficha si el registro trajo la identidad
+   * completa.
+   */
+  generarPdf(usuarioId: string): Promise<Uint8Array>;
 }
 
 /**

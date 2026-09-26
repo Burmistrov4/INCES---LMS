@@ -7616,6 +7616,161 @@
         }
       }
     },
+    "/api/v1/yo/planilla/pdf": {
+      "get": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Descarga la planilla de inscripción del llamante como PDF",
+        "description": "Renderiza la planilla ya guardada del usuario (la que dejó `PUT /api/v1/yo/planilla`) a PDF usando el catálogo activo, y la devuelve para descargar o imprimir. El id sale de la sesión: nadie imprime la planilla de otro por aquí. No valida la planilla ni la completa —si le faltan campos, los deja en blanco con la línea de guiones, igual que el formulario los muestra vacíos—.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF de la planilla de inscripción del llamante.",
+            "headers": {
+              "content-disposition": {
+                "description": "Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.pdf",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Documento PDF de la planilla de inscripción llena, listo para imprimir."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El llamante no tiene ficha de aspirante todavía (SIN_FICHA_DE_ASPIRANTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inscripcion/planilla/{usuarioId}/pdf": {
+      "get": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Descarga la planilla de inscripción de cualquier aspirante como PDF (admin)",
+        "description": "Igual que `/api/v1/yo/planilla/pdf` pero toma el UUID en la ruta, para impresión masiva o de mostrador. La autorización la da la RLS `aspirantes_admin_all`: el rol admin lee la fila del aspirante y el renderizador la pinta. Un UUID sin ficha devuelve 404, no un PDF vacío.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de auth del aspirante cuya planilla se imprime. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "usuarioId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF de la planilla de inscripción del aspirante indicado.",
+            "headers": {
+              "content-disposition": {
+                "description": "Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.pdf",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Documento PDF de la planilla de inscripción llena, listo para imprimir."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no es administrador (SOLO_ADMIN).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El UUID no corresponde a ninguna ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/archivos/firmar-subida": {
       "post": {
         "tags": [

@@ -21,6 +21,7 @@ import type {
   Repositorios,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
+import { renderizarPlanillaPdf } from '../../src/infra/planilla-pdf.js';
 import {
   construirClave,
   extensionDe,
@@ -2742,6 +2743,49 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
 
       estado.planillas[usuarioId] = { ...nueva };
       return { ...estado.planillas[usuarioId] };
+    },
+
+    /**
+     * Genera el PDF de la planilla llena.
+     *
+     * El doble reproduce la misma regla de la base que `guardar`: sin ficha no hay
+     * planilla. Con ficha, delega en el renderizador **real** (`infra/planilla-pdf`)
+     * alimentado con el catálogo y el `datos_planilla` del estado. No es un marcador
+     * de prueba: la ruta se prueba contra el mismo renderizador que producción, así
+     * que un fallo del pintor se ve en CI y no sólo al volcarlo en la nube.
+     */
+    async generarPdf(usuarioId) {
+      revisar('planilla.generarPdf');
+
+      if (!(usuarioId in estado.planillas)) {
+        throw new ErrorApi(
+          404,
+          'SIN_FICHA_DE_ASPIRANTE',
+          'Todavía no tienes una ficha de aspirante, así que no hay planilla que imprimir. La ficha se crea al inscribirte.',
+          { contexto: 'generar la planilla en PDF' },
+        );
+      }
+
+      const datos = estado.planillas[usuarioId] ?? {};
+      const identidad: Record<string, string | null> = {
+        cedula: 'V-12345678',
+        email: 'alumno@ejemplo.com',
+        primer_nombre: 'Lorenzo',
+        primer_apellido: 'Roca',
+      };
+
+      return renderizarPlanillaPdf({
+        cedula: 'V-12345678',
+        nombres: 'Lorenzo',
+        apellidos: 'Roca',
+        email: 'alumno@ejemplo.com',
+        campos: [...estado.camposInscripcion].sort(
+          (a, b) => a.orden - b.orden || a.codigo.localeCompare(b.codigo),
+        ),
+        datosPlanilla: datos,
+        identidad,
+        generadoEn: new Date('2026-09-26T00:00:00Z'),
+      });
     },
   };
 

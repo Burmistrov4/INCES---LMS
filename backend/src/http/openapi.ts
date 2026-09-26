@@ -2987,6 +2987,82 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // **Las dos rutas de PDF son la Fase 3 (deuda D17 cerrada en parte):** toman el
+  // UUID del usuario y devuelven la planilla de inscripción del INCES **llena**
+  // como PDF, lista para imprimir. No validan nada ni leen más de lo que ya
+  // guardó `PUT /api/v1/yo/planilla`: es una proyección del `datos_planilla` por
+  // el catálogo, igual que el formulario, pero a papel. La respuesta es binaria
+  // (`application/pdf`) y no JSON, por eso el esquema es `string` con
+  // `format: binary` y no uno de los `Respuesta*`.
+  const CuerpoPdfBinario = z
+    .string()
+    .openapi({ format: 'binary', description: 'Documento PDF de la planilla de inscripción llena, listo para imprimir.' });
+
+  const ParametroIdUsuarioPlanilla = z.object({
+    usuarioId: z.string().uuid().openapi({
+      param: { name: 'usuarioId', in: 'path' },
+      example: '46342064-c05a-4341-8638-f35c2541718c',
+      description:
+        'UUID de auth del aspirante cuya planilla se imprime. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.',
+    }),
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/yo/planilla/pdf',
+    summary: 'Descarga la planilla de inscripción del llamante como PDF',
+    description:
+      'Renderiza la planilla ya guardada del usuario (la que dejó `PUT /api/v1/yo/planilla`) a PDF usando el catálogo activo, y la devuelve para descargar o imprimir. El id sale de la sesión: nadie imprime la planilla de otro por aquí. No valida la planilla ni la completa —si le faltan campos, los deja en blanco con la línea de guiones, igual que el formulario los muestra vacíos—.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'PDF de la planilla de inscripción del llamante.',
+        content: { 'application/pdf': { schema: CuerpoPdfBinario } },
+        headers: {
+          'content-disposition': {
+            description: 'Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.pdf',
+            schema: { type: 'string' },
+          },
+        },
+      },
+      401: RESPUESTAS_ERROR[401],
+      404: error(
+        'El llamante no tiene ficha de aspirante todavía (SIN_FICHA_DE_ASPIRANTE).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/inscripcion/planilla/{usuarioId}/pdf',
+    summary: 'Descarga la planilla de inscripción de cualquier aspirante como PDF (admin)',
+    description:
+      'Igual que `/api/v1/yo/planilla/pdf` pero toma el UUID en la ruta, para impresión masiva o de mostrador. La autorización la da la RLS `aspirantes_admin_all`: el rol admin lee la fila del aspirante y el renderizador la pinta. Un UUID sin ficha devuelve 404, no un PDF vacío.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdUsuarioPlanilla },
+    responses: {
+      200: {
+        description: 'PDF de la planilla de inscripción del aspirante indicado.',
+        content: { 'application/pdf': { schema: CuerpoPdfBinario } },
+        headers: {
+          'content-disposition': {
+            description: 'Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.pdf',
+            schema: { type: 'string' },
+          },
+        },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: error('La sesión es válida pero el rol no es administrador (SOLO_ADMIN).'),
+      404: error(
+        'El UUID no corresponde a ninguna ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
   // ----------------------------------------------------------- archivos -----
   const archivosTag = { tags: ['Archivos'] };
 
