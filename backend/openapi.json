@@ -9121,6 +9121,297 @@
           }
         }
       }
+    },
+    "/api/v1/asistencia/sesiones": {
+      "post": {
+        "tags": [
+          "Asistencia"
+        ],
+        "summary": "Abre una sesión de asistencia (docente)",
+        "description": "Crea la sesión y devuelve `qr_secret` UNA sóla vez: la app del docente lo usa para derivar el código que proyecta cada 15 s. El alumno nunca lo recibe; si fotografía la pantalla, el código ya caducó.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La sesión creada, con el secreto del QR."
+          },
+          "400": {
+            "description": "La sección no es un UUID o la ventana está fuera de rango (5-120 s).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No dictas esa sección (RLS) o no tienes sesión.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asistencia/sesiones/{id}/marcas": {
+      "get": {
+        "tags": [
+          "Asistencia"
+        ],
+        "summary": "Las marcas de una sesión, en orden de llegada (docente)",
+        "description": "**No es polling obligatorio**: la pantalla en vivo usa el WebSocket; este endpoint es para el informe final y para rehidratar si la página se recarga.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Las marcas visibles para el llamante."
+          },
+          "400": {
+            "description": "El identificador no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asistencia/marcar": {
+      "post": {
+        "tags": [
+          "Asistencia"
+        ],
+        "summary": "Marca asistencia escaneando el QR (estudiante)",
+        "description": "La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La marca quedó (o ya estaba: `duplicada: true`)."
+          },
+          "400": {
+            "description": "Falta el código o el identificador no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Código caducado, sesión cerrada o no estás inscrito (la RLS lo frena).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asistencia/sesiones/{id}/cerrar": {
+      "patch": {
+        "tags": [
+          "Asistencia"
+        ],
+        "summary": "Cierra la sesión; las marcas se conservan (docente)",
+        "description": "No se borra nada: `status` pasa a `CLOSED` y el canal WS avisa `sesion_cerrada` a quien siga suscrito.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la sección. Un valor que no sea UUID se rechaza con 400.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "seccionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La sesión quedó cerrada."
+          },
+          "400": {
+            "description": "El identificador no es un UUID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No eres quien abrió la sesión (NO_ES_TUYA).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/asistencia/rt": {
+      "get": {
+        "tags": [
+          "Asistencia"
+        ],
+        "summary": "Canal WebSocket de la sesión (docente)",
+        "description": "Suscripción: `?sesion=<uuid>` con `Authorization: Bearer <jwt>`. Un GET plano (con sesión, con `sesion`) responde 200 con la descripción del upgrade; el canal real se abre con `Upgrade: websocket`. Un GET sin `?sesion` responde 400; sin sesión, 401.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Descripción del canal WS: cómo hacer el upgrade."
+          },
+          "400": {
+            "description": "Falta `?sesion=<uuid>` en la consulta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "webhooks": {}

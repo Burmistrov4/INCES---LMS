@@ -3471,6 +3471,93 @@ export function construirRegistro(): OpenAPIRegistry {
     },
   });
 
+  // ----------------------------------------------------- asistencia QR ----
+  const asistenciaTag = { tags: ['Asistencia'] };
+
+  registro.registerPath({
+    ...asistenciaTag,
+    method: 'post',
+    path: '/api/v1/asistencia/sesiones',
+    summary: 'Abre una sesión de asistencia (docente)',
+    description:
+      'Crea la sesión y devuelve `qr_secret` UNA sóla vez: la app del docente lo usa para derivar el código que proyecta cada 15 s. El alumno nunca lo recibe; si fotografía la pantalla, el código ya caducó.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'La sesión creada, con el secreto del QR.' },
+      400: error('La sección no es un UUID o la ventana está fuera de rango (5-120 s).'),
+      401: RESPUESTAS_ERROR[401],
+      403: error('No dictas esa sección (RLS) o no tienes sesión.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...asistenciaTag,
+    method: 'get',
+    path: '/api/v1/asistencia/sesiones/{id}/marcas',
+    summary: 'Las marcas de una sesión, en orden de llegada (docente)',
+    description:
+      '**No es polling obligatorio**: la pantalla en vivo usa el WebSocket; este endpoint es para el informe final y para rehidratar si la página se recarga.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroSeccionAula },
+    responses: {
+      200: { description: 'Las marcas visibles para el llamante.' },
+      400: error('El identificador no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...asistenciaTag,
+    method: 'post',
+    path: '/api/v1/asistencia/marcar',
+    summary: 'Marca asistencia escaneando el QR (estudiante)',
+    description:
+      'La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'La marca quedó (o ya estaba: `duplicada: true`).' },
+      400: error('Falta el código o el identificador no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      403: error('Código caducado, sesión cerrada o no estás inscrito (la RLS lo frena).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...asistenciaTag,
+    method: 'patch',
+    path: '/api/v1/asistencia/sesiones/{id}/cerrar',
+    summary: 'Cierra la sesión; las marcas se conservan (docente)',
+    description:
+      'No se borra nada: `status` pasa a `CLOSED` y el canal WS avisa `sesion_cerrada` a quien siga suscrito.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroSeccionAula },
+    responses: {
+      200: { description: 'La sesión quedó cerrada.' },
+      400: error('El identificador no es un UUID.'),
+      401: RESPUESTAS_ERROR[401],
+      403: error('No eres quien abrió la sesión (NO_ES_TUYA).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...asistenciaTag,
+    method: 'get',
+    path: '/api/v1/asistencia/rt',
+    summary: 'Canal WebSocket de la sesión (docente)',
+    description:
+      'Suscripción: `?sesion=<uuid>` con `Authorization: Bearer <jwt>`. Un GET plano (con sesión, con `sesion`) responde 200 con la descripción del upgrade; el canal real se abre con `Upgrade: websocket`. Un GET sin `?sesion` responde 400; sin sesión, 401.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: { description: 'Descripción del canal WS: cómo hacer el upgrade.' },
+      400: error('Falta `?sesion=<uuid>` en la consulta.'),
+      401: RESPUESTAS_ERROR[401],
+    },
+  });
+
   return registro;
 }
 

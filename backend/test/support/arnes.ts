@@ -5,6 +5,7 @@ import type {
   EntradaRegistrarArchivo,
   PuertaAlmacenamiento,
   PuertaArchivos,
+  PuertaAsistencia,
   PuertaAula,
   PuertaAuditoria,
   PuertaAuditoriaAcceso,
@@ -3740,6 +3741,14 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
+  /** Asistencia sin doble funcional: la puerta existe, pero ningún test la usa aún. */
+  const reposAsistenciaFalsos: PuertaAsistencia = {
+    crearSesion: async () => { throw new Error('asistencia sin doble en el arnés'); },
+    marcasDeSesion: async () => [],
+    marcar: async () => 'duplicada',
+    cerrarSesion: async () => {},
+  };
+
   const repos: Repositorios = {
     perfiles,
     modulos,
@@ -3754,6 +3763,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     planilla,
     archivos,
     aula,
+    asistencia: reposAsistenciaFalsos,
   };
 
   const enviarCorreo: EnvioCorreo = {

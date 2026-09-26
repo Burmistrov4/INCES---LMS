@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
+  EntradaCrearSesion,
+  MarcaAsistencia,
+  PuertaAsistencia,
+  SesionAsistencia,
   CambiosAula,
   CambiosClase,
   CambiosGuardia,
@@ -3793,7 +3797,71 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     planilla: new PlanillaSupabase(cliente),
     archivos: new ArchivosSupabase(cliente),
     aula: new AulaSupabase(cliente),
+    asistencia: new AsistenciaSupabase(cliente),
   };
+}
+
+class AsistenciaSupabase implements PuertaAsistencia {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  async crearSesion(entrada: EntradaCrearSesion): Promise<SesionAsistencia> {
+    const respuesta = await this.cliente
+      .from('attendance_sessions')
+      .insert({
+        section_id: entrada.seccionId,
+        opened_by: entrada.abiertoPor,
+        qr_secret: Array.from(crypto.getRandomValues(new Uint8Array(20)))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join(''),
+        ventana_seg: entrada.ventanaSeg,
+      })
+      .select('id, section_id, opened_by, opened_at, qr_secret, ventana_seg, status')
+      .single();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'crear sesión de asistencia');
+    return respuesta.data as SesionAsistencia;
+  }
+
+  async marcasDeSesion(sesionId: string): Promise<MarcaAsistencia[]> {
+    const respuesta = await this.cliente
+      .from('attendance_marks')
+      .select('id, session_id, student_id, marked_at')
+      .eq('session_id', sesionId)
+      .order('marked_at', { ascending: true });
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'marcas de sesión');
+    return (respuesta.data ?? []) as MarcaAsistencia[];
+  }
+
+  async marcar(sesionId: string, codigo: string, estudianteId: string): Promise<MarcaAsistencia | 'duplicada'> {
+    const respuesta = await this.cliente
+      .from('attendance_marks')
+      .insert({ session_id: sesionId, student_id: estudianteId, code: codigo, ventana_idx: 0 })
+      .select('id, session_id, student_id, marked_at')
+      .single();
+
+    if (respuesta.error) {
+      // La duplicidad (ya marcó) NO es un error: la marca está. Se devuelve una
+      // señal y no una excepción, porque el cliente NO debe cambiar su UI.
+      if (respuesta.error.code === '23505') return 'duplicada';
+      throw traducirError(respuesta.error, 'marcar asistencia');
+    }
+    return respuesta.data as MarcaAsistencia;
+  }
+
+  async cerrarSesion(sesionId: string, abiertoPor: string): Promise<void> {
+    const respuesta = await this.cliente
+      .from('attendance_sessions')
+      .update({ status: 'CLOSED', closed_at: new Date().toISOString() })
+      .eq('id', sesionId)
+      .eq('opened_by', abiertoPor)
+      .select('id');
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'cerrar sesión');
+    if ((respuesta.data ?? []).length === 0) {
+      throw ErrorApi.prohibido('NO_ES_TUYA', 'No eres el dueño de esta sesión.');
+    }
+  }
 }
 
 /** Verificador de tokens basado en Supabase Auth. */

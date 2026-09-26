@@ -10,6 +10,7 @@ import { registrarManejadorDeErrores } from './http/plugins/errores.js';
 import { comprobarMantenimiento } from './http/plugins/modulos.js';
 import { rutasAdmin } from './http/rutas/admin.js';
 import { rutasArchivos } from './http/rutas/archivos.js';
+import { rutasAsistencia } from './http/rutas/asistencia.js';
 import { rutasAula } from './http/rutas/aula.js';
 import { rutasAuth } from './http/rutas/auth.js';
 import { rutasCuadrante } from './http/rutas/cuadrante.js';
@@ -180,6 +181,9 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   // todas las de abajo exigen sesión. Ver `rutas/planilla.ts`.
   rutasPlanilla(app);
   rutasInscripciones(app);
+  // M7: asistencia concurrente (QR efímero + WebSocket). Las escrituras pasan
+  // por REST y las valida la RLS; el WS sólo avisa a la pantalla del docente.
+  rutasAsistencia(app);
   // M5 necesita el almacenamiento inyectado, así que recibe `depsRutas` — a
   // diferencia de M3 y M4, que no dependen de ningún servicio externo.
   rutasArchivos(app, depsRutas);

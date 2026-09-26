@@ -1022,6 +1022,47 @@ export interface EntradaCrearTarea {
   orden: number;
 }
 
+/**
+ * Asistencia concurrente (QR efímero + WS).
+ *
+ * La frontera de autorización NO vive aquí: vive la RLS `attendance_marks_estudiante_insert`
+ * (202609260001), que exige código vigente + estar ENROLLED + sesión abierta.
+ * Estas puertas son la forma, no la policía.
+ */
+export interface PuertaAsistencia {
+  /** Abre una sesión y devuelve la fila incluida la `qr_secret` (una sóla vez). */
+  crearSesion(entrada: EntradaCrearSesion): Promise<SesionAsistencia>;
+  /** Las marcas de una sesión, en orden cronológico. */
+  marcasDeSesion(sesionId: string): Promise<MarcaAsistencia[]>;
+  /** Marca la asistencia del usuario autenticado. La RLS valida el código. */
+  marcar(sesionId: string, codigo: string, estudianteId: string): Promise<MarcaAsistencia | 'duplicada'>;
+  /** Cierra la sesión (las marcas se conservan). */
+  cerrarSesion(sesionId: string, abiertoPor: string): Promise<void>;
+}
+
+export interface EntradaCrearSesion {
+  seccionId: string;
+  abiertoPor: string;
+  ventanaSeg: number;
+}
+
+export interface SesionAsistencia {
+  id: string;
+  section_id: string;
+  opened_by: string;
+  opened_at: string;
+  qr_secret: string;
+  ventana_seg: number;
+  status: 'OPEN' | 'CLOSED';
+}
+
+export interface MarcaAsistencia {
+  id: string;
+  session_id: string;
+  student_id: string;
+  marked_at: string;
+}
+
 /** Conjunto de puertas de datos que la API necesita. */
 export interface Repositorios {
   perfiles: PuertaPerfiles;
@@ -1038,4 +1079,5 @@ export interface Repositorios {
   planilla: PuertaPlanilla;
   archivos: PuertaArchivos;
   aula: PuertaAula;
+  asistencia: PuertaAsistencia;
 }
