@@ -7,8 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:inces_lms_app/main.dart';
 import 'package:inces_lms_app/providers/role_provider.dart';
+import 'package:inces_lms_app/repositories/aspirante_repository.dart';
 import 'package:inces_lms_app/screens/login_screen.dart';
 import 'package:inces_lms_app/screens/registro_exitoso_screen.dart';
+
+import 'support/fake_gateway.dart';
 
 void main() {
   setUpAll(() async {
@@ -69,7 +72,14 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider(
         create: (_) => RoleProvider(),
-        child: const MaterialApp(home: AuthGate()),
+        // Se inyecta un doble de la oferta formativa: sin él, cuando el
+        // `AuthGate` decide que no hay sesión, la portada pública dispararía una
+        // consulta real a Supabase dentro de la prueba.
+        child: MaterialApp(
+          home: AuthGate(
+            landingRepository: AspiranteRepository(gateway: FakeGateway()),
+          ),
+        ),
       ),
     );
 

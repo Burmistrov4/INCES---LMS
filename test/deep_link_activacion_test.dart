@@ -4,7 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:inces_lms_app/main.dart';
+import 'package:inces_lms_app/repositories/aspirante_repository.dart';
 import 'package:inces_lms_app/screens/activar_cuenta_screen.dart';
+
+import 'support/fake_gateway.dart';
 
 /// Prueba de regresión del enlace profundo de activación (Módulo 1).
 ///
@@ -36,7 +39,15 @@ void main() {
   /// carga circular, que es una animación infinita, y `pumpAndSettle` se
   /// quedaría esperándola hasta agotar el tiempo.
   Future<void> montarEn(WidgetTester tester, String rutaInicial) async {
-    await tester.pumpWidget(IncesLmsApp(rutaInicial: rutaInicial));
+    // La portada pública (la raíz sin sesión) lee la oferta formativa por red.
+    // Se inyecta un doble para que estas pruebas de enrutado no disparen una
+    // consulta real a Supabase al montar el `AuthGate`.
+    await tester.pumpWidget(
+      IncesLmsApp(
+        rutaInicial: rutaInicial,
+        landingRepository: AspiranteRepository(gateway: FakeGateway()),
+      ),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
   }
@@ -77,17 +88,18 @@ void main() {
     expect(find.textContaining('Falta el token'), findsOneWidget);
   });
 
-  testWidgets('una ruta desconocida cae al inicio de sesión, no en blanco',
+  testWidgets('una ruta desconocida cae a la portada pública, no en blanco',
       (tester) async {
     await montarEn(tester, '/ruta/que/no/existe');
 
     // Flutter avisa de que el enlace no tiene destino y sustituye la ruta
     // inicial por `/` (`defaultGenerateInitialRoutes`, `navigator.dart`). Lo que
-    // se comprueba es que la app **arranca y muestra algo con sentido** en vez
-    // de quedarse en blanco. El aviso del framework forma parte de ese camino,
-    // así que se consume aquí para que no ensucie la prueba.
+    // se comprueba es que la app **arranca y muestra algo con sentido** —lo que
+    // hay en `/` sin sesión, que ahora es la portada pública— en vez de quedarse
+    // en blanco. El aviso del framework forma parte de ese camino, así que se
+    // consume aquí para que no ensucie la prueba.
     expect(tester.takeException(), isNotNull);
     expect(find.byType(ActivarCuentaScreen), findsNothing);
-    expect(find.text('Ingresar al sistema'), findsOneWidget);
+    expect(find.textContaining('Rafael Urdaneta'), findsWidgets);
   });
 }

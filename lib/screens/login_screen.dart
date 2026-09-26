@@ -75,9 +75,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
     resultado.when(
       // El AuthGate escucha los cambios de sesión y enruta al panel del rol.
-      success: (_) {},
+      success: (_) => _cerrarSiFueEmpujada(),
       failure: (AppException error) => _showError(error.message),
     );
+  }
+
+  /// Cierra esta pantalla si se abrió **empujada** sobre el `AuthGate`.
+  ///
+  /// El `AuthGate` es la raíz y ya está reconstruyendo hacia el panel del rol
+  /// cuando la sesión cambia. Pero si el login se abrió empujado —desde el botón
+  /// «Portal Académico» de la portada—, esa ruta empujada quedaría **por encima**
+  /// del panel reconstruido y el usuario seguiría viendo el formulario de acceso
+  /// con la sesión ya iniciada. Hay que cerrarla.
+  ///
+  /// Si el login es hijo directo del `AuthGate` no hay nada que cerrar: es la
+  /// primera ruta y `canPop()` es falso, así que esto no hace nada.
+  void _cerrarSiFueEmpujada() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((ruta) => ruta.isFirst);
+    }
   }
 
   void _showError(String message) {

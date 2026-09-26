@@ -7,10 +7,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/config/app_config.dart';
 import 'core/navegacion.dart';
 import 'providers/role_provider.dart';
+import 'repositories/aspirante_repository.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/aspirante_dashboard.dart';
 import 'screens/aspirante_form_screen.dart';
 import 'screens/docente_dashboard.dart';
+import 'screens/landing_page.dart';
 import 'screens/login_screen.dart';
 import 'screens/restablecer_password_screen.dart';
 import 'screens/activar_cuenta_screen.dart';
@@ -71,7 +73,7 @@ Route<dynamic>? _generarRuta(RouteSettings ajustes) {
 }
 
 class IncesLmsApp extends StatelessWidget {
-  const IncesLmsApp({super.key, this.rutaInicial});
+  const IncesLmsApp({super.key, this.rutaInicial, this.landingRepository});
 
   /// Ruta con la que arranca la aplicación.
   ///
@@ -79,6 +81,13 @@ class IncesLmsApp extends StatelessWidget {
   /// expone para poder abrir la aplicación en un enlace profundo concreto desde
   /// las pruebas, que no tienen navegador.
   final String? rutaInicial;
+
+  /// Repositorio que usará la portada pública para leer la oferta formativa.
+  ///
+  /// Se expone sólo para las pruebas: sin él, montar la app en un test dispara
+  /// una consulta real a Supabase desde la portada. En producción va `null` y la
+  /// portada resuelve su propio repositorio.
+  final AspiranteRepository? landingRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +108,7 @@ class IncesLmsApp extends StatelessWidget {
 
         // `home` define la ruta raíz. Por eso NO se incluye '/' en `routes`:
         // Flutter lanza una aserción si ambos existen y la app no arranca.
-        home: const AuthGate(),
+        home: AuthGate(landingRepository: landingRepository),
         initialRoute: rutaInicial,
 
         // Las rutas simples se resuelven por tabla exacta. El deep link del
@@ -119,7 +128,10 @@ class IncesLmsApp extends StatelessWidget {
 /// Escucha `onAuthStateChange`, así que al registrarse o iniciar sesión la
 /// pantalla cambia sola: no hace falta navegar manualmente.
 class AuthGate extends StatefulWidget {
-  const AuthGate({super.key});
+  const AuthGate({super.key, this.landingRepository});
+
+  /// Repositorio de la portada pública, sólo para pruebas (ver [IncesLmsApp]).
+  final AspiranteRepository? landingRepository;
 
   @override
   State<AuthGate> createState() => _AuthGateState();
@@ -227,8 +239,12 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
+    // Sin sesión se muestra la **portada pública**, no el login. El login sigue
+    // accesible desde su botón «Portal Académico» (ruta `/login`) y desde la
+    // inscripción. La protección no cambia: con sesión se sigue enrutando por
+    // rol justo debajo, y las rutas internas nunca dejaron de exigir sesión.
     if (!_authService.tieneSesion) {
-      return const LoginScreen();
+      return LandingPage(aspiranteRepository: widget.landingRepository);
     }
 
     // La recuperación gana al rol: hay sesión, pero es temporal y sólo sirve
