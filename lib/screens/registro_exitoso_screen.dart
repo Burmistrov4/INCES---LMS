@@ -229,7 +229,6 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
                   child: ElevatedButton(
                     onPressed: _irAlDestino,
                     style: ElevatedButton.styleFrom(
-                    style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
