@@ -174,7 +174,7 @@ class ApiClient {
     }
 
     throw AppException(
-      type: _clasificar(respuesta.statusCode),
+      type: _clasificar(respuesta.statusCode, codigo),
       message: mensaje,
       code: codigo,
       technical: 'HTTP ${respuesta.statusCode} en $ruta',
@@ -244,7 +244,7 @@ class ApiClient {
     final codigo = error?['codigo'] as String?;
 
     throw AppException(
-      type: _clasificar(respuesta.statusCode),
+      type: _clasificar(respuesta.statusCode, codigo),
       message: mensaje,
       code: codigo,
       technical: 'HTTP ${respuesta.statusCode} en $ruta',
@@ -262,7 +262,17 @@ class ApiClient {
   /// pequeño—, no un fallo del sistema. Sin este caso caía en `default` y la UI
   /// habría mostrado «Ocurrió un error en el servidor», que manda a nadie a
   /// arreglar nada. Lo destapó M5, que es el primer módulo que puede devolverlo.
-  AppErrorType _clasificar(int status) {
+  AppErrorType _clasificar(int status, String? codigo) {
+    // `codigo` no es cosmético. El backend traduce «falta aplicar una migración»
+    // a `ESQUEMA_DESACTUALIZADO`, pero lo hace con HTTP **500**, y un 500 a
+    // secas cae en `servidor` —que es recuperable—: sin esta comprobación la
+    // traducción cuidadosa del backend se perdía justo aquí y la UI volvía a
+    // ofrecer «Reintentar» para algo que no puede funcionar. Es la lección de
+    // «un valor por defecto puede anularse desde arriba», una capa más arriba.
+    if (codigo == 'ESQUEMA_DESACTUALIZADO') {
+      return AppErrorType.esquemaDesactualizado;
+    }
+
     switch (status) {
       case 400:
       case 409:

@@ -150,7 +150,28 @@ export function traducirError(error: unknown, contexto: string): ErrorApi {
           { contexto, tecnico },
         );
 
+      // 42P01 = undefined_table, el que lanza **Postgres** cuando el cuerpo de
+      // una función plpgsql nombra una relación que no existe (camino RPC).
+      //
+      // PGRST205 y 42703 son los que produce el camino REAL de PostgREST, y
+      // faltaban: hasta ahora caían al `default` y el cliente recibía un 500
+      // «ERROR_BASE_DE_DATOS» que no dice nada. Medido contra la nube
+      // (2026-09-26), con la clave anónima:
+      //
+      //   GET /rest/v1/tabla_inexistente → 404 {"code":"PGRST205",
+      //        "message":"Could not find the table 'public.X' in the schema cache"}
+      //   GET /rest/v1/programs?select=columna_fantasma
+      //                                  → 400 {"code":"42703",
+      //        "message":"column programs.columna_fantasma does not exist"}
+      //
+      // Es decir: la guarda existía pero apuntaba a un código que el camino
+      // común —un `select` de PostgREST desde Flutter— nunca emite. Los tres
+      // significan lo mismo y se arreglan igual: falta aplicar una migración.
+      // Por eso comparten rama, y por eso el mensaje nombra la migración y no
+      // el objeto: quien lee esto en producción es el operador, no el usuario.
       case '42P01':
+      case 'PGRST205':
+      case '42703':
         return new ErrorApi(
           500,
           'ESQUEMA_DESACTUALIZADO',

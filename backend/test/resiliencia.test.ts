@@ -77,6 +77,34 @@ describe('1. clasificación de errores de Supabase', () => {
     );
   });
 
+  it('el objeto ausente por el camino REAL de PostgREST también es esquema desactualizado', () => {
+    // PGRST205 y 42703 son los códigos que devuelve PostgREST —medidos contra la
+    // nube el 2026-09-26 con la clave anónima— cuando falta una tabla o una
+    // columna. Antes caían al `default` y el operador recibía un 500
+    // «ERROR_BASE_DE_DATOS» que no nombra la causa. 42P01 sólo lo lanza Postgres
+    // desde el cuerpo de una función, así que la guarda no cubría el caso común.
+    const tablaAusente = traducirError(
+      {
+        code: 'PGRST205',
+        message: "Could not find the table 'public.v_fantasma' in the schema cache",
+      },
+      'listar ofertas',
+    );
+    expect(tablaAusente.codigo).toBe('ESQUEMA_DESACTUALIZADO');
+
+    const columnaAusente = traducirError(
+      {
+        code: '42703',
+        message: 'column programs.columna_fantasma does not exist',
+      },
+      'listar programas',
+    );
+    expect(columnaAusente.codigo).toBe('ESQUEMA_DESACTUALIZADO');
+
+    // Y el mensaje nombra la migración, que es la acción que lo arregla.
+    expect(columnaAusente.message).toMatch(/migraci/i);
+  });
+
   it('23502 (NOT NULL) se traduce a 400 de validación, no a un 500 genérico', () => {
     // Fase 3. Antes caía al `default` y salía como 500 ERROR_BASE_DE_DATOS, que
     // culpa al servidor de un dato que falta en la petición.

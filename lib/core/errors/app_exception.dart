@@ -26,6 +26,20 @@ enum AppErrorType {
   /// El servidor falló o respondió algo inesperado.
   servidor,
 
+  /// La base de datos no tiene el objeto que la app espera: falta una migración.
+  ///
+  /// **No es un error del usuario y reintentar no lo arregla**, y por eso tiene
+  /// tipo propio en vez de caer en [servidor]: con `servidor` la UI ofrece
+  /// «Reintentar» y el usuario pulsa un botón que **nunca** puede funcionar
+  /// —el objeto seguirá faltando—. El arreglo es de despliegue, y el mensaje
+  /// tiene que decir eso, no «algo salió mal».
+  ///
+  /// Códigos que llegan aquí, medidos contra la nube (2026-09-26):
+  /// `PGRST205` (tabla ausente del schema cache, HTTP 404) y `42703` (columna
+  /// ausente, HTTP 400). `42P01` es el de Postgres dentro de una función y lo
+  /// traduce el backend a `ESQUEMA_DESACTUALIZADO`.
+  esquemaDesactualizado,
+
   /// Cualquier otra cosa. Nunca debería llegar al usuario sin contexto.
   desconocido,
 }
@@ -114,7 +128,14 @@ class AppException implements Exception {
   }
 
   /// ¿Tiene sentido que el usuario reintente la misma acción?
-  bool get esRecuperable => type != AppErrorType.permisos;
+  ///
+  /// `esquemaDesactualizado` es `false` por el mismo motivo que `permisos`:
+  /// reintentar una consulta contra un objeto que la base no tiene da
+  /// exactamente el mismo resultado. Ofrecer «Reintentar» ahí sería un botón
+  /// que no puede funcionar, que es peor que no ofrecerlo.
+  bool get esRecuperable =>
+      type != AppErrorType.permisos &&
+      type != AppErrorType.esquemaDesactualizado;
 
   static AppException _fromPostgrest(PostgrestException error) {
     final detail = '${error.message} ${error.details ?? ''}'.toLowerCase();
@@ -196,6 +217,29 @@ class AppException implements Exception {
         return AppException(
           type: AppErrorType.validacion,
           message: 'No encontramos la información solicitada.',
+          code: error.code,
+          technical: technical,
+        );
+
+      // El objeto que la app espera no existe en la base. Medidos contra la nube
+      // (2026-09-26, clave anónima):
+      //   tabla ausente  → PGRST205, HTTP 404, «Could not find the table …»
+      //   columna ausente → 42703,  HTTP 400, «column X.Y does not exist»
+      //
+      // Sin estas ramas los dos caían al `servidor` del final, que dice «No
+      // pudimos guardar la información» —falso: aquí no se estaba guardando— y
+      // además es `esRecuperable`, así que la UI invitaba a reintentar algo que
+      // no puede cambiar. `42P01` es el de Postgres dentro de una función y lo
+      // traduce el backend a `ESQUEMA_DESACTUALIZADO`, que el cliente recibe por
+      // HTTP y clasifica en `ApiClient._clasificar`.
+      case 'PGRST205':
+      case '42703':
+        return AppException(
+          type: AppErrorType.esquemaDesactualizado,
+          message:
+              'Esta versión de la aplicación necesita una actualización del '
+              'servidor que todavía no está aplicada. Avisa al administrador '
+              'del centro.',
           code: error.code,
           technical: technical,
         );
