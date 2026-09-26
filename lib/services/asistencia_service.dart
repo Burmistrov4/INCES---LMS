@@ -139,13 +139,11 @@ class AsistenciaService {
     });
   }
 
-  /**
-   * En vivo: el canal WS de una sesión.
-   *
-   * **Unidireccional por diseño** (servidor a cliente): el estudiante marca por
-   * REST y aquí sólo se empuja. El docente no hace polling: la pantalla pinta la
-   * marca al llegar el evento.
-   */
+  /// En vivo: el canal WS de una sesión.
+  ///
+  /// **Unidireccional por diseño** (servidor a cliente): el estudiante marca por
+  /// REST y aquí sólo se empuja. El docente no hace polling: la pantalla pinta la
+  /// marca al llegar el evento.
   Stream<EventoAsistencia> enVivo({required String sesionId}) {
     // En web lo que portan los WebSocket NO tiene encabezados de protocolo
     // personalizados: el JWT va en la query, que es lo que el servidor lee.
@@ -159,14 +157,12 @@ class AsistenciaService {
         ));
   }
 
-  /**
-   * Deriva el código QR de la sesión para la ventana ACTUAL.
-   *
-   * **La misma regla que la base.** si la pantalla del docente y la validación
-   * RLS discreparan, el QR no aceptaría a nadie. Shaa256 del secreto, sesión y
-   * ventana actual; primeros 8 caracteres hex → entero → % 1 000 000 → seis
-   * dígitos.
-   */
+  /// Deriva el código QR de la sesión para la ventana ACTUAL.
+  ///
+  /// **La misma regla que la base.** si la pantalla del docente y la validación
+  /// RLS discreparan, el QR no aceptaría a nadie. Shaa256 del secreto, sesión y
+  /// ventana actual; primeros 8 caracteres hex → entero → % 1 000 000 → seis
+  /// dígitos.
   static CodigoQr codigoQr({
     required String qrSecret,
     required String sesionId,
