@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../core/gateways/planilla_gateway.dart';
 import '../core/network/api_client.dart';
 import '../models/inscripcion_campo.dart';
@@ -36,5 +38,16 @@ class BackendPlanillaGateway implements PlanillaGateway {
 
     final guardada = respuesta['planilla'];
     return guardada is Map<String, dynamic> ? guardada : <String, dynamic>{};
+  }
+
+  @override
+  Future<Uint8List> descargarPdf() async {
+    // El PDF viaja binario; por eso se usa [ApiClient.getBytes] y no [get]. El
+    // token es el de la sesión activa, igual que en [guardar]: el backend saca
+    // el usuario del JWT, no del cuerpo.
+    return _api.getBytes(
+      '/api/v1/yo/planilla/pdf',
+      token: _tokenSesion,
+    );
   }
 }

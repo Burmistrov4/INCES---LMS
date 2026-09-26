@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:inces_lms_app/core/gateways/planilla_gateway.dart';
 import 'package:inces_lms_app/models/inscripcion_campo.dart';
 
@@ -11,6 +13,10 @@ class FakePlanillaGateway implements PlanillaGateway {
 
   Object? errorAlLeerCatalogo;
   Object? errorAlGuardar;
+
+  /// Lo que devuelve [descargarPdf]. Un PDF mínimo por defecto (`%PDF`).
+  List<int> pdfDevuelto = const [37, 80, 68, 70];
+  Object? errorAlDescargarPdf;
 
   /// La última planilla que llegó a [guardar].
   PlanillaInscripcion? ultimaPlanilla;
@@ -32,5 +38,13 @@ class FakePlanillaGateway implements PlanillaGateway {
     final error = errorAlGuardar;
     if (error != null) throw error;
     return planillaGuardada.isEmpty ? planilla : planillaGuardada;
+  }
+
+  @override
+  Future<Uint8List> descargarPdf() async {
+    llamadas.add('descargarPdf');
+    final error = errorAlDescargarPdf;
+    if (error != null) throw error;
+    return Uint8List.fromList(pdfDevuelto);
   }
 }

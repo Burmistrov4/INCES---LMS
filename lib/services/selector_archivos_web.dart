@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
@@ -106,6 +107,38 @@ class SelectorDeArchivosDelNavegador implements SelectorDeArchivos {
     // objeto **retiene su `Blob` en memoria** hasta que se revoca; en una
     // pantalla donde se exportan varias secciones seguidas, no revocarlas iría
     // acumulando nóminas completas sin que nada las suelte.
+    enlace.remove();
+    web.URL.revokeObjectURL(url);
+  }
+
+  @override
+  Future<void> descargarBytes({
+    required String nombre,
+    required List<int> contenido,
+    String tipoMime = 'application/pdf',
+  }) async {
+    // Los bytes viajan como `Uint8List`; `toJS` los convierte en `JSUint8Array`,
+    // que el `Blob` acepta como `BufferSource`. Es la misma danza que
+    // [descargarTexto], pero con binario en vez de texto: un PDF no se puede
+    // pasar por `toJS` de cadena sin corruptarlo.
+    final bytes =
+        contenido is Uint8List ? contenido : Uint8List.fromList(contenido);
+
+    final blob = web.Blob(
+      <JSAny>[bytes.toJS].toJS,
+      web.BlobPropertyBag(type: tipoMime),
+    );
+
+    final url = web.URL.createObjectURL(blob);
+
+    final enlace = web.document.createElement('a') as web.HTMLAnchorElement
+      ..href = url
+      ..download = nombre
+      ..style.display = 'none';
+
+    web.document.body?.append(enlace);
+    enlace.click();
+
     enlace.remove();
     web.URL.revokeObjectURL(url);
   }

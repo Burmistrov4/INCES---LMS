@@ -40,4 +40,15 @@ class SelectorDeArchivosDelNavegador implements SelectorDeArchivos {
         'Descargar contenido generado sólo está implementado para el '
         'navegador. En esta plataforma hay que inyectar un SelectorDeArchivos.',
       );
+
+  @override
+  Future<void> descargarBytes({
+    required String nombre,
+    required List<int> contenido,
+    String tipoMime = 'application/pdf',
+  }) =>
+      throw UnsupportedError(
+        'Descargar bytes sólo está implementado para el navegador. En esta '
+        'plataforma hay que inyectar un SelectorDeArchivos.',
+      );
 }

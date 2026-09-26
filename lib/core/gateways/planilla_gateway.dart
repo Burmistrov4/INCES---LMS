@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../models/inscripcion_campo.dart';
 
 /// Contrato de acceso al catálogo de campos y a la planilla de inscripción.
@@ -19,4 +21,12 @@ abstract interface class PlanillaGateway {
   /// puede fallar con `PLANILLA_INCOMPLETA` (400, nombrando los campos que
   /// faltan) o con `SIN_FICHA_DE_ASPIRANTE` (404).
   Future<PlanillaInscripcion> guardar(PlanillaInscripcion planilla);
+
+  /// Descarga la planilla del llamante como PDF (bytes en crudo).
+  ///
+  /// Requiere sesión —el backend saca el usuario del token— y falla con
+  /// `SIN_FICHA_DE_ASPIRANTE` (404) si el llamante aún no tiene ficha de
+  /// aspirante. Devuelve `Uint8List` porque el cuerpo ya es binario: la pantalla
+  /// lo pasa directo al selector de descarga, sin tocar JSON.
+  Future<Uint8List> descargarPdf();
 }

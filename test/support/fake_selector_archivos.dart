@@ -28,6 +28,9 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
   /// Fuerza un fallo al descargar contenido generado.
   Object? errorAlDescargarTexto;
 
+  /// Fuerza un fallo al descargar bytes recibidos del servidor (el PDF).
+  Object? errorAlDescargarBytes;
+
   final List<String> llamadas = [];
 
   /// Cuántas veces se abrió el diálogo.
@@ -51,6 +54,19 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
 
   /// El tipo MIME con el que se ofreció esa descarga.
   String? ultimoTipoMimeDescargado;
+
+  /// El contenido de la última descarga **binaria** (el PDF), entero.
+  ///
+  /// Se guarda el cuerpo completo y no un resumen a propósito: la prueba de la
+  /// planilla comprueba que lo que llegó al navegador es exactamente lo que el
+  /// servicio recibió, no un «se llamó a descargar».
+  List<int>? ultimoContenidoBytesDescargado;
+
+  /// El nombre con el que se ofreció esa descarga binaria.
+  String? ultimoNombreDeBytesDescargado;
+
+  /// El tipo MIME con el que se ofreció esa descarga binaria.
+  String? ultimoTipoMimeBytesDescargado;
 
   @override
   Future<ArchivoElegido?> elegir() async {
@@ -79,6 +95,19 @@ class FakeSelectorDeArchivos implements SelectorDeArchivos {
     ultimoTextoDescargado = contenido;
     ultimoTipoMimeDescargado = tipoMime;
     _lanzarSi(errorAlDescargarTexto);
+  }
+
+  @override
+  Future<void> descargarBytes({
+    required String nombre,
+    required List<int> contenido,
+    String tipoMime = 'application/pdf',
+  }) async {
+    llamadas.add('descargarBytes');
+    ultimoNombreDeBytesDescargado = nombre;
+    ultimoContenidoBytesDescargado = List<int>.from(contenido);
+    ultimoTipoMimeBytesDescargado = tipoMime;
+    _lanzarSi(errorAlDescargarBytes);
   }
 
   void _lanzarSi(Object? error) {

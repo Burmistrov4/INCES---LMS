@@ -74,4 +74,22 @@ abstract interface class SelectorDeArchivos {
     required String contenido,
     String tipoMime = 'text/csv;charset=utf-8',
   });
+
+  /// Descarga bytes **recibidos del servidor**, no texto generado en el cliente
+  /// ni una URL externa.
+  ///
+  /// Es distinto de [descargar] —que abre una URL que el servidor ya sirve— y de
+  /// [descargarTexto] —que recibe una cadena producida por la app—. Aquí el
+  /// servidor ya produjo el archivo —el PDF de la planilla de inscripción— y lo
+  /// devolvió en el cuerpo de la respuesta; el cliente sólo lo entrega como
+  /// archivo. En el navegador eso se resuelve con un `Blob` a partir de los bytes
+  /// y una URL de objeto, la misma vía que [descargarTexto] pero con
+  /// `Uint8List` en vez de `String`.
+  ///
+  /// [tipoMime] es `application/pdf` por defecto porque es el caso que lo motiva.
+  Future<void> descargarBytes({
+    required String nombre,
+    required List<int> contenido,
+    String tipoMime = 'application/pdf',
+  });
 }

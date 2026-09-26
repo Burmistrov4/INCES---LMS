@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -117,6 +118,67 @@ class ApiClient {
     );
 
     return _procesar(respuesta, ruta);
+  }
+
+  /// Lectura binaria (GET) que devuelve los bytes en crudo.
+  ///
+  /// Sirve para descargar archivos —el PDF de la planilla de inscripción— cuyo
+  /// cuerpo **no** es JSON. El `http.Response` trae los bytes en `bodyBytes`; si
+  /// se usara [get] normal, `_procesar` intentaría `jsonDecode` sobre un PDF y
+  /// fallaría. Por eso este método no pasa por `_procesar`: comprueba el rango
+  /// 2xx y, si no, reconstruye el `AppException` a mano a partir del envoltorio
+  /// de error que sí viaja en JSON.
+  ///
+  /// **El error sí viene como JSON.** El backend responde `application/pdf` en
+  /// el éxito y `application/json` con `{ error: { codigo, mensaje } }` en el
+  /// fallo, así que en la rama no-2xx se decodifica el cuerpo para rescatar el
+  /// `mensaje` ya en español en vez de inventar uno.
+  Future<Uint8List> getBytes(
+    String ruta, {
+    String? token,
+    Map<String, String>? parametros,
+    Map<String, String>? encabezadosExtra,
+  }) async {
+    final respuesta = await _http.get(
+      _resolver(ruta, parametros),
+      headers: {
+        if (token != null) 'Authorization': 'Bearer $token',
+        ...?encabezadosExtra,
+      },
+    );
+
+    if (respuesta.statusCode >= 200 && respuesta.statusCode < 300) {
+      return respuesta.bodyBytes;
+    }
+
+    // Misma lógica de [_procesar] pero sin exigir JSON: el éxito ya salió por la
+    // rama anterior, así que aquí sólo queda el fallo, y hay que extraer el
+    // `mensaje`/`codigo` del envoltorio si el cuerpo es JSON válido.
+    String mensaje = 'Ocurrió un error inesperado. Inténtalo de nuevo.';
+    String? codigo;
+    final texto = respuesta.body;
+    if (texto.isNotEmpty) {
+      try {
+        final cuerpo = jsonDecode(texto);
+        if (cuerpo is Map<String, dynamic>) {
+          final error = cuerpo['error'];
+          if (error is Map<String, dynamic>) {
+            mensaje = (error['mensaje'] as String?) ?? mensaje;
+            codigo = error['codigo'] as String?;
+          }
+        }
+      } catch (_) {
+        // Cuerpo no JSON (p.ej. un 503 de HTML): se queda con el mensaje
+        // genérico. No se propaga: el llamador espera un `AppException`.
+      }
+    }
+
+    throw AppException(
+      type: _clasificar(respuesta.statusCode),
+      message: mensaje,
+      code: codigo,
+      technical: 'HTTP ${respuesta.statusCode} en $ruta',
+    );
   }
 
   /// Borrado (DELETE) de un recurso.

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../core/gateways/planilla_gateway.dart';
 import '../core/result.dart';
 import '../models/inscripcion_campo.dart';
@@ -22,5 +24,15 @@ class PlanillaRepository {
 
   Future<Result<PlanillaInscripcion>> guardar(PlanillaInscripcion planilla) {
     return Result.guard(() => _gateway.guardar(planilla));
+  }
+
+  /// Descarga la planilla del llamante como PDF.
+  ///
+  /// Igual que [guardar]: envuelve el gateway en [Result] para que un fallo de
+  /// red, de permisos o de «sin ficha» llegue con su `AppException` y no se
+  /// convierta en una lista vacía. El llamante —el servicio de PDF— es quien
+  /// decide qué hacer con cada código.
+  Future<Result<Uint8List>> descargarPdf() {
+    return Result.guard(() => _gateway.descargarPdf());
   }
 }
