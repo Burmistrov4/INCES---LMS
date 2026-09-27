@@ -100,6 +100,16 @@ jobs:
       # Igual que en el análisis, el informe se republica como anotación: una
       # prueba que falla dice **cuál** y por qué, y eso no puede depender de
       # tener permisos de administración sobre el repositorio.
+      #
+      # **Se descartan las líneas de progreso (`✅`) antes de publicar.** La
+      # primera versión mandaba `tail -c 60000` del registro entero, y eso no
+      # funciona: GitHub recorta la anotación a unos pocos miles de caracteres,
+      # así que el presupuesto se gastaba en las 768 líneas de las pruebas que
+      # SÍ pasan y las `❌` quedaban fuera de la ventana. Medido el 2026-09-27
+      # con la corrida #51: la anotación llegó cortada a mitad de palabra y sin
+      # un solo nombre de prueba fallida — justo lo contrario de para lo que
+      # existe este paso. Filtrando, lo que queda en el mensaje es el bloque de
+      # fallo (con `Expected`/`Actual`), las cabeceras y la línea de recuento.
       - name: Suite de pruebas
         run: |
           set +e
@@ -107,7 +117,8 @@ jobs:
           estado=$?
           cat pruebas.txt
           if [ "$estado" -ne 0 ]; then
-            mensaje=$(tail -c 60000 pruebas.txt \
+            mensaje=$(grep -v '^✅' pruebas.txt \
+              | tail -c 30000 \
               | awk '{gsub(/\r/,""); gsub(/%/,"%25"); printf "%s%%0A", $0}')
             echo "::error title=flutter test::${mensaje}"
             exit 1
