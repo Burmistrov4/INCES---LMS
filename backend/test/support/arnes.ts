@@ -1414,6 +1414,32 @@ export const MODULOS_POR_DEFECTO: ModuloSistema[] = [
   // pruebas fallarían por un motivo que no es el suyo. El camino «apagado» tiene
   // su propia prueba, que pasa esta lista con la fila en `false`.
   modulo({ clave: 'm6_aula_virtual', nombre: 'Aula Virtual', orden: 55, habilitado: true }),
+  // M7 se siembra **encendido**, como lo dejó `202609260002_asistencia_permisos.sql`
+  // en la nube, y aquí la fila faltaba.
+  //
+  // Faltar no rompía nada, y ése es justo el problema: la prueba de
+  // `asistencia.test.ts` que fija que **la bandera no se consulta en M7** (D19)
+  // apaga el módulo con un `.map` que busca `m7_asistencia`. Sin la fila, ese
+  // `.map` no encontraba nada que cambiar y la prueba pasaba **sin haber apagado
+  // nada**: un verde que no midió lo que dice medir. Es la misma trampa que
+  // documentan las filas de M2/M3, M5 y M6 de arriba, y la que hace que
+  // `comprobarModulo` distinga 404 `MODULO_DESCONOCIDO` de 403
+  // `MODULO_DESHABILITADO`.
+  //
+  // `rolesPermitidos` se copia de la nube —`array['docente','admin']`— porque la
+  // lista blanca filtra **también el menú**: sin ella, la prueba de D19 no
+  // reproduciría la situación real del docente.
+  //
+  // El `orden` de la nube es `7` (no `70`) y se copia tal cual aunque rompa la
+  // convención de múltiplos de 10: aquí el doble refleja lo medido, no lo que
+  // debería ser, y el orden no interviene en ninguna prueba. La incoherencia está
+  // anotada en `ESTADO_DEL_SISTEMA.md` como observación, no arreglada en silencio.
+  modulo({
+    clave: 'm7_asistencia',
+    nombre: 'Asistencia QR en vivo',
+    orden: 7,
+    rolesPermitidos: ['docente', 'admin'],
+  }),
   // Un módulo **apagado de verdad**, para que las pruebas que comprueban que la
   // lista esconde los apagados tengan sobre qué hacerlo. Hasta ahora ese papel lo
   // hacía `m4_inscripciones`, y al encenderlo —que es lo que la nube tiene— esas

@@ -132,11 +132,26 @@ describe('la guardia de módulo que M7 NO tiene', () => {
     // medido. Cuando la decisión se tome —ensanchar la lista y proteger todo, o
     // proteger sólo las rutas del docente—, esta prueba **fallará** y obligará a
     // actualizarla, que es exactamente lo que se quiere de un cambio de contrato.
-    const arnes = crearArnés({
-      modulos: MODULOS_POR_DEFECTO.map((m) =>
-        m.clave === 'm7_asistencia' ? { ...m, habilitado: false } : m,
-      ),
-    });
+    const modulos = MODULOS_POR_DEFECTO.map((m) =>
+      m.clave === 'm7_asistencia' ? { ...m, habilitado: false } : m,
+    );
+
+    // La premisa se comprueba **antes** de usarla, y no es ceremonia.
+    //
+    // Hasta el 2026-09-27 la semilla del arnés **no traía esta fila**: el `.map`
+    // de arriba no encontraba nada que cambiar, así que la prueba pasaba **sin
+    // haber apagado el módulo** —medía «la ruta responde», no «la ruta responde
+    // con el módulo apagado»— y ningún rojo lo delató. Afirmar que el apagado
+    // ocurrió de verdad es lo que convierte un no-op silencioso en un fallo de
+    // una línea con el nombre del archivo que falta.
+    const apagado = modulos.find((m) => m.clave === 'm7_asistencia');
+    expect(apagado, 'la semilla del arnés no trae `m7_asistencia`').toBeDefined();
+    expect(
+      apagado!.habilitado,
+      'el módulo no quedó apagado: la prueba no está midiendo la bandera',
+    ).toBe(false);
+
+    const arnes = crearArnés({ modulos });
     app = arnes.app;
 
     const marcas = await app.inject({
