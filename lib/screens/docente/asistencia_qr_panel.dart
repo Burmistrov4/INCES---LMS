@@ -105,6 +105,13 @@ class _AsistenciaQrPanelState extends State<AsistenciaQrPanel> {
 
     // Un intento de canal: sin bucle de reconexión, porque la clase se acaba y
     // el panel cierra; un retry aquí sería ruido sin diagnóstico.
+    //
+    // `onError` **y** `onDone`, que no son lo mismo: `WebSocketChannel` emite
+    // `error` cuando la conexión falla, pero emite `done` —sin error— cuando el
+    // otro extremo la cierra limpiamente: el servidor reiniciándose, la sesión
+    // terminando de su lado. Con sólo `onError`, ese cierre dejaba el tablero
+    // congelado **sin decir nada**, que es exactamente lo que este mensaje
+    // existe para evitar. Ver D22.
     _suscripcion = _servicio.enVivo(sesionId: sesionId).listen(
       (evento) {
         if (!mounted) return;
@@ -114,11 +121,8 @@ class _AsistenciaQrPanelState extends State<AsistenciaQrPanel> {
           setState(() => _sesion = {..._sesion!, 'status': 'CLOSED'});
         }
       },
-      onError: (_) {
-        if (!mounted) return;
-        setState(() =>
-            _error = 'La conexión en vivo se cayó. Las marcas ya están en la base.');
-      },
+      onError: (_) => _avisarCanalCaido(),
+      onDone: _avisarCanalCaido,
     );
 
     _servicio.marcas(sesionId: sesionId).then((resultado) {
@@ -128,6 +132,19 @@ class _AsistenciaQrPanelState extends State<AsistenciaQrPanel> {
         failure: (_) {},
       );
     });
+  }
+
+  /// Avisa de que el canal en vivo se perdió.
+  ///
+  /// **No alarma cuando el cierre era lo esperado.** Al cerrar la sesión el
+  /// servidor cierra el socket, y entonces llega `done` con el estado ya en
+  /// `CLOSED`: eso no es una avería y decir lo contrario entrenaría al docente a
+  /// ignorar el aviso.
+  void _avisarCanalCaido() {
+    if (!mounted) return;
+    if (_sesion?['status'] == 'CLOSED') return;
+    setState(() =>
+        _error = 'La conexión en vivo se cayó. Las marcas ya están en la base.');
   }
 
   Future<void> _cerrar() async {
