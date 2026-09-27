@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:inces_lms_app/models/inscripcion.dart';
 import 'package:inces_lms_app/repositories/inscripcion_repository.dart';
 import 'package:inces_lms_app/screens/aspirante_dashboard.dart';
+import 'package:inces_lms_app/screens/mis_inscripciones_panel.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
 
 import 'support/fake_inscripcion_gateway.dart';
@@ -266,6 +267,148 @@ void main() {
       await cerrarAvisos(tester);
 
       expect(fake.llamadas, contains('aceptarOferta:sec-1'));
+    });
+  });
+
+  group('PanelMisInscripciones · urgencia (color y orden)', () {
+    /// El color base de una insignia, leído del `Icon` que la pinta.
+    ///
+    /// Se lee del `Icon` y no del fondo del contenedor porque el icono lleva el
+    /// color **puro** del tema mientras el fondo lo lleva con alfa 0.12:
+    /// comparar contra el puro es exacto y no depende de cómo se redondeen los
+    /// flotantes de `withValues`.
+    Color? colorDeIcono(WidgetTester tester, IconData icono) =>
+        tester.widget<Icon>(find.byIcon(icono)).color;
+
+    testWidgets('PENDING_BID va en ámbar y WAITLISTED en azul — no al revés',
+        (tester) async {
+      // Esta prueba existe porque el fallo real era **invisible**: el estado
+      // pasivo (en cola) gritaba en ámbar y el urgente (oferta por aceptar, con
+      // fecha límite) susurraba en el azul primario, que es el color de medio
+      // interfaz. Ninguna prueba afirmaba sobre el color, así que el
+      // intercambio sobrevivió sin que nadie lo viera.
+      final fake = FakeInscripcionGateway()
+        ..misInscripcionesDevueltas = [
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-oferta',
+            materia: 'Oferta',
+            estado: EstadoInscripcion.pendingBid,
+            ofertaVenceEn:
+                DateTime.now().add(const Duration(hours: 2)).toIso8601String(),
+          ),
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-cola',
+            materia: 'Cola',
+            estado: EstadoInscripcion.waitlisted,
+            posicionEnCola: 4,
+          ),
+        ];
+      await montarPanel(
+        tester,
+        PanelMisInscripciones(
+          repositorio: InscripcionesRepository(gateway: fake),
+        ),
+      );
+
+      expect(
+        colorDeIcono(tester, Icons.local_offer_outlined),
+        IncesTheme.advertencia,
+        reason: 'la oferta por aceptar es el estado urgente: va en ámbar',
+      );
+      expect(
+        colorDeIcono(tester, Icons.people_outline),
+        IncesTheme.info,
+        reason: 'estar en la cola no exige acción: va en azul, no en ámbar',
+      );
+      expect(
+        colorDeIcono(tester, Icons.local_offer_outlined),
+        isNot(colorDeIcono(tester, Icons.people_outline)),
+        reason: 'si coincidieran, el color no distinguiría nada',
+      );
+    });
+
+    testWidgets('la oferta por aceptar se pinta por ENCIMA de la cola',
+        (tester) async {
+      // El orden del backend no es el orden de la pantalla: lo que caduca va
+      // primero. Se le pide al revés a propósito —la cola antes que la oferta—
+      // para que un orden que se limitara a respetar al servidor fallara.
+      final fake = FakeInscripcionGateway()
+        ..misInscripcionesDevueltas = [
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-cola',
+            materia: 'Cola',
+            estado: EstadoInscripcion.waitlisted,
+            posicionEnCola: 2,
+          ),
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-oferta',
+            materia: 'Oferta',
+            estado: EstadoInscripcion.pendingBid,
+            ofertaVenceEn:
+                DateTime.now().add(const Duration(hours: 1)).toIso8601String(),
+          ),
+        ];
+      await montarPanel(
+        tester,
+        PanelMisInscripciones(
+          repositorio: InscripcionesRepository(gateway: fake),
+        ),
+      );
+
+      final yOferta = tester.getTopLeft(find.text('Oferta')).dy;
+      final yCola = tester.getTopLeft(find.text('Cola')).dy;
+
+      expect(
+        yOferta,
+        lessThan(yCola),
+        reason: 'la oferta con fecha límite debe leerse antes que la espera',
+      );
+    });
+
+    testWidgets('con ofertas vivas, la cabecera lo dice en palabras',
+        (tester) async {
+      // El color de una insignia es una señal débil. El aviso de cabecera es la
+      // red que evita que el alumno pierda el cupo por no mirar la fila.
+      final fake = FakeInscripcionGateway()
+        ..misInscripcionesDevueltas = [
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-oferta',
+            estado: EstadoInscripcion.pendingBid,
+            ofertaVenceEn:
+                DateTime.now().add(const Duration(hours: 3)).toIso8601String(),
+          ),
+        ];
+      await montarPanel(
+        tester,
+        PanelMisInscripciones(
+          repositorio: InscripcionesRepository(gateway: fake),
+        ),
+      );
+
+      expect(
+        find.textContaining('oferta de cupo esperando respuesta'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('sin ofertas vivas no hay aviso de cabecera', (tester) async {
+      // El contrapeso de la prueba anterior: un aviso que sale siempre deja de
+      // avisar, y «tienes 0 ofertas esperando» sería ruido.
+      final fake = FakeInscripcionGateway()
+        ..misInscripcionesDevueltas = [
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-1',
+            estado: EstadoInscripcion.enrolled,
+          ),
+        ];
+      await montarPanel(
+        tester,
+        PanelMisInscripciones(
+          repositorio: InscripcionesRepository(gateway: fake),
+        ),
+      );
+
+      expect(find.textContaining('esperando respuesta'), findsNothing);
     });
   });
 }

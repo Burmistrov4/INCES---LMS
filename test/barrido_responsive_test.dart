@@ -26,6 +26,7 @@ import 'package:inces_lms_app/screens/admin/cpanel_secciones_panel.dart';
 import 'package:inces_lms_app/screens/aspirante_dashboard.dart';
 import 'package:inces_lms_app/screens/aspirante_form_screen.dart';
 import 'package:inces_lms_app/screens/gestor_documental_panel.dart';
+import 'package:inces_lms_app/screens/mis_inscripciones_panel.dart';
 import 'package:inces_lms_app/services/auth_service.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
 import 'package:inces_lms_app/widgets/andamiaje.dart';
