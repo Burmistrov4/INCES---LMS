@@ -4,11 +4,26 @@ import '../../services/asistencia_service.dart';
 
 /// Marcaje de asistencia del estudiante (M7).
 ///
-/// **Por qué un campo de texto y no sólo la cámara.** La cámara escanea el QR
-/// del pizarra —eso sigue—, y cuando no está disponible o la guardia privada
-/// de un móvil la bloquea, el mismo código se puede **teclear**: la página de
-/// validación de la base (RLS) no sabe si el código llegó por un escaneo o por
-/// seis dedos rápidos. La ventana de 15 segundos es el único guardián serio.
+/// **Por qué un campo de texto.** Hoy es la **única** vía de entrada: no hay
+/// cámara en este panel ni en el resto del cliente (`pubspec.yaml` sólo trae
+/// `qr_flutter`, que **pinta** QR, no los lee). El campo acepta el código tal
+/// como lo codifica la pizarra —`<uuid>:<6 dígitos>`— porque es lo que exige
+/// tanto el `ParseQr` de aquí abajo como el cuerpo de `POST /asistencia/marcar`
+/// (`{ sesionId, codigo }`): sin el UUID no hay sesión que marcar.
+///
+/// **El campo NO limita el largo, y es deliberado.** Hasta el 2026-09-27 llevaba
+/// `maxLength: 6` y `keyboardType: number`, así que sólo admitía seis dígitos
+/// mientras `ParseQr` exige 43 caracteres: `ParseQr.de()` devolvía `null`
+/// **siempre** y la pantalla contestaba «el código no tiene la forma del QR»
+/// hiciera lo que hiciera el alumno. Estaba muerta y nadie lo había visto.
+/// Ver **D21** en `ESTADO_DEL_SISTEMA.md`; `test/asistencia_paneles_test.dart`
+/// lo fija con una prueba que afirma el contenido del campo.
+///
+/// **Deuda de diseño declarada, no resuelta aquí:** teclear (o pegar) un UUID a
+/// mano es mal UX, y sin cámara no hay atajo. Las dos salidas honestas —añadir
+/// un lector (`mobile_scanner`) o una ruta que resuelva la sesión abierta a
+/// partir de los seis dígitos— son decisiones de producto, no un arreglo
+/// mecánico. La ventana de 15 segundos sigue siendo el único guardián serio.
 class MarcarAsistenciaPanel extends StatefulWidget {
   const MarcarAsistenciaPanel({super.key, this.servicio});
 
@@ -109,13 +124,18 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
                 enabled: !_hecho && !_ocupado,
                 decoration: InputDecoration(
                   labelText: 'Código',
-                  hintText: 'ej: 471212',
+                  // La pista tiene que mostrar la forma REAL: con `ej: 471212`
+                  // el alumno escribía seis dígitos y el parser los rechazaba
+                  // —el UUID es obligatorio—, así que la ayuda y el error se
+                  // contradecían entre sí. Ver D21.
+                  hintText: '<uuid>:471212',
                   border: const OutlineInputBorder(),
                   errorText: _mensajeError,
                 ),
                 textInputAction: TextInputAction.done,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
+                // `text`, no `number`: un teclado numérico no puede producir ni
+                // el UUID ni los dos puntos.
+                keyboardType: TextInputType.text,
                 onSubmitted: (_) => _marcar(),
               ),
               const SizedBox(height: 8),
