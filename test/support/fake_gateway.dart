@@ -4,6 +4,7 @@ import 'package:inces_lms_app/core/gateways/modules_gateway.dart';
 import 'package:inces_lms_app/models/aspirante_model.dart';
 import 'package:inces_lms_app/models/config_audit_entry.dart';
 import 'package:inces_lms_app/models/inscripcion_campo.dart';
+import 'package:inces_lms_app/models/perfil_usuario.dart';
 import 'package:inces_lms_app/models/system_module.dart';
 import 'package:inces_lms_app/models/system_setting.dart';
 
@@ -58,6 +59,24 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
 
   String? emailDeCedula;
   String? rolDelPerfil;
+
+  /// El perfil que devuelve `miPerfil` y que `actualizarPerfil` modifica.
+  ///
+  /// Arranca en `null` a propósito: «cuenta sin fila en `profiles`» es un estado
+  /// real —altas antiguas o interrumpidas— y tiene que poder montarse. Quien
+  /// quiera un perfil, lo asigna.
+  PerfilUsuario? perfil;
+
+  /// Lo que recibió `actualizarPerfil`, **tal cual llegó**.
+  ///
+  /// Se guardan los dos campos y no el perfil resultante porque lo que hay que
+  /// poder afirmar es que el servicio mandó el nombre **ya recortado**: mirando
+  /// sólo el resultado, una prueba no distingue «recortó» de «ya venía limpio».
+  String? nombresEnviados;
+  String? apellidosEnviados;
+
+  Object? errorAlLeerPerfil;
+  Object? errorAlActualizarPerfil;
 
   Object? errorAlIniciar;
   Object? errorAlRegistrar;
@@ -166,6 +185,37 @@ class FakeGateway implements AuthGateway, AspiranteGateway, ModulesGateway {
   Future<String?> rolDePerfil(String userId) async {
     llamadas.add('rolDePerfil');
     return rolDelPerfil;
+  }
+
+  @override
+  Future<PerfilUsuario?> miPerfil() async {
+    llamadas.add('miPerfil');
+    _lanzarSi(errorAlLeerPerfil);
+    return perfil;
+  }
+
+  @override
+  Future<PerfilUsuario> actualizarPerfil({
+    required String nombres,
+    required String apellidos,
+  }) async {
+    llamadas.add('actualizarPerfil');
+    nombresEnviados = nombres;
+    apellidosEnviados = apellidos;
+    _lanzarSi(errorAlActualizarPerfil);
+
+    final actual = perfil ??
+        const PerfilUsuario(
+          id: 'user-1',
+          email: 'aspirante@example.com',
+          nombres: '',
+          apellidos: '',
+          rol: 'estudiante',
+        );
+
+    final actualizado = actual.conNombre(nombres: nombres, apellidos: apellidos);
+    perfil = actualizado;
+    return actualizado;
   }
 
   // --- Implementación AspiranteGateway -------------------------------------

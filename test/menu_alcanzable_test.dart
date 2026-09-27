@@ -48,14 +48,14 @@ import 'package:inces_lms_app/widgets/andamiaje.dart';
 /// archivo, no una estimación: `items` es el total del menú y `ramas` las
 /// secciones que de verdad tienen panel.
 const Map<String, ({int items, int ramas})> _dashboards = {
-  // 15 y 13 desde el 2026-09-27: ese día se cablearon los tres paneles
-  // huérfanos de M3 (lapsos, espacios y guardias), que no estaban en el menú.
-  // El número es el estado real medido, no una estimación: subirlo es parte
-  // del cambio que añade una sección, y bajarlo sin querer es lo que este
-  // suelo existe para que no pase inadvertido.
-  'admin_dashboard.dart': (items: 15, ramas: 13),
-  'docente_dashboard.dart': (items: 5, ramas: 3),
-  'aspirante_dashboard.dart': (items: 6, ramas: 6),
+  // 16 y 14 desde el 2026-09-27: ese día se cablearon los tres paneles huérfanos
+  // de M3 (lapsos, espacios y guardias) y se añadió «Mi Perfil». El número es el
+  // estado real medido, no una estimación: subirlo es parte del cambio que añade
+  // una sección, y bajarlo sin querer es lo que este suelo existe para que no
+  // pase inadvertido.
+  'admin_dashboard.dart': (items: 16, ramas: 14),
+  'docente_dashboard.dart': (items: 5, ramas: 4),
+  'aspirante_dashboard.dart': (items: 8, ramas: 8),
 };
 
 void main() {
@@ -273,9 +273,12 @@ void main() {
   // El criterio es **«alguien lo importa»**, que es lo más fuerte que se puede
   // afirmar leyendo el código fuente sin montarlo. No es lo mismo que «es
   // alcanzable»: un import que nadie usa no llega a la pantalla. Ese caso lo
-  // cierra el analizador —`unused_import` es un aviso, y CI corre con
-  // `--fatal-infos`—, así que entre las dos comprobaciones el hueco queda
-  // tapado.
+  // cierra el analizador: `unused_import` es un **aviso** —medido en
+  // `analyzer/lib/src/diagnostic/diagnostic.g.dart`, `DiagnosticType
+  // .STATIC_WARNING`— y `flutter analyze` falla ante avisos, porque
+  // `--fatal-warnings` viene activado por defecto. El flujo **no** pasa
+  // `--fatal-infos`, y no le hace falta: lo que hace falta es que sea aviso, y
+  // lo es. Entre las dos comprobaciones el hueco queda tapado.
   //
   // Sólo se barre `lib/screens/**`, y es deliberado: en `lib/services/` hay
   // archivos que no importa nadie *a propósito*, porque los elige una

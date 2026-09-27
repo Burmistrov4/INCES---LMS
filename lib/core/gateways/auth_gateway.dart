@@ -1,3 +1,5 @@
+import '../models/perfil_usuario.dart';
+
 /// Resultado de un alta de credenciales.
 ///
 /// Es un objeto propio del dominio y no un `AuthResponse` de Supabase, para que
@@ -71,4 +73,34 @@ abstract interface class AuthGateway {
 
   /// Rol leído del perfil, o `null` si aún no hay perfil.
   Future<String?> rolDePerfil(String userId);
+
+  /// El perfil propio —la fila de `profiles`—, o `null` si todavía no existe.
+  ///
+  /// `profiles` se crea en el mismo instante del alta: el trigger
+  /// `handle_new_user()` la inserta junto con la ficha, en una sola transacción
+  /// (migración `202609120001`). Por eso, para un aprendiz que acaba de
+  /// registrarse, esto devuelve una fila **con su nombre ya cargado** y no un
+  /// hueco que haya que rellenar.
+  ///
+  /// Devolver `null` significa «no hay perfil», no «falló la consulta»: un fallo
+  /// de red o de RLS **lanza**, como el resto de esta capa.
+  Future<PerfilUsuario?> miPerfil();
+
+  /// Corrige el nombre y el apellido del perfil propio y devuelve el perfil
+  /// actualizado.
+  ///
+  /// **Sólo estos dos campos**, y es deliberado: la cédula y el correo son la
+  /// identidad con la que la persona se autentica y con la que aparece en la
+  /// nómina, y el rol es un privilegio que se concede desde el cPanel. Ver
+  /// [PerfilUsuario].
+  ///
+  /// La autorización no la decide esta capa sino la RLS (ADR-003): `profiles`
+  /// tiene `profiles_update_own` para el propio aprendiz y `profiles_admin_all`
+  /// para el administrador, que es quien cubre el caso del admin editándose a sí
+  /// mismo —su `rol` no es `estudiante`, así que la política de «el propio» no le
+  /// aplica—.
+  Future<PerfilUsuario> actualizarPerfil({
+    required String nombres,
+    required String apellidos,
+  });
 }

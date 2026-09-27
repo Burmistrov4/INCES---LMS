@@ -6,6 +6,7 @@ import '../core/gateways/modules_gateway.dart';
 import '../models/aspirante_model.dart';
 import '../models/config_audit_entry.dart';
 import '../models/inscripcion_campo.dart';
+import '../models/perfil_usuario.dart';
 import '../models/system_module.dart';
 import '../models/system_setting.dart';
 
@@ -130,6 +131,53 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
     final rol = perfil?['rol'] as String?;
     if (rol == null || rol.isEmpty) return null;
     return rol;
+  }
+
+  @override
+  Future<PerfilUsuario?> miPerfil() async {
+    final id = userId;
+    if (id == null) return null;
+
+    final fila = await client
+        .from(_tablaPerfiles)
+        .select('id, email, nombres, apellidos, rol')
+        .eq('id', id)
+        .maybeSingle();
+
+    if (fila == null) return null;
+    return PerfilUsuario.fromJson(fila);
+  }
+
+  @override
+  Future<PerfilUsuario> actualizarPerfil({
+    required String nombres,
+    required String apellidos,
+  }) async {
+    final id = userId;
+    if (id == null) {
+      // Sin sesión no hay a quién editarle el perfil. Se lanza en vez de
+      // devolver un perfil inventado: el contrato de esta capa es que un fallo
+      // se señala lanzando, y un `PerfilUsuario` de mentira se pintaría en la
+      // pantalla como si el guardado hubiera funcionado.
+      throw StateError('No hay sesión activa para actualizar el perfil.');
+    }
+
+    // `select()` + `single()` y no un `update` a secas, por una razón concreta:
+    // así lo que se devuelve es la fila que quedó **en la base**, no la que
+    // creemos haber mandado. Si una política de RLS filtrara la escritura,
+    // PostgREST devuelve **cero filas** y `single()` falla (`PGRST116`) en vez de
+    // dar por bueno un cambio que nunca ocurrió.
+    //
+    // `updated_at` no viaja: lo pone el trigger `profiles_set_updated_at`. Mandarlo
+    // desde aquí sería una segunda fuente de verdad para la misma columna.
+    final fila = await client
+        .from(_tablaPerfiles)
+        .update({'nombres': nombres, 'apellidos': apellidos})
+        .eq('id', id)
+        .select('id, email, nombres, apellidos, rol')
+        .single();
+
+    return PerfilUsuario.fromJson(fila);
   }
 
   // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import 'aspirante/marcar_asistencia_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mis_aulas_panel.dart';
 import 'mis_inscripciones_panel.dart';
+import 'perfil_panel.dart';
 
 /// Panel del aspirante y del estudiante.
 ///
@@ -97,6 +98,17 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
     ItemNavegacion(
       icono: Icons.badge_outlined,
       titulo: 'Mi inscripción',
+      categoria: 'Mi cuenta',
+    ),
+    // El aprendiz corrige su nombre desde el primer día: `profiles` se crea en
+    // la misma transacción del alta (`handle_new_user()`, migración
+    // `202609120001`), así que no hay que esperar a nada para poder editarlo.
+    //
+    // Es el **mismo panel** que usa el administrador (`lib/screens/perfil_panel.dart`),
+    // no una copia: lo que se puede corregir —el nombre— no depende del rol.
+    ItemNavegacion(
+      icono: Icons.account_circle_outlined,
+      titulo: 'Mi Perfil',
       categoria: 'Mi cuenta',
     ),
     ItemNavegacion(
@@ -212,6 +224,14 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
     switch (item.titulo) {
       case 'Mi inscripción':
         return _panelMiInscripcion();
+
+      // El mismo panel que monta el administrador. Aquí no se le inyecta nada:
+      // resuelve el servicio real, que es lo que un aprendiz necesita.
+      case 'Mi Perfil':
+        return ContenidoSeccion(
+          migas: ['Inicio', item.categoria, item.titulo],
+          child: const PerfilPanel(),
+        );
 
       case 'Ofertas de cupos':
         return PanelOfertas(repositorio: _inscripciones);

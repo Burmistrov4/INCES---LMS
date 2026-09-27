@@ -2,6 +2,7 @@ import '../core/errors/app_exception.dart';
 import '../core/gateways/auth_gateway.dart';
 import '../core/result.dart';
 import '../models/aspirante_model.dart';
+import '../models/perfil_usuario.dart';
 import '../models/registro_resultado.dart';
 import '../providers/role_provider.dart';
 import 'supabase_service.dart';
@@ -146,6 +147,59 @@ class AuthService {
     } catch (_) {
       return false;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Perfil propio
+  // ---------------------------------------------------------------------------
+
+  /// El perfil de quien tiene la sesión activa.
+  ///
+  /// `success(null)` significa «esta cuenta no tiene perfil», que en la práctica
+  /// sólo ocurre en altas antiguas o interrumpidas: `handle_new_user()` inserta
+  /// la fila en la misma transacción del alta. Un fallo de red o de RLS llega
+  /// como `failure`, **no** como `null` — confundir los dos haría que un corte de
+  /// red se pintara como «no tienes perfil».
+  Future<Result<PerfilUsuario?>> miPerfil() {
+    return Result.guard(() => _gateway.miPerfil());
+  }
+
+  /// Corrige el nombre y el apellido propios y devuelve el perfil actualizado.
+  ///
+  /// **La validación vive aquí y no en el widget**, por el mismo motivo que la de
+  /// la contraseña: la regla es del dominio, y así las pruebas la cubren sin
+  /// montar la interfaz. Y hay una razón concreta para no dejarla a la base:
+  /// `profiles.nombres` es `not null`, pero la cadena vacía **lo satisface**, así
+  /// que Postgres aceptaría un perfil sin nombre y la cabecera de la aplicación
+  /// quedaría en blanco sin que nada fallara.
+  Future<Result<PerfilUsuario>> actualizarPerfil({
+    required String nombres,
+    required String apellidos,
+  }) {
+    return Result.guard(() async {
+      // Se recorta **antes** de validar y de enviar: un nombre de solo espacios
+      // no es un nombre, y mandarlo con espacios dejaría un `'  '` guardado que
+      // se ve como un hueco pero no está vacío.
+      final nombreLimpio = nombres.trim();
+      final apellidoLimpio = apellidos.trim();
+
+      final faltantes = <String>[
+        if (nombreLimpio.isEmpty) 'el nombre',
+        if (apellidoLimpio.isEmpty) 'el apellido',
+      ];
+
+      if (faltantes.isNotEmpty) {
+        throw AppException.validacion(
+          'Completa ${faltantes.join(' y ')}: son los datos con los que '
+          'apareces en la nómina.',
+        );
+      }
+
+      return _gateway.actualizarPerfil(
+        nombres: nombreLimpio,
+        apellidos: apellidoLimpio,
+      );
+    });
   }
 
   // ---------------------------------------------------------------------------

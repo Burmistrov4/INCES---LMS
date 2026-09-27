@@ -21,6 +21,7 @@ import 'admin/cpanel_lapsos_panel.dart';
 import 'admin/cpanel_inscripcion_campos_panel.dart';
 import 'admin/cpanel_inscripciones_panel.dart';
 import 'admin/cpanel_secciones_panel.dart';
+import 'perfil_panel.dart';
 
 /// cPanel del Administrador Maestro.
 ///
@@ -166,6 +167,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       categoria: 'Control de aulas',
       disponible: false,
     ),
+    // «Mi cuenta» es la única categoría que no es del centro sino **de quien
+    // está dentro**, y por eso va la última: el administrador entra a
+    // administrar, no a mirarse. El mismo ítem existe en el dashboard del
+    // aprendiz, con la misma categoría, porque el panel es el mismo.
+    //
+    // La categoría es nueva aquí y no hay que registrar en ninguna lista: el
+    // menú de `AndamiajeApp` agrupa por el texto de `categoria` en orden de
+    // aparición y lo pinta tal cual. (El vocabulario que sí está centralizado es
+    // el del **catálogo de módulos** —`ordenCategorias` en `ModuloRepository`—,
+    // que es otra cosa: eso es lo que se agrupa en el cPanel de módulos.)
+    ItemNavegacion(
+      icono: Icons.account_circle_outlined,
+      titulo: 'Mi Perfil',
+      categoria: 'Mi cuenta',
+      disponible: true,
+    ),
   ];
 
   /// Período mostrado en el encabezado.
@@ -268,6 +285,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return const ContenidoSeccion(
           migas: ['Inicio', 'Control de aulas', 'Guardias'],
           child: CpanelGuardiasPanel(),
+        );
+      case 'Mi Perfil':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Mi cuenta', 'Mi Perfil'],
+          child: PerfilPanel(),
         );
       default:
         return Padding(
