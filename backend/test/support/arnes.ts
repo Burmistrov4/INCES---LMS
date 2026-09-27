@@ -1,8 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { construirApp } from '../../src/app.js';
 import { cargarEnv, type Env } from '../../src/config/env.js';
+import { createHash } from 'node:crypto';
 import type {
+  EntradaCrearSesion,
   EntradaRegistrarArchivo,
+  MarcaAsistencia,
   PuertaAlmacenamiento,
   PuertaArchivos,
   PuertaAsistencia,
@@ -19,6 +22,7 @@ import type {
   PuertaPlanilla,
   PuertaSecciones,
   Repositorios,
+  SesionAsistencia,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
 import { renderizarPlanillaPdf } from '../../src/infra/planilla-pdf.js';
@@ -990,6 +994,157 @@ export const ENTREGAS_POR_DEFECTO: EntregaFalso[] = [
   },
 ];
 
+// --- datos de ejemplo de M7 -------------------------------------------------
+
+/**
+ * Una sesión de asistencia, en memoria.
+ *
+ * Se guarda en **camelCase** (`seccionId`, `abiertoPor`) y no con los nombres de
+ * la tabla porque es lo que el doble almacena, no lo que viaja: el mapeo a
+ * `section_id`/`opened_by` lo hace `aSesionAsistencia` al devolver, igual que el
+ * repositorio real. Tenerlo al revés haría que una prueba fijara nombres de
+ * columna sobre un doble que nunca habla SQL.
+ */
+export interface SesionAsistenciaFalsa {
+  id: string;
+  seccionId: string;
+  abiertoPor: string;
+  /** 40 caracteres hex, como `crypto.getRandomValues(new Uint8Array(20))`. */
+  qrSecret: string;
+  ventanaSeg: number;
+  status: 'OPEN' | 'CLOSED';
+  abiertaEn?: string;
+}
+
+/**
+ * Una marca de asistencia, en memoria.
+ *
+ * `codigo` se conserva aunque la validación ya haya pasado: la tabla
+ * `attendance_marks` guarda el código presentado «para auditoría», y un doble
+ * que lo tirara no podría comprobar que se guardó **el que el alumno mandó**.
+ */
+export interface MarcaAsistenciaFalsa {
+  id?: string;
+  sesionId: string;
+  estudianteId: string;
+  codigo?: string;
+  marcadaEn?: string;
+}
+
+/** Id de la sesión abierta por defecto. UUID v4 válido: viaja por la ruta. */
+export const ID_SESION_ASISTENCIA = 'e5e5e5e5-0001-4001-8001-000000000001';
+
+/**
+ * El secreto de la sesión por defecto: 40 caracteres hex.
+ *
+ * **Se escribe a mano y no se genera al azar**, a diferencia de lo que hace
+ * `crearSesion` en producción. El motivo es que el código del QR **depende del
+ * secreto**: una prueba que quiera presentar un código válido tiene que poder
+ * derivarlo de antemano, y con un secreto aleatorio no podría. Es el mismo
+ * criterio que `CLAVE_ARCHIVO_CONFIRMADO` en M5.
+ */
+export const SECRETO_SESION = '3f2a9c1e5b7d8042a6c9e1f3b5d70842a1c3e5f7';
+
+/** La ventana por defecto del QR, en segundos. Es el valor medido de la base. */
+export const VENTANA_SEG_POR_DEFECTO = 15;
+
+/**
+ * Una sesión **abierta** en la sección del alumno, del docente de ejemplo.
+ *
+ * Abierta y no cerrada porque el caso interesante de `marcar` es el que puede
+ * triunfar: con una sesión cerrada, toda marca daría 403 y la prueba del camino
+ * feliz no existiría. El caso «sesión cerrada» se monta pasando una.
+ */
+export const SESIONES_ASISTENCIA_POR_DEFECTO: SesionAsistenciaFalsa[] = [
+  {
+    id: ID_SESION_ASISTENCIA,
+    seccionId: ID_SECCION_SA,
+    abiertoPor: ID_DOCENTE,
+    qrSecret: SECRETO_SESION,
+    ventanaSeg: VENTANA_SEG_POR_DEFECTO,
+    status: 'OPEN',
+  },
+];
+
+/**
+ * Sin marcas por defecto, y a propósito.
+ *
+ * La marca es el **efecto** de la operación que se prueba. Una semilla con
+ * marcas ya puestas haría que «marcar» pareciera funcionar sin haber insertado
+ * nada, y que la lista del docente tuviera filas que ninguna prueba escribió. El
+ * camino «ya había marcas» se monta pasándolas explícitamente.
+ */
+export const MARCAS_ASISTENCIA_POR_DEFECTO: MarcaAsistenciaFalsa[] = [];
+
+/**
+ * El código del QR para una ventana, con **la misma regla que la base**.
+ *
+ * `asistencia_codigo_en_ventana` (migración `202609260001`) calcula
+ * `sha256(secreto ‖ sesion ‖ ventana)`, toma los 8 primeros caracteres hex y los
+ * reduce a seis dígitos. El doble tiene que reproducirlo porque **el repositorio
+ * no valida nada**: la comprobación vive en la política RLS
+ * `attendance_marks_estudiante_insert`, y sin reproducirla el doble aceptaría
+ * cualquier código y la ruta parecería correcta con el módulo roto.
+ *
+ * **Medido el 2026-09-27, y la duda era razonable.** El SQL hace
+ * `('x' || hex8)::bit(32)::bigint % 1000000`, y un `bigint` **con signo** daría
+ * un resto negativo para la mitad de los valores —el bit alto puesto—, con lo
+ * que el código de la app y el de la base discreparían en silencio y el QR no
+ * aceptaría a nadie. Se midió contra PGlite: `('x' || 'ffffffff')::bit(32)::bigint`
+ * devuelve **4294967295**, es decir, el cast es **sin signo**. Sobre 500 ventanas
+ * consecutivas —258 de ellas con el bit alto— las dos derivaciones coincidieron
+ * en las 500. La paridad está fijada por `test/asistencia_service_test.dart`.
+ */
+export function codigoAsistenciaEnVentana(
+  secreto: string,
+  sesionId: string,
+  ventana: number,
+): string {
+  const hex8 = createHash('sha256')
+    .update(`${secreto}${sesionId}${ventana}`)
+    .digest('hex')
+    .slice(0, 8);
+  return String(parseInt(hex8, 16) % 1000000).padStart(6, '0');
+}
+
+/**
+ * La ventana temporal en la que cae `ahora`.
+ *
+ * Es `floor(extract(epoch from now()) / ventana_seg)` de la base. Se acepta un
+ * `Date` para que una prueba pueda fijar el instante en vez de depender del
+ * reloj —una prueba que solo pasa si no cruza un múltiplo de 15 segundos es una
+ * ruleta—.
+ */
+export function ventanaDeAsistencia(
+  ventanaSeg: number,
+  ahora: Date = new Date(),
+): number {
+  return Math.floor(Math.floor(ahora.getTime() / 1000) / ventanaSeg);
+}
+
+/** La fila de sesión con los nombres de columna que devuelve el repositorio. */
+function aSesionAsistencia(sesion: SesionAsistenciaFalsa): SesionAsistencia {
+  return {
+    id: sesion.id,
+    section_id: sesion.seccionId,
+    opened_by: sesion.abiertoPor,
+    opened_at: sesion.abiertaEn ?? '2026-09-18T12:00:00.000Z',
+    qr_secret: sesion.qrSecret,
+    ventana_seg: sesion.ventanaSeg,
+    status: sesion.status,
+  };
+}
+
+/** La fila de marca con los nombres de columna que devuelve el repositorio. */
+function aMarcaAsistencia(marca: MarcaAsistenciaFalsa): MarcaAsistencia {
+  return {
+    id: marca.id ?? '',
+    session_id: marca.sesionId,
+    student_id: marca.estudianteId,
+    marked_at: marca.marcadaEn ?? '2026-09-18T12:00:00.000Z',
+  };
+}
+
 // --- repositorios en memoria ------------------------------------------------
 
 export interface EstadoFalso {
@@ -1068,6 +1223,18 @@ export interface EstadoFalso {
   anuncios: AnuncioFalso[];
   tareas: TareaFalsa[];
   entregas: EntregaFalso[];
+
+  // --- M7 ---
+  /**
+   * Las sesiones de asistencia abiertas.
+   *
+   * El doble **sí** reproduce la decisión del módulo —a diferencia de M5 y M6—,
+   * porque en M7 la regla delicada no vive en el repositorio sino en la RLS: ver
+   * la nota del doble de `asistencia` más abajo.
+   */
+  sesionesAsistencia: SesionAsistenciaFalsa[];
+  /** Las marcas registradas, en orden de inserción. */
+  marcasAsistencia: MarcaAsistenciaFalsa[];
 
   /**
    * Id del usuario de la petición en curso, o `null` si va anónima.
@@ -1162,6 +1329,17 @@ export interface OpcionesArnés {
   tareas?: TareaFalsa[];
   /** Entregas. Por defecto, el placeholder del alumno para la tarea publicada. */
   entregas?: EntregaFalso[];
+  // --- M7 ---
+  /**
+   * Sesiones de asistencia. Por defecto, una **abierta** en la sección del
+   * alumno y del docente de ejemplo: es el estado del que parte el camino feliz.
+   */
+  sesionesAsistencia?: SesionAsistenciaFalsa[];
+  /**
+   * Marcas ya registradas. Por defecto, **ninguna**: la marca es el efecto de lo
+   * que se prueba, no un punto de partida.
+   */
+  marcasAsistencia?: MarcaAsistenciaFalsa[];
   /**
    * Arranca el arnés **sin** almacenamiento, como un despliegue sin R2.
    *
@@ -1332,6 +1510,25 @@ function referenciaInvalida(): ErrorApi {
   );
 }
 
+/**
+ * El 403 que la base produce cuando una política RLS rechaza una fila (`42501`).
+ *
+ * El texto y el código están **copiados de `traducirError`**
+ * (`src/infra/traducir-error.ts`, rama `42501`), no inventados: es lo que el
+ * usuario recibe de verdad cuando su código caducó o no está matriculado. Una
+ * prueba que fijara un mensaje distinto —por ejemplo uno que explicara «tu código
+ * caducó»— estaría fijando un contrato que la API no cumple, y el día que
+ * alguien leyera la prueba creería que el alumno recibe esa explicación.
+ */
+function permisoDenegado(contexto: string): ErrorApi {
+  return new ErrorApi(
+    403,
+    'PERMISO_DENEGADO',
+    'No tienes permisos para realizar esta acción.',
+    { contexto },
+  );
+}
+
 /** Orden cronológico de una rejilla: día, bloque y desempate estable por id. */
 function porDiaBloque<T extends { dia: number; bloque: number; id: string }>(
   a: T,
@@ -1377,6 +1574,15 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     anuncios: (opciones.anuncios ?? ANUNCIOS_POR_DEFECTO).map((a) => ({ ...a })),
     tareas: (opciones.tareas ?? TAREAS_POR_DEFECTO).map((t) => ({ ...t })),
     entregas: (opciones.entregas ?? ENTREGAS_POR_DEFECTO).map((e) => ({ ...e })),
+    // Copia superficial, como el resto: una prueba que abra una sesión no debe
+    // contaminar la siguiente. Las marcas se copian igual aunque el valor por
+    // defecto sea vacío, para que la regla no dependa de que hoy lo sea.
+    sesionesAsistencia: (opciones.sesionesAsistencia ?? SESIONES_ASISTENCIA_POR_DEFECTO).map(
+      (s) => ({ ...s }),
+    ),
+    marcasAsistencia: (opciones.marcasAsistencia ?? MARCAS_ASISTENCIA_POR_DEFECTO).map(
+      (m) => ({ ...m }),
+    ),
     usuarioActual: null,
   };
 
@@ -3815,12 +4021,177 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     },
   };
 
-  /** Asistencia sin doble funcional: la puerta existe, pero ningún test la usa aún. */
-  const reposAsistenciaFalsos: PuertaAsistencia = {
-    crearSesion: async () => { throw new Error('asistencia sin doble en el arnés'); },
-    marcasDeSesion: async () => [],
-    marcar: async () => 'duplicada',
-    cerrarSesion: async () => {},
+  // --- Módulo 7: asistencia concurrente ------------------------------------
+  //
+  //  **Por qué este doble es distinto de los demás.**
+  //
+  //  En M5 y M6 el doble se limita a devolver filas: la regla delicada —quién
+  //  puede ver qué, qué nota es visible— vive en la RLS, y el doble sólo
+  //  reproduce lo justo para que la ruta trate bien lo que le llega. En M7 no
+  //  basta, porque `AsistenciaSupabase` **no valida nada**: inserta la marca y
+  //  deja que Postgres decida. La decisión entera —«¿este código es vigente?»,
+  //  «¿este alumno está matriculado?», «¿la sesión sigue abierta?»— está en la
+  //  política `attendance_marks_estudiante_insert` (202609260001).
+  //
+  //  Un doble que aceptara cualquier código dejaría las pruebas de la ruta en
+  //  verde y el módulo roto, que es exactamente el fallo que D18 describe: la
+  //  barrera anti-trampas existía y nadie la había visto funcionar. Por eso este
+  //  doble **sí** reproduce la política: deriva el código con la misma regla que
+  //  la base (`codigoAsistenciaEnVentana`) y exige matrícula `ENROLLED`, y
+  //  rechaza con el mismo `42501` que produciría Postgres.
+  //
+  //  **Lo que este doble sigue sin poder probar**, y conviene no confundirlo con
+  //  cobertura: que la política esté puesta de verdad en la nube, que el `GRANT`
+  //  esconda `qr_secret` o que `security definer` sea definer. Eso lo mide la
+  //  suite de PGlite (`supabase/tests/validate.mjs`) y el bloque 10 de
+  //  `supabase/verificar-esquema.mjs`, que consultan catálogos reales.
+
+  let secuenciaSesiones = 0;
+  let secuenciaMarcas = 0;
+
+  /**
+   * ¿Está el alumno matriculado (ENROLLED) en esa sección?
+   *
+   * El `estado` es opcional en la semilla y cae a `ENROLLED`, igual que el
+   * `default` de la columna: una matrícula sin estado explícito está admitida, no
+   * en la cola.
+   */
+  const estaMatriculado = (seccionId: string, estudianteId: string): boolean =>
+    estado.inscripciones.some(
+      (i) =>
+        i.seccionId === seccionId &&
+        i.estudianteId === estudianteId &&
+        (i.estado ?? 'ENROLLED') === 'ENROLLED',
+    );
+
+  const asistencia: PuertaAsistencia = {
+    async crearSesion(entrada: EntradaCrearSesion) {
+      revisar('asistencia.crearSesion');
+
+      // La clave ajena `section_id references sections(id)`.
+      if (!estado.secciones.some((s) => s.id === entrada.seccionId)) {
+        throw referenciaInvalida();
+      }
+
+      // La política de INSERT de `attendance_sessions`: `opened_by = auth.uid()`
+      // **y** quien dicta la sección. Se reutiliza el `dictaSeccion` de M6 en vez
+      // de escribir un segundo helper: es la misma pregunta sobre la misma tabla
+      // (`clases` modela `schedule_slots`), y dos copias de la misma regla se
+      // desvían en cuanto alguien ajusta una.
+      //
+      // **Diferencia medida entre las dos políticas, anotada y no corregida:**
+      // `m6_dicta_seccion` filtra `and ss.is_active`, mientras que
+      // `attendance_sessions_docente_insert` (202609260001) **no** lo hace. Es
+      // decir: M7 considera que un docente con la franja archivada todavía puede
+      // abrir asistencia, y M6 no. No se toca sin decisión —corregirlo cambia
+      // quién puede abrir sesiones en la nube—, y aquí se hereda el criterio
+      // estricto de M6 a propósito: un doble **más** estricto que la base sólo
+      // puede hacer que una prueba legítima falle, nunca que un fallo pase.
+      if (entrada.abiertoPor !== estado.usuarioActual || !dictaSeccion(entrada.seccionId)) {
+        throw permisoDenegado('crear sesión de asistencia');
+      }
+
+      const sesion: SesionAsistenciaFalsa = {
+        id: nuevoId('e5e5e5e5', ++secuenciaSesiones),
+        seccionId: entrada.seccionId,
+        abiertoPor: entrada.abiertoPor,
+        // 40 caracteres hex, como `crypto.getRandomValues(new Uint8Array(20))`.
+        // Aleatorio **de verdad**: este secreto no se prueba, se usa. Las
+        // pruebas que necesitan un código válido parten de la sesión sembrada,
+        // cuyo secreto sí es fijo.
+        qrSecret: Array.from({ length: 40 }, () =>
+          '0123456789abcdef'[Math.floor(Math.random() * 16)],
+        ).join(''),
+        ventanaSeg: entrada.ventanaSeg,
+        status: 'OPEN',
+        abiertaEn: CREADO_EN_FALSO,
+      };
+
+      estado.sesionesAsistencia = [...estado.sesionesAsistencia, sesion];
+      return aSesionAsistencia(sesion);
+    },
+
+    async marcasDeSesion(sesionId: string) {
+      revisar('asistencia.marcasDeSesion');
+
+      // Orden cronológico, como el `order('marked_at', ascending: true)` del
+      // repositorio real. El desempate por posición de inserción no es cosmético:
+      // sin él, dos marcas con la misma marca de tiempo podrían salir en distinto
+      // orden entre dos lecturas y el listado del docente bailaría.
+      return estado.marcasAsistencia
+        .map((marca, indice) => ({ marca, indice }))
+        .filter(({ marca }) => marca.sesionId === sesionId)
+        .sort((a, b) => {
+          const porFecha = (a.marca.marcadaEn ?? '').localeCompare(b.marca.marcadaEn ?? '');
+          return porFecha !== 0 ? porFecha : a.indice - b.indice;
+        })
+        .map(({ marca }) => aMarcaAsistencia(marca));
+    },
+
+    async marcar(sesionId: string, codigo: string, estudianteId: string) {
+      revisar('asistencia.marcar');
+
+      const sesion = estado.sesionesAsistencia.find((s) => s.id === sesionId);
+      if (!sesion) {
+        // La RLS no produce un 404 legible: la fila no pasa el `with check` y
+        // Postgres responde `42501`. Se reproduce igual, sin inventar un
+        // NO_ENCONTRADO que la base nunca emitiría.
+        throw permisoDenegado('marcar asistencia');
+      }
+
+      // La duplicidad se comprueba **antes** de validar el código, y el orden
+      // importa: es el `23505` del `unique (session_id, student_id)` el que la
+      // base produce, y ese `unique` salta antes que cualquier otra cosa. Volver
+      // a marcar con un código ya caducado tiene que seguir siendo «duplicada»
+      // —el alumno ya está contado— y no un 403 que le haría creer que no marcó.
+      const yaMarcada = estado.marcasAsistencia.some(
+        (m) => m.sesionId === sesionId && m.estudianteId === estudianteId,
+      );
+      if (yaMarcada) return 'duplicada';
+
+      // La ventana actual **y la anterior**: `asistencia_codigo_vigente` acepta
+      // las dos porque una rotación puede caer en medio del escaneo del alumno.
+      const ventana = ventanaDeAsistencia(sesion.ventanaSeg);
+      const presentado = codigo.trim();
+      const vigente =
+        codigoAsistenciaEnVentana(sesion.qrSecret, sesionId, ventana) === presentado ||
+        codigoAsistenciaEnVentana(sesion.qrSecret, sesionId, ventana - 1) === presentado;
+
+      const matriculado = estaMatriculado(sesion.seccionId, estudianteId);
+
+      if (!vigente || sesion.status !== 'OPEN' || !matriculado) {
+        throw permisoDenegado('marcar asistencia');
+      }
+
+      const marca: MarcaAsistenciaFalsa = {
+        id: nuevoId('f6f6f6f6', ++secuenciaMarcas),
+        sesionId,
+        estudianteId,
+        codigo: presentado,
+        marcadaEn: CREADO_EN_FALSO,
+      };
+
+      estado.marcasAsistencia = [...estado.marcasAsistencia, marca];
+      return aMarcaAsistencia(marca);
+    },
+
+    async cerrarSesion(sesionId: string, abiertoPor: string) {
+      revisar('asistencia.cerrarSesion');
+
+      // El `update ... eq('id', ...).eq('opened_by', ...)` del repositorio real:
+      // si el filtro no toca ninguna fila, el resultado trae cero y la ruta lo
+      // traduce a 403 NO_ES_TUYA. Es la frontera de «cerrar la sesión de otro».
+      const sesion = estado.sesionesAsistencia.find(
+        (s) => s.id === sesionId && s.abiertoPor === abiertoPor,
+      );
+
+      if (!sesion) {
+        throw ErrorApi.prohibido('NO_ES_TUYA', 'No eres el dueño de esta sesión.');
+      }
+
+      // Cerrar no borra: las marcas se conservan, igual que en la base.
+      sesion.status = 'CLOSED';
+    },
   };
 
   const repos: Repositorios = {
@@ -3837,7 +4208,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     planilla,
     archivos,
     aula,
-    asistencia: reposAsistenciaFalsos,
+    asistencia,
   };
 
   const enviarCorreo: EnvioCorreo = {

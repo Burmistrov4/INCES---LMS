@@ -45,7 +45,7 @@ export function rutasAsistencia(app: FastifyInstance): void {
           ventanaSeg,
         });
 
-        return reply201(sesion);
+        return envolverSesion(sesion);
       });
 
       // Docente/admin: las marcas de una sesión, en orden de llegada.
@@ -147,7 +147,18 @@ const esquemaMarcar = z.object({
   codigo: z.string().min(1, 'Falta el código del QR.'),
 });
 
-function reply201(datos: unknown) {
+/**
+ * Envuelve la fila en el sobre `{ sesion }` de la respuesta.
+ *
+ * **Se llamaba `reply201` y no lo era.** El nombre afirmaba un 201 que la
+ * función nunca fijó —sólo devuelve un objeto; el código de estado lo pone
+ * Fastify, y es **200**—. El contrato real es 200 y el OpenAPI lo documenta como
+ * 200, así que la única desviación era el nombre. Costó una prueba: la primera
+ * versión de `test/asistencia.test.ts` esperaba 201 por leer esta función y
+ * falló. Un identificador que afirma algo falso hace escribir pruebas
+ * equivocadas, y eso es más caro que el renombre.
+ */
+function envolverSesion(datos: unknown) {
   return { sesion: datos };
 }
 
