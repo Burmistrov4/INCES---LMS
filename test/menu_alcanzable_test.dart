@@ -48,7 +48,12 @@ import 'package:inces_lms_app/widgets/andamiaje.dart';
 /// archivo, no una estimación: `items` es el total del menú y `ramas` las
 /// secciones que de verdad tienen panel.
 const Map<String, ({int items, int ramas})> _dashboards = {
-  'admin_dashboard.dart': (items: 11, ramas: 9),
+  // 15 y 13 desde el 2026-09-27: ese día se cablearon los tres paneles
+  // huérfanos de M3 (lapsos, espacios y guardias), que no estaban en el menú.
+  // El número es el estado real medido, no una estimación: subirlo es parte
+  // del cambio que añade una sección, y bajarlo sin querer es lo que este
+  // suelo existe para que no pase inadvertido.
+  'admin_dashboard.dart': (items: 15, ramas: 13),
   'docente_dashboard.dart': (items: 5, ramas: 3),
   'aspirante_dashboard.dart': (items: 6, ramas: 6),
 };
@@ -250,6 +255,90 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------------
+  //  La dirección que faltaba
+  // ---------------------------------------------------------------------------
+  //
+  // El contrato de arriba va del **menú al switch**: si una sección tiene la
+  // bandera levantada, tiene que haber una rama. Es la dirección de R-22.
+  //
+  // Pero hay una segunda forma de quedar inalcanzable que no se parece a R-22 y
+  // que la guardia no miraba: **que el panel no esté en el menú en absoluto**.
+  // Ahí no hay ítem con el que comparar, la igualdad de conjuntos se cumple con
+  // los dos lados sin él, y el panel queda construido, probado y muerto. Pasó
+  // tres veces en M3 —lapsos, espacios y guardias— y lo destapó una medición a
+  // mano, no una prueba.
+  //
+  // El criterio es **«alguien lo importa»**, que es lo más fuerte que se puede
+  // afirmar leyendo el código fuente sin montarlo. No es lo mismo que «es
+  // alcanzable»: un import que nadie usa no llega a la pantalla. Ese caso lo
+  // cierra el analizador —`unused_import` es un aviso, y CI corre con
+  // `--fatal-infos`—, así que entre las dos comprobaciones el hueco queda
+  // tapado.
+  //
+  // Sólo se barre `lib/screens/**`, y es deliberado: en `lib/services/` hay
+  // archivos que no importa nadie *a propósito*, porque los elige una
+  // exportación condicional (`selector_archivos_navegador.dart` exporta
+  // `selector_archivos_io.dart` **o** `selector_archivos_web.dart` según la
+  // plataforma). Un contrato global señalaría a esos dos como huérfanos, y
+  // sería falso.
+  group('ninguna pantalla queda huérfana · la dirección que faltaba', () {
+    test('toda pantalla bajo lib/screens se importa desde algún archivo de lib/',
+        () {
+      final lib = _raizLib();
+
+      final dart = lib
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList();
+
+      // El texto se lee una sola vez por archivo: lo que se comprueba es
+      // «¿alguno de los demás lo menciona en un `import` o un `export`?».
+      final textos = <String, String>{
+        for (final f in dart) f.path: f.readAsStringSync(),
+      };
+
+      final pantallas = dart.where((f) => _bajoLibScreens(f.path)).toList();
+
+      // Sin este suelo, una ruta mal escrita dejaría `pantallas` vacía y la
+      // prueba daría un verde hueco: exactamente el fallo que este archivo
+      // documenta más arriba con el suelo de `_dashboards`.
+      expect(
+        pantallas.length,
+        greaterThan(20),
+        reason: 'el barrido no encontró pantallas bajo lib/screens: la ruta '
+            'está mal y el verde de abajo no significaría nada',
+      );
+
+      final huerfanas = <String>[];
+
+      for (final pantalla in pantallas) {
+        final archivo = pantalla.uri.pathSegments.last;
+        final patron = RegExp(
+          "(?:import|export)\\s+'[^']*${RegExp.escape(archivo)}'",
+        );
+
+        final alcanzable = textos.entries.any(
+          (e) => e.key != pantalla.path && patron.hasMatch(e.value),
+        );
+
+        if (!alcanzable) {
+          huerfanas.add(_etiquetaPantalla(pantalla.path));
+        }
+      }
+
+      expect(
+        huerfanas,
+        isEmpty,
+        reason: 'estas pantallas existen y nadie las importa: están '
+            'construidas y son inalcanzables. Es el fallo de R-22 —«probar el '
+            'panel donde vive no prueba que se pueda llegar a él»— en su forma '
+            'más directa. Cablea el panel en un menú, o bórralo si ya no sirve.',
+      );
+    });
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -342,4 +431,48 @@ Set<String> _leerRamasDelSwitch(String fuente) {
       .allMatches(bloque)
       .map((m) => m.group(1)!)
       .toSet();
+}
+
+/// Normaliza los separadores para poder comparar rutas en Windows y en Linux.
+///
+/// `listSync` devuelve `\` en Windows y `/` en Linux.
+String _normalizar(String ruta) => ruta.replaceAll('\\', '/');
+
+/// ¿La ruta está bajo `lib/screens/`?
+///
+/// Se comparan **segmentos** y no una subcadena `'/lib/screens/'`: esa forma
+/// depende de que la ruta venga absoluta, y una ruta relativa (`lib/screens/…`)
+/// no contiene la barra inicial. El suelo `greaterThan(20)` de la prueba
+/// atraparía la lista vacía resultante, pero es mejor que el filtro no dependa
+/// de cómo se invocó `flutter test`.
+bool _bajoLibScreens(String ruta) {
+  final partes = _normalizar(ruta).split('/');
+  final i = partes.indexOf('lib');
+  return i != -1 && i + 1 < partes.length && partes[i + 1] == 'screens';
+}
+
+/// La ruta tal y como se enseña en el mensaje de fallo: desde `screens/`.
+String _etiquetaPantalla(String ruta) {
+  final partes = _normalizar(ruta).split('/');
+  final i = partes.indexOf('screens');
+  return i == -1 ? _normalizar(ruta) : partes.sublist(i).join('/');
+}
+
+/// Localiza `lib/` subiendo por los directorios padres, igual que [_fuente].
+///
+/// `flutter test` corre desde la raíz del paquete, pero asumirlo convertiría un
+/// cambio de invocación en un «directorio no encontrado» que no explica nada.
+Directory _raizLib() {
+  var directorio = Directory.current;
+
+  for (var intentos = 0; intentos < 6; intentos++) {
+    final candidato = Directory('${directorio.path}/lib');
+    if (candidato.existsSync()) return candidato;
+
+    final padre = directorio.parent;
+    if (padre.path == directorio.path) break;
+    directorio = padre;
+  }
+
+  fail('No se encontró lib/ subiendo desde ${Directory.current.path}');
 }

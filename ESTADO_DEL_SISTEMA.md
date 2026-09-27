@@ -1801,6 +1801,27 @@ URL de Supabase inexistente, no leyendo el código:
 12. **El panel de inscripciones del alumno desbordaba 52 px con varias tarjetas.** Medido en `Flutter CI` **#52**: `A RenderFlex overflowed by 52 pixels on the bottom`, con la cadena `Column ← EstadoPanel ← Flexible ← Column ← … ← ContenidoSeccion ← PanelMisInscripciones` señalando `mis_inscripciones_panel.dart:215`. En un `Column`, un hijo **no flexible** recibe la altura del eje principal como **ilimitada**, así que el `SingleChildScrollView` de las tarjetas se dimensionaba a su contenido entero en vez de a lo que sobra, y desbordaba los **519 px** que le entrega `ContenidoSeccion`. Arreglo: `Flexible(child: SingleChildScrollView(...))` —ajuste holgado, no `Expanded`: el contenido no tiene por qué estirarse—. Fallaban **dos** pruebas, y eran exactamente **las dos únicas que montan dos inscripciones**; las de una sola pasaban. El **aviso de cabecera** añadido encima fue lo que terminó de desbordar una estructura que ya estaba al límite. La guarda existía **de rebote** —por los datos de otra prueba—, así que se añadió una explícita con **tres** tarjetas: si esas dos se dejan en una sola inscripción, la guarda no desaparece en silencio.
 13. **El panel de inscripciones pintaba la jerarquía de urgencia al revés.** `WAITLISTED` (espera pasiva) iba en **ámbar** y `PENDING_BID` (oferta **con fecha límite**) en el **azul primario** —el color de medio interfaz—: el estado que exige acción susurraba y el que no exige nada gritaba. **Ninguna prueba lo vio porque ninguna afirmaba sobre el color**, y no rompía nada; sólo hacía que el alumno no viera qué fila le estaba pidiendo algo, que es un cupo perdido. Ahora `PENDING_BID` → `IncesTheme.advertencia` y `WAITLISTED` → `IncesTheme.info`, con pruebas que **leen el color del `Icon`** y **miden la posición vertical** para exigir que lo que caduca se pinte primero. El panel se extrajo además a su propio archivo (`lib/screens/mis_inscripciones_panel.dart`; el dashboard pasó de 1099 a 750 líneas), y el reloj de la cuenta regresiva ahora **sólo late si hay alguna oferta viva** — antes repintaba 60 veces por minuto para no cambiar un píxel.
 
+14. **Módulo 3 estaba construido, probado e inutilizable desde la interfaz**
+   (2026-09-27). `cpanel_aulas_panel.dart`, `cpanel_lapsos_panel.dart` y
+   `cpanel_guardias_panel.dart` existían, tenían pruebas propias
+   (`cuadrante_paneles_test.dart`, `cuadrante_guardias_panel_test.dart`) **y no
+   los importaba ningún archivo de `lib/`**. El cuadrante —que sí estaba en el
+   menú— dice en su estado vacío «Registra los espacios del centro primero», y
+   `cpanel_aulas_panel` lo confirma en su cabecera: «hasta que el administrador
+   lo cargue la lista sale vacía, y el cuadrante **no se puede usar**». No había
+   forma de llegar a la pantalla que registra los espacios, ni la de los lapsos,
+   ni la de las guardias: el módulo quedaba bloqueado en su primer paso, y con él
+   el calendario académico que el centro necesita para todo lo demás.
+   **Lo destapó una medición a mano, no una prueba.** `menu_alcanzable_test`
+   comprobaba «ítem de menú disponible → rama del switch», y a estos tres les
+   faltaban **las dos cosas**: sin ítem no hay nada que comparar, la igualdad de
+   conjuntos se cumplía sin ellos y el panel quedaba construido, probado y
+   muerto. Se cablearon los tres —el menú pasó de 12 a 15 secciones y de 10 a 13
+   ramas— **y se añadió al mismo contrato la dirección que faltaba**: «toda
+   pantalla bajo `lib/screens/` se importa desde algún archivo de `lib/`».
+   Verificado **por mutación**: con el cableado puesto no señala ninguna;
+   revirtiendo los tres imports señala exactamente esas tres.
+
 > El fallo 8 es el motivo por el que existe la prueba de humo. Las pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
@@ -1808,6 +1829,14 @@ URL de Supabase inexistente, no leyendo el código:
 >
 > Y el fallo 11 es su versión simétrica, hacia dentro: **una red de seguridad que
 > no se ejecuta sola no protege** — y una que grita lobo enseña a ignorarla.
+>
+> El fallo 14 lleva la lección un paso más allá, y es la más incómoda de las tres.
+> La guardia de R-22 existía, estaba bien escrita y era la correcta… **pero
+> miraba en una sola dirección**. Una comprobación bidireccional mal escrita da un
+> rojo que alguien investiga; una comprobación **unidireccional** da un verde que
+> tranquiliza. La pregunta que faltaba no era «¿todo lo que anuncio existe?» sino
+> **«¿existe algo que no anuncio?»**. Cuando una guardia compara dos conjuntos hay
+> que preguntarse siempre por los elementos que **no están en ninguno de los dos**.
 
 ---
 
@@ -2552,8 +2581,13 @@ antes de tocar el código: `notify pgrst, 'reload schema'`.
 
 ## 12. Módulo 3 — Cuadrante, aulas y guardias: esquema y backend
 
-**Estado: esquema aplicado, verificado y corregido, y backend completo.** Falta
-el frontend. Dos archivos de esquema
+**Estado: esquema aplicado, verificado y corregido; backend completo; frontend
+completo y cableado.** El cableado se corrigió el **2026-09-27**: los tres
+paneles de este módulo —`cpanel_lapsos_panel`, `cpanel_aulas_panel` y
+`cpanel_guardias_panel`— existían, tenían pruebas propias y **no los importaba
+ningún archivo de `lib/`**, así que el cuadrante no tenía forma de llegar a las
+pantallas que crean sus prerrequisitos. Ver el fallo 14 en §6. Dos archivos de
+esquema
 —`supabase/migrations/202609180001_mod3_cuadrante_aulas.sql` (todo el diseño) y
 `supabase/migrations/202609180002_mod3_trigger_agenda_definer.sql` (la corrección
 de R-20)—. El contrato completo de las 14 rutas está en

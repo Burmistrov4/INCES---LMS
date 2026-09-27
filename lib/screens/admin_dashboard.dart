@@ -11,7 +11,13 @@ import 'admin/cpanel_modulos_panel.dart';
 import 'admin/cpanel_parametros_panel.dart';
 import 'admin/cpanel_invitaciones_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
+// Los cuatro paneles de M3, juntos: aulas y lapsos son **prerrequisitos** del
+// cuadrante, y guardias comparte su rejilla. Se importan los tres últimos
+// porque hasta ahora no los importaba nadie — ver la nota de `_items`.
+import 'admin/cpanel_aulas_panel.dart';
 import 'admin/cpanel_cuadrante_panel.dart';
+import 'admin/cpanel_guardias_panel.dart';
+import 'admin/cpanel_lapsos_panel.dart';
 import 'admin/cpanel_inscripcion_campos_panel.dart';
 import 'admin/cpanel_inscripciones_panel.dart';
 import 'admin/cpanel_secciones_panel.dart';
@@ -104,9 +110,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       categoria: 'Gestión académica',
       disponible: true,
     ),
+    // --- Los tres que faltaban (2026-09-27) --------------------------------
+    //
+    // Estos tres paneles estaban construidos, probados —`cuadrante_paneles_test`
+    // y `cuadrante_guardias_panel_test` los montan— y **sin cablear**: no los
+    // importaba ningún archivo de `lib/`. El cuadrante, que sí estaba en el
+    // menú, dice en su estado vacío «Registra los espacios del centro primero»
+    // (`cpanel_cuadrante_panel.dart`), y `cpanel_aulas_panel` lo confirma en su
+    // cabecera: «hasta que el administrador lo cargue la lista sale vacía, y el
+    // cuadrante **no se puede usar**». No había forma de llegar a la pantalla
+    // que los registra. M3 quedaba construido e **inutilizable desde la
+    // interfaz**.
+    //
+    // Es R-22 otra vez, y por eso no lo vio la guardia: `menu_alcanzable_test`
+    // comprobaba «ítem disponible → rama del switch», y a estos tres les
+    // faltaban **las dos**. La dirección que faltaba —«panel existente →
+    // alcanzable desde algún sitio»— se añadió el mismo día al mismo archivo.
+    //
+    // Van en la categoría que les toca por lo que el usuario está intentando
+    // hacer: los lapsos son el calendario académico (de él cuelgan secciones e
+    // inscripciones), y aulas y guardias son recursos del cuadrante.
+    ItemNavegacion(
+      icono: Icons.event_note_outlined,
+      titulo: 'Lapsos Académicos',
+      categoria: 'Gestión académica',
+      disponible: true,
+    ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
       titulo: 'Cuadrante y Horarios',
+      categoria: 'Control de aulas',
+      disponible: true,
+    ),
+    ItemNavegacion(
+      icono: Icons.meeting_room_outlined,
+      titulo: 'Espacios y Aulas',
+      categoria: 'Control de aulas',
+      disponible: true,
+    ),
+    ItemNavegacion(
+      icono: Icons.shield_outlined,
+      titulo: 'Guardias Docentes',
       categoria: 'Control de aulas',
       disponible: true,
     ),
@@ -205,10 +249,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           migas: ['Inicio', 'Gestión académica', 'Secciones'],
           child: CpanelSeccionesPanel(),
         );
+      case 'Lapsos Académicos':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Gestión académica', 'Lapsos'],
+          child: CpanelLapsosPanel(),
+        );
       case 'Cuadrante y Horarios':
         return const ContenidoSeccion(
           migas: ['Inicio', 'Control de aulas', 'Cuadrante y Horarios'],
           child: CpanelCuadrantePanel(),
+        );
+      case 'Espacios y Aulas':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Control de aulas', 'Espacios'],
+          child: CpanelAulasPanel(),
+        );
+      case 'Guardias Docentes':
+        return const ContenidoSeccion(
+          migas: ['Inicio', 'Control de aulas', 'Guardias'],
+          child: CpanelGuardiasPanel(),
         );
       default:
         return Padding(
