@@ -1798,6 +1798,8 @@ URL de Supabase inexistente, no leyendo el código:
    dice rojo» no es «hay una avería»**. La comprobación se reescribió hermética,
    el libro mayor se re-baselinó con `--adoptar` —que registra el contenido nuevo
    **sin ejecutarlo**— y **se añadió el flujo `Supabase CI`**. Ver D20.
+12. **El panel de inscripciones del alumno desbordaba 52 px con varias tarjetas.** Medido en `Flutter CI` **#52**: `A RenderFlex overflowed by 52 pixels on the bottom`, con la cadena `Column ← EstadoPanel ← Flexible ← Column ← … ← ContenidoSeccion ← PanelMisInscripciones` señalando `mis_inscripciones_panel.dart:215`. En un `Column`, un hijo **no flexible** recibe la altura del eje principal como **ilimitada**, así que el `SingleChildScrollView` de las tarjetas se dimensionaba a su contenido entero en vez de a lo que sobra, y desbordaba los **519 px** que le entrega `ContenidoSeccion`. Arreglo: `Flexible(child: SingleChildScrollView(...))` —ajuste holgado, no `Expanded`: el contenido no tiene por qué estirarse—. Fallaban **dos** pruebas, y eran exactamente **las dos únicas que montan dos inscripciones**; las de una sola pasaban. El **aviso de cabecera** añadido encima fue lo que terminó de desbordar una estructura que ya estaba al límite. La guarda existía **de rebote** —por los datos de otra prueba—, así que se añadió una explícita con **tres** tarjetas: si esas dos se dejan en una sola inscripción, la guarda no desaparece en silencio.
+13. **El panel de inscripciones pintaba la jerarquía de urgencia al revés.** `WAITLISTED` (espera pasiva) iba en **ámbar** y `PENDING_BID` (oferta **con fecha límite**) en el **azul primario** —el color de medio interfaz—: el estado que exige acción susurraba y el que no exige nada gritaba. **Ninguna prueba lo vio porque ninguna afirmaba sobre el color**, y no rompía nada; sólo hacía que el alumno no viera qué fila le estaba pidiendo algo, que es un cupo perdido. Ahora `PENDING_BID` → `IncesTheme.advertencia` y `WAITLISTED` → `IncesTheme.info`, con pruebas que **leen el color del `Icon`** y **miden la posición vertical** para exigir que lo que caduca se pinte primero. El panel se extrajo además a su propio archivo (`lib/screens/mis_inscripciones_panel.dart`; el dashboard pasó de 1099 a 750 líneas), y el reloj de la cuenta regresiva ahora **sólo late si hay alguna oferta viva** — antes repintaba 60 veces por minuto para no cambiar un píxel.
 
 > El fallo 8 es el motivo por el que existe la prueba de humo. Las pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
@@ -1815,7 +1817,12 @@ URL de Supabase inexistente, no leyendo el código:
 # --- Frontend ---
 flutter analyze
 
-# `flutter test` necesita DOS cosas, o falla al cargar (ver el aviso de arriba):
+# OJO (2026-09-27): esta receta ya NO basta. Con las dos piezas puestas,
+# `flutter --version` muere en su PRIMER spawn (`cmd.exe /c ver`) con
+# ERROR_PIPE_BUSY (231) — no llega ni a arrancar. Y se midió que NO es el
+# sandbox: se probó fuera de él y el fallo es idéntico. El verificador del lado
+# Flutter es CI. Las dos piezas se dejan abajo porque siguen haciendo falta
+# para cualquier otra orden de Flutter (`build web`, `run`):
 #  1) PROGRAMFILES(X86), que en Git Bash no existe
 #  2) el proxy desactivado: intercepta el WebSocket de loopback de flutter_tester
 env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
@@ -2039,6 +2046,22 @@ real murió exactamente ahí.
 > que se pueda llegar a él: son dos contratos.** `test/menu_alcanzable_test.dart`
 > cubre el segundo leyendo el dashboard como texto, para que no sea un espejo
 > escrito a mano.
+
+> **Una red de seguridad que no se puede leer no es una red.** El paso «Suite de
+> pruebas» de `flutter_ci.yml` republicaba `tail -c 60000 pruebas.txt` como
+> anotación del check-run, con el razonamiento correcto —los registros del job
+> exigen permisos de administración sobre el repositorio, las anotaciones no—,
+> pero **GitHub recorta la anotación a unos pocos miles de caracteres**: el
+> presupuesto se gastaba en las **768 líneas `✅`** de las pruebas que sí pasan y
+> las `❌` quedaban **fuera de la ventana**. Medido en la corrida **#51**: la
+> anotación llegó cortada a mitad de palabra y **sin un solo nombre de prueba
+> fallida**, así que un rojo de la suite se leía como «algo falló» y nada más —
+> exactamente el problema que ese paso existe para resolver. Arreglado el
+> 2026-09-27 filtrando antes de recortar (`grep -v '^✅' pruebas.txt | tail -c
+> 30000`). El mismo día, con esa salida ya legible, la corrida **#52** nombró el
+> fallo real en una sola pasada: `A RenderFlex overflowed by 52 pixels on the
+> bottom` en `mis_inscripciones_panel.dart:215`. **Corolario de proceso: cuando
+> un fallo de CI no se puede leer, ése es el primer bug que hay que arreglar.**
 
 Las pruebas de R2 **no tocan la red**: firmar una URL es criptografía local. Por
 eso se verifica el endpoint, la caducidad, los encabezados firmados y el rechazo
