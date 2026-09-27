@@ -150,9 +150,9 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
-| Validador SQL contra PostgreSQL real (pglite) | 🔴 **ROJO desde el 2026-09-26: no llega a contar aserciones.** `node validate.mjs` aborta con `error: null value in column "section_id" of relation "attendance_sessions" violates not-null constraint`, porque la autocomprobación de `202609260004` inserta una sesión tomando el `id` de `sections`, y en una base **limpia** —la que construye este validador aplicando sólo migraciones— esa tabla está vacía. **La última medición verde fue 492 / 492 el 2026-09-25**, antes de M7. **No lo cazó nadie porque este validador no está en CI.** Ver **D20**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
+| Validador SQL contra PostgreSQL real (pglite) | **494 / 494** aserciones en verde — **medido el 2026-09-26**, y desde ese día **corre en CI** (`Supabase CI`). Estuvo **ROJO unas horas** ese mismo día: la autocomprobación de `202609260004` no era hermética y abortaba la migración entera en una base limpia. **La última medición verde anterior era 492 / 492 el 2026-09-25**, y las dos de más son las que se añadieron al arreglarlo — la lista blanca de `m5_archivos` y la de `m7_asistencia`. Ver **D20**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
 | **Migraciones en el repositorio** | **31** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609260005_m5_permisos_roles.sql` |
-| **Migraciones en la nube** | **31** registradas en `schema_migrations` — **recontadas el 2026-09-26, no arrastradas**. El 2026-09-25 el libro cerró en **26 versiones**; las **cuatro** de M7 (`202609260001`..`202609260004`, la asistencia QR) más **`202609260005`** —la corrección de permisos de M5— lo llevaron a **31**. `apply-migrations.mjs --check` del 2026-09-26: **0 pendientes, 0 con deriva**. **Repositorio y nube coinciden** |
+| **Migraciones en la nube** | **31** registradas en `schema_migrations` — **recontadas el 2026-09-26, no arrastradas**. El 2026-09-25 el libro cerró en **26 versiones**; las **cuatro** de M7 (`202609260001`..`202609260004`, la asistencia QR) más **`202609260005`** —la corrección de permisos de M5— lo llevaron a **31**. `apply-migrations.mjs --check` del 2026-09-26: **0 pendientes, 0 con deriva**. **Repositorio y nube coinciden.** `202609260004` se **re-baselinó** ese mismo día con `--adoptar` —sólo cambió su bloque `do $$`, no su efecto— tras comprobar que había **0 pendientes**; ver **D20** |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-26**, ya con el **bloque 10 (M7)**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4, la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) y, desde el 2026-09-26, las dos tablas de M7, sus cinco políticas, sus tres funciones y su vista. **Y esa misma ejecución encontró 3 fallos que eran del script, no de la base**: su lista de tablas esperadas, su total de módulos (**10**) y su lista de encendidos seguían congelados en M6, así que marcaba en rojo un esquema correcto. Corregido el script — y anotado, porque una red de seguridad desactualizada grita lobo y enseña a ignorarla |
@@ -1638,7 +1638,7 @@ sitio y porque una ruta futura de desactivación de usuarios sí podría alcanza
 | **D17** | **No existe la especificación de campos que espera HACER.** El MVP dice que el LMS **alimenta** a HACER, pero nadie ha escrito qué columnas, en qué orden y con qué formato las espera la plataforma del INCES | 🟡 **Abierta y declarada, no escondida.** `AUDITORIA_M4.md` lo midió: en el repositorio la palabra «HACER» **sólo aparece como comentario de consumidor futuro**. `202609250004` se escribió con esa pregunta **abierta en el encabezado de la migración**: expone contexto + identidad + la planilla aplanada + el `datos_planilla` crudo (**61 columnas**), y **no finge que la respuesta llegó**. Está **aplicada y sondeada desde el 2026-09-25**, y eso **no cierra D17**: la vista ya funciona, pero sigue sin saberse si es la forma que HACER espera. La capa que cambia cuando la especificación llegue es **una sola**: `columnasExportacionHacer` + `csvDeExportacionHacer` en Dart, más el `select` de la vista. `datos_planilla` viaja al final justo para que **ningún campo sea irrecuperable** mientras tanto. **Qué falta**: preguntar a HACER — no programar. **Precisión del 2026-09-25:** la mitad de la deuda que era «cómo se escribe el archivo» **ya está respondida** (separador, BOM, CRLF, mayúsculas, `documento_identidad` — ver §5); lo que sigue abierto es **qué columnas y en qué orden** |
 | **D18** | **M7 no tiene una sola prueba propia, ni en Flutter ni en el backend.** En Flutter, `asistencia_qr_panel.dart`, `marcar_asistencia_panel.dart` y `asistencia_service.dart` no aparecen en ningún archivo de `test/`. Y en el backend **no existe `test/asistencia.test.ts`** | 🟡 **Abierta, medida el 2026-09-26.** Lo que **sí** hay, y conviene no confundirlo con cobertura: (a) la **barrera anti-trampas** está cubierta por la vía fuerte —la política RLS `attendance_marks_estudiante_insert` llama a `asistencia_codigo_vigente`, así que un código caducado se rechaza **en la base**, no en la pantalla—; (b) el **bloque 10** de `verificar-esquema.mjs`, añadido el 2026-09-26, comprueba contra la nube las dos tablas, las cinco políticas, las tres funciones y la vista; y (c) `openapi.test.ts` inyecta las cuatro rutas REST y el WS y exige **401 sin token**. Lo que **no** hay es **comportamiento**: nadie ha probado abrir una sesión, marcar, cerrar, ni que el evento llegue al WebSocket. En este proyecto, una pantalla sin prueba es una pantalla que nadie ha visto fallar |
 | **D19** | **`m7_asistencia` está encendida y con lista blanca, pero sus rutas no llevan guardia de módulo** — y ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`** | 🟡 **Abierta a propósito, esperando una decisión de producto.** `roles_permitidos` filtra **también el menú**, así que ensanchar la lista arreglaría el 403 y a la vez mostraría el tablero del docente al estudiante. Las dos salidas coherentes —ensanchar y proteger todo, o proteger sólo las rutas del docente— están escritas en §3. **No se toca sin esa decisión**: un arreglo mecánico rompería la asistencia, que es precisamente lo que el módulo existe para hacer |
-| **D20** | **El validador SQL (PGlite) está ROJO, y la red que se cayó es la más fuerte.** La autocomprobación de `202609260004` inserta una sesión con `section_id = (select id from public.sections limit 1)`. En una base **limpia** —la que construye `supabase/tests` aplicando **sólo** migraciones— `sections` y `profiles` están **vacías**, así que `section_id` sale `NULL` y el `NOT NULL` **aborta la migración entera** | 🔴 **Regresión del 2026-09-26, medida y reproducida.** `cd supabase/tests && node validate.mjs` → `error: null value in column "section_id" of relation "attendance_sessions" violates not-null constraint`. **No la causó nada de este documento**: se reprodujo **moviendo aparte `202609260005`** para dejar el repo como HEAD, y el fallo siguió. **Las otras autocomprobaciones de M7 sí son herméticas** —`202609260001` sólo inspecciona `pg_proc`, `pg_policies` e `information_schema`—; `202609260004` **rompió esa convención** al depender de datos que ninguna migración siembra. Y **no lo cazó nadie porque el validador no está en CI**. **No se corrige sin decisión:** arreglarlo exige editar una migración **ya aplicada**, lo que cambia su checksum y hace que `apply-migrations.mjs` reporte **deriva** y se niegue a seguir; el script ofrece `--adoptar` (re-registrar el contenido **sin ejecutarlo**), pero contradice la regla escrita «nunca edites una que ya corrió». **Las tres salidas, con su coste, están en §7** |
+| **D20** | **El validador SQL (PGlite) estaba ROJO, y la red que se cayó era la más fuerte.** La autocomprobación de `202609260004` insertaba una sesión con `section_id = (select id from public.sections limit 1)`. En una base **limpia** —la que construye `supabase/tests` aplicando **sólo** migraciones— `sections` y `profiles` están **vacías**, así que `section_id` salía `NULL` y el `NOT NULL` **abortaba la migración entera** | ✅ **RESUELTA el 2026-09-26.** Se reescribió la autocomprobación para que sea **hermética**, como la de `202609260001`: comprueba `asistencia_codigo_en_ventana` con un secreto ficticio —es `immutable` y **no lee ninguna tabla**, así que no necesita secciones ni perfiles— y que `asistencia_codigo_actual` sea **llamable sin `42883`** con una sesión inexistente, que sale por `if not found then return null` **antes** de mirar `auth.uid()`. **El cambio no toca ni un objeto del esquema**: sólo el bloque `do $$`, que en la nube ya se había ejecutado. El libro mayor se **re-baselinó con `--adoptar`** —salida: `adoptada (no ejecutada)`, y sólo después de comprobar que había **0 pendientes**— y quedó en **0 pendientes, 0 con deriva**. De paso se corrigieron **5 aserciones desactualizadas** del propio validador (esperaba **10** módulos, `m0…m6` encendidos y un listado sin `m7_asistencia`) y se añadieron **dos**: que `m5_archivos` siga con la lista blanca **vacía** —el incidente de M5, ahora fijado también aquí— y que `m7_asistencia` arranque encendido con la suya declarada. Medido: **494 aserciones, 0 fallidas**. **Y se añadió el flujo `Supabase CI`** para que no vuelva a pudrirse en silencio, que es exactamente cómo se llegó aquí |
 
 ### Fallos reales corregidos en esta iteración
 
@@ -1708,10 +1708,27 @@ URL de Supabase inexistente, no leyendo el código:
    pasa por las RPC. Es el fallo del que sale la lección: **un `SQLSTATE` solo no
    distingue la causa** (el `42501` lo produce el `GRANT` ausente, no la política).
 
+11. **La autocomprobación de una migración no era hermética, y el validador SQL
+   estuvo ROJO sin que nadie lo supiera** (2026-09-26). La de `202609260004`
+   insertaba una sesión de asistencia con
+   `section_id = (select id from public.sections limit 1)`. En una base **limpia**
+   —la que construye `supabase/tests` aplicando **sólo** migraciones— `sections` y
+   `profiles` están **vacías**, así que `section_id` salía `NULL`, el `NOT NULL`
+   abortaba la migración **entera** y el validador se caía con ella. Lo encontró
+   el propio validador… **cuando alguien lo corrió a mano**, porque no estaba en
+   CI. Es el mismo error que el proyecto ya tiene escrito para los tests —«no
+   confundir el tool con el resultado»—, un piso más arriba: **«el verificador
+   dice rojo» no es «hay una avería»**. La comprobación se reescribió hermética,
+   el libro mayor se re-baselinó con `--adoptar` —que registra el contenido nuevo
+   **sin ejecutarlo**— y **se añadió el flujo `Supabase CI`**. Ver D20.
+
 > El fallo 8 es el motivo por el que existe la prueba de humo. Las pruebas de
 > `vitest` pasaban en verde con ese bug presente: corren contra dobles en memoria
 > y nunca ven un id mal formado llegar a un motor real. Hay clases de fallo que
 > sólo aparecen al hablar con la infraestructura de verdad.
+>
+> Y el fallo 11 es su versión simétrica, hacia dentro: **una red de seguridad que
+> no se ejecuta sola no protege** — y una que grita lobo enseña a ignorarla.
 
 ---
 
@@ -1784,29 +1801,30 @@ node supabase/eliminar-cuenta.mjs correo@dominio.com                # inventario
 > migración añade objetos, el verificador es parte de lo que hay que actualizar — y
 > el bloque 10 de M7 nació de ese hueco.
 >
-> **Las tres salidas para D20, y lo que cuesta cada una.** El validador SQL no
-> puede volver a verde sin tocar algo que ya corrió, así que la elección es del
-> dueño:
+> **D20, resuelta el mismo día, y lo que enseña.** El validador SQL no podía
+> volver a verde sin tocar algo que ya había corrido, así que había tres salidas:
+> editar la autocomprobación de `202609260004` y re-baselinar el libro mayor,
+> **sembrar en el validador** las filas mínimas de `sections` y `profiles`, o
+> **dejar el rojo** y retirarlo de la verificación. Se tomó **la primera**, que era
+> la única que devolvía la red a verde de verdad: la comprobación se reescribió
+> para que sea **hermética** —como la de `202609260001`— y el libro se re-baselinó
+> con **`--adoptar`**, que registra el contenido nuevo **sin ejecutarlo** (y se
+> comprobó antes que hubiera **0 pendientes**, para que no adoptara nada sin
+> correr). El cambio **no toca ni un objeto del esquema**: sólo el bloque `do $$`,
+> que en la nube ya se había ejecutado. Las otras dos se descartaron por lo que
+> son: sembrar en el validador **tapa** la no-hermeticidad en vez de arreglarla, y
+> retirarlo deja al proyecto sin su red más fuerte justo cuando M7 acaba de añadir
+> dos tablas, una vista, tres funciones y cinco políticas. **Y se añadió
+> `Supabase CI`**: sin CI, cualquier arreglo se vuelve a pudrir en silencio, que es
+> literalmente cómo se llegó aquí.
 >
-> 1. **Editar la autocomprobación de `202609260004`** para que sea hermética
->    —comprobar `asistencia_codigo_en_ventana` llamándola con un secreto ficticio,
->    que es lo que de verdad se quería probar: que el `cast` a `bigint` no estalle
->    por tipos— y **re-baselinar el libro mayor con `--adoptar`**. *Es la que
->    devuelve la red a verde de verdad.* Coste: se edita una migración aplicada,
->    contra la regla escrita, aunque el cambio **no altera ni un objeto del
->    esquema** —sólo el bloque `do $$`, que ya se ejecutó—; quien tenga el archivo
->    viejo verá deriva hasta que haga `pull`.
-> 2. **Sembrar en el validador** las filas mínimas de `sections` y `profiles`
->    antes de aplicar. Barato, pero **deshonesto**: taparía la no-hermeticidad en
->    vez de arreglarla, y el validador dejaría de significar «migraciones sobre
->    base limpia» para pasar a ser «migraciones sobre base sembrada a mano».
-> 3. **Dejar el rojo y quitar el validador de la lista de verificación.**
->    Honesto, pero deja al proyecto sin su red más fuerte justo cuando M7 acaba de
->    añadir dos tablas, una vista, tres funciones y cinco políticas.
->
-> Recomendación: **la 1**, y **añadir el validador a CI en el mismo movimiento** —
-> sin CI, cualquier arreglo vuelve a pudrirse en silencio, que es exactamente cómo
-> se llegó aquí.
+> **La convención, ya escrita para la próxima:** una autocomprobación de migración
+> **tiene que ser hermética**. Ninguna migración siembra secciones ni perfiles
+> —los siembra `sembrar-datos.mjs`, que es de datos de ejemplo y **no corre al
+> desplegar**—, así que una que los necesite **aborta el despliegue en una base
+> nueva**. Se prueba inspeccionando catálogos (`pg_proc`, `pg_policies`,
+> `information_schema`) o llamando a funciones **puras** con valores ficticios,
+> nunca leyendo filas que nadie garantiza que existan.
 
 ### Datos semilla de M4 y M6 (`sembrar-datos.mjs`)
 

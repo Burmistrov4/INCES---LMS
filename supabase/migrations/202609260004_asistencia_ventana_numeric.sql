@@ -114,32 +114,42 @@ comment on function public.asistencia_codigo_actual(uuid) is
 -- ---------------------------------------------------------------------------
 do $$
 declare
-  v_sesion uuid;
-  v_code   text;
+  v_code    text;
+  v_ventana bigint;
 begin
-  -- Crea una sesión ficticia SOLO para probar, marca, y la borra en el mismo
-  -- statement. Es el patrón de «probar la regla sin pisar datos reales».
-  -- Como esta migración corre en la transacción del aplicador, ROLLBACK lo
-  -- limpia solo si algo falla.
-  insert into public.attendance_sessions (section_id, opened_by, qr_secret, ventana_seg)
-  select (select id from public.sections limit 1),
-         (select id from public.profiles limit 1),
-         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-         15
-  on conflict do nothing
-  returning id into v_sesion;
+  -- HERMÉTICA A PROPÓSITO, y esto se corrigió después de romperla.
+  --
+  -- La versión anterior de esta comprobación insertaba una sesión tomando el
+  -- `id` de `sections` y el de `profiles`. En una base LIMPIA —la que construye
+  -- `supabase/tests` aplicando SÓLO migraciones— esas dos tablas están vacías,
+  -- así que `section_id` salía NULL, el NOT NULL abortaba la migración entera y
+  -- el validador de PGlite se caía con ella. Se detectó corriéndolo.
+  --
+  -- Ninguna migración siembra secciones ni perfiles: los siembra
+  -- `sembrar-datos.mjs`, que es de datos de ejemplo y no se ejecuta al
+  -- desplegar. Por eso una autocomprobación que los necesite no es hermética, y
+  -- la convención de este repositorio es que lo sea (ver `202609260001`, que
+  -- sólo inspecciona catálogos). Las dos de aquí no necesitan nada.
 
-  if v_sesion is not null then
-    select public.asistencia_codigo_actual(v_sesion) into v_code;
-    -- La prueba solo verifica que la función NO estalle por tipos (42883).
-    -- El valor será null sólo si la barrera de propiedad nos bloquea —que es
-    -- correcto—, así que basta con que la llamada no falle.
-    if v_code is not null and length(v_code) <> 6 then
-      raise exception 'asistencia_codigo_actual devolvió % (no es de 6 dígitos).', v_code using errcode = '23514';
-    end if;
-    delete from public.attendance_sessions where id = v_sesion;
+  -- 1. La derivación, que es justo lo que el cast de esta migración toca: se
+  --    llama con un secreto ficticio y una ventana `bigint`. Es `immutable` y
+  --    NO lee ninguna tabla, así que no hace falta ni sección ni perfil.
+  v_ventana := floor(extract(epoch from now()) / 15)::bigint;
+  v_code := public.asistencia_codigo_en_ventana(
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              '00000000-0000-0000-0000-000000000000'::uuid,
+              v_ventana);
+  if v_code is null or length(v_code) <> 6 then
+    raise exception 'asistencia_codigo_en_ventana devolvió % (no es de 6 dígitos).', v_code
+      using errcode = '23514';
   end if;
 
-  raise notice 'Autocomprobación 202609260004: cast bigint en ventana; función llamable sin 42883.';
+  -- 2. La de la pantalla del docente es LLAMABLE sin 42883, que es lo que de
+  --    verdad se quería probar. Con una sesión inexistente devuelve NULL —la
+  --    búsqueda no encuentra fila y sale ANTES de mirar `auth.uid()`—, y eso
+  --    basta: aquí se comprueba el TIPO, no el valor.
+  perform public.asistencia_codigo_actual('00000000-0000-0000-0000-000000000000'::uuid);
+
+  raise notice 'Autocomprobación 202609260004: cast bigint en ventana; funciones llamables sin 42883 (hermética).';
 end;
 $$;

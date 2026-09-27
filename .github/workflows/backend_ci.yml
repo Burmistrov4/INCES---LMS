@@ -4,7 +4,7 @@
 # llamado «Flutter CI» que además corriera el backend mentiría. Cada archivo hace
 # lo que su nombre dice.
 #
-# **No necesita secretos.** Los 540 tests del backend son herméticos: inyectan el
+# **No necesita secretos.** Los tests del backend son herméticos: inyectan el
 # entorno a mano (`cargarEnv({ ... })` en `test/env.test.ts` y `test/r2.test.ts`)
 # con valores de prueba, y nunca hablan con Supabase ni con R2 de verdad. Por eso
 # este flujo no configura ningún `secrets.*`, y por eso puede correr en un fork o

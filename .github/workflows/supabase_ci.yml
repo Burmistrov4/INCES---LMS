@@ -1,0 +1,75 @@
+# Integración continua del esquema (migraciones SQL + semilla + RLS).
+#
+# Va en un archivo aparte por la misma razón de nombres que `backend_ci.yml`: un
+# flujo llamado «Backend CI» que además validara SQL mentiría.
+#
+# **Por qué existe, y es una lección con fecha.** Este validador estuvo ROJO
+# desde el 2026-09-26 sin que nadie lo supiera: la autocomprobación de
+# `202609260004` insertaba una sesión tomando el `id` de `sections`, y en una
+# base limpia —la que construye el propio validador— esa tabla está vacía, así
+# que el NOT NULL abortaba la migración entera. No lo cazó nadie **porque no
+# estaba en CI**. Un validador que no corre solo es una intención, no una red.
+#
+# **No necesita secretos.** PGlite es PostgreSQL compilado a WASM: aplica las
+# migraciones de verdad contra un motor real, dentro del runner, sin Docker, sin
+# Supabase y sin credenciales. Por eso puede correr en un fork o en un PR.
+#
+# Se dispara con `supabase/**` porque es lo que valida: una migración nueva o
+# tocada es exactamente lo que hay que comprobar.
+
+name: Supabase CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/supabase_ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/supabase_ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  esquema:
+    name: Migraciones, semilla y RLS (PGlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: supabase/tests
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: supabase/tests/package-lock.json
+
+      # `npm ci` y no `npm install`: instala exactamente lo que dice el lockfile
+      # y **falla si diverge** del `package.json`. Esa divergencia es lo que se
+      # quiere detectar en CI, no resolver en silencio.
+      - name: Instalar dependencias
+        run: npm ci
+
+      # `validate.mjs` aplica TODAS las migraciones del repositorio en orden
+      # contra PostgreSQL real y luego ejerce la semilla, la RLS y las vistas.
+      # Sale con código distinto de cero si alguna aserción falla, así que el
+      # paso falla solo. **La cifra de aserciones no se escribe aquí a
+      # propósito**: envejecería, y este proyecto ya pagó esa factura.
+      - name: Validar el esquema
+        run: npm test

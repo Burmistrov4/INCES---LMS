@@ -115,21 +115,24 @@ async function main() {
   // `202609120002`, y la semilla dice que las claves nunca se renombran. El
   // nombre del archivo de la migración (`202609220001_mod6_aula_virtual.sql`)
   // no crea la clave.
+  // `m7_asistencia` (2026-09-26) entra con **orden 7**, así que va la SEGUNDA en
+  // el listado —entre `m0_cpanel` (0) y `m1_onboarding` (10)—. Manda el `orden`
+  // que declara la migración (`202609260002`), no el número del nombre.
   const esperados = [
-    'm0_cpanel', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante',
+    'm0_cpanel', 'm7_asistencia', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante',
     'm4_inscripciones', 'm5_archivos', 'm6_aula_virtual', 'm6_asistencia',
     'm7_calificaciones', 'm8_pasantias',
   ];
-  check('hay 10 módulos sembrados', modulos.length === 10, `hay ${modulos.length}`);
+  check('hay 11 módulos sembrados', modulos.length === 11, `hay ${modulos.length}`);
   check(
     'los códigos coinciden con el ROADMAP',
     JSON.stringify(modulos.map((m) => m.clave)) === JSON.stringify(esperados),
   );
   check('m9 (certificados/QR) NO se siembra', !modulos.some((m) => m.clave.startsWith('m9')));
   check(
-    'arrancan encendidos los módulos construidos y verificados (m0…m6)',
+    'arrancan encendidos los módulos construidos y verificados (m0…m7)',
     modulos.filter((m) => m.habilitado).map((m) => m.clave).join(',') ===
-      'm0_cpanel,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones,m5_archivos,m6_aula_virtual',
+      'm0_cpanel,m7_asistencia,m1_onboarding,m2_curriculo,m3_cuadrante,m4_inscripciones,m5_archivos,m6_aula_virtual',
   );
   // `m5_archivos` estuvo APAGADO a propósito hasta que existiera la Capa 7 (la
   // UI). Se encendía antes y habría quedado un ítem de menú sin circuito detrás
@@ -162,6 +165,24 @@ async function main() {
   check(
     'm6_aula_virtual es visible para todos los roles (roles_permitidos vacío)',
     modulos.find((m) => m.clave === 'm6_aula_virtual').roles_permitidos.length === 0,
+  );
+  // Esta aserción existe por un incidente medido el 2026-09-26, no por gusto: la
+  // fila REAL de la nube tenía `m5_archivos.roles_permitidos = ["admin"]`
+  // —puesta a mano, fuera del libro mayor— mientras las seis rutas del módulo
+  // llevaban `exigirModulo('m5_archivos')`. `comprobarModulo` usa esa lista como
+  // **lista blanca de la API**, no sólo como filtro del menú, así que el
+  // estudiante que sube su entrega y el docente que sube su guía recibían 403.
+  // Lo corrige `202609260005`; esto lo fija: si una migración futura vuelve a
+  // estrecharla, se ve aquí.
+  check(
+    'm5_archivos es visible para todos los roles (roles_permitidos vacío)',
+    modulos.find((m) => m.clave === 'm5_archivos').roles_permitidos.length === 0,
+  );
+  check(
+    'm7_asistencia arranca encendido (202609260002) con su lista declarada',
+    modulos.find((m) => m.clave === 'm7_asistencia').habilitado === true &&
+      JSON.stringify(modulos.find((m) => m.clave === 'm7_asistencia').roles_permitidos) ===
+        '["docente","admin"]',
   );
   check(
     'm0_cpanel está restringido al rol admin',
@@ -266,7 +287,7 @@ async function main() {
   const m6 = (await db.query("select habilitado from public.system_modules where clave = 'm6_asistencia'")).rows[0];
   const totalModulos = (await db.query('select count(*)::int as n from public.system_modules')).rows[0].n;
   check('reaplicar la semilla NO revive un módulo apagado a mano', m6.habilitado === false);
-  check('reaplicar la semilla NO duplica filas', totalModulos === 10, `hay ${totalModulos}`);
+  check('reaplicar la semilla NO duplica filas', totalModulos === 11, `hay ${totalModulos}`);
 
   // ------------------------------------------------------------ 7. usuarios
   seccion('7. Onboarding atómico (Fase 1) y datos de prueba');
@@ -311,7 +332,7 @@ async function main() {
   const alumnoVe = await como('authenticated', ALUMNO_ID, () =>
     db.query('select count(*)::int as n from public.system_modules'),
   );
-  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 10);
+  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 11);
 
   await como('authenticated', ALUMNO_ID, () =>
     db.exec("update public.system_modules set orden = 999 where clave = 'm1_onboarding'"),
