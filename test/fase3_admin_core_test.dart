@@ -277,5 +277,46 @@ void main() {
       expect(ModuloRepository.etiquetaCategoria('academico'), 'Académico');
       expect(ModuloRepository.etiquetaCategoria('desconocida'), 'General');
     });
+
+    test('ninguna categoría con posición propia cae a la etiqueta por defecto', () {
+      // La invariante que faltaba: `ordenCategorias` decide **dónde** se pinta
+      // una categoría y `etiquetaCategoria` decide **cómo se llama**. Si una
+      // categoría entra en la primera lista y no en la segunda, aparece en su
+      // sitio pero rotulada «General» —y si hay dos así, el cPanel muestra dos
+      // secciones seguidas con el mismo título—. Eso pasó con `recursos` y
+      // `aula`, y lo encontró la auditoría del 2026-09-27, no una prueba.
+      for (final categoria in ModuloRepository.ordenCategorias) {
+        if (categoria == 'general') continue; // su etiqueta ES la por defecto
+        expect(
+          ModuloRepository.etiquetaCategoria(categoria),
+          isNot('General'),
+          reason: '«$categoria» está en `ordenCategorias` pero no en '
+              '`etiquetaCategoria`: se pintaría como «General», compartiendo '
+              'título con las categorías desconocidas',
+        );
+      }
+    });
+
+    test('las categorías que la base usa de verdad están previstas', () {
+      // `recursos` (`m5_archivos`) y `aula` (`m7_asistencia`) llegaron a la base
+      // **después** de que se escribiera `ordenCategorias`, y se quedaron fuera.
+      // El panel las mandaba al final, las dos como «General» y una detrás de
+      // otra —asistencia y luego archivos, porque lo desconocido se ordena
+      // alfabéticamente—. No basta con que el panel no se rompa: tienen que
+      // estar previstas.
+      for (final categoria in ['recursos', 'aula']) {
+        expect(
+          ModuloRepository.ordenCategorias,
+          contains(categoria),
+          reason: '«$categoria» se usa en la base pero no tiene posición en el '
+              'cPanel: se pintaría al final, bajo un título ajeno',
+        );
+        expect(
+          ModuloRepository.etiquetaCategoria(categoria),
+          isNot('General'),
+          reason: '«$categoria» se usa en la base pero no tiene etiqueta propia',
+        );
+      }
+    });
   });
 }

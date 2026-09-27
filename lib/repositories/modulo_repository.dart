@@ -16,9 +16,27 @@ class ModuloRepository {
       : _gateway = gateway ?? SupabaseService.instance;
 
   /// Categorías conocidas, en orden de presentación en el cPanel.
+  ///
+  /// Esta lista y [etiquetaCategoria] tienen que cubrir **las categorías que la
+  /// base usa de verdad**, no sólo las que existían cuando se escribió el panel.
+  /// Lo que falte no desaparece —`agruparPorCategoria` manda lo desconocido al
+  /// final, a propósito—, pero cae a la etiqueta por defecto y **comparte título
+  /// con las demás desconocidas**.
+  ///
+  /// Pasó exactamente eso con `recursos` (`m5_archivos`, 2026-09-21) y con `aula`
+  /// (`m7_asistencia`, 2026-09-26): el cPanel pintaba **dos secciones seguidas
+  /// tituladas «General»** —primero la de asistencia, después la de archivos,
+  /// porque lo desconocido se ordena alfabéticamente al final—. `recursos` estaba
+  /// incluso previsto en el subtítulo de `cpanel_modulos_panel.dart`, que sí lo
+  /// conocía: el cambio se hizo en uno de los tres sitios que había que tocar.
+  ///
+  /// Lo fija `test/fase3_admin_core_test.dart`, que recorre esta lista y exige
+  /// que ninguna de sus categorías caiga a la etiqueta por defecto.
   static const List<String> ordenCategorias = [
     'nucleo',
     'academico',
+    'aula',
+    'recursos',
     'operacion',
     'evaluacion',
     'avanzado',
@@ -108,6 +126,10 @@ class ModuloRepository {
         return 'Núcleo';
       case 'academico':
         return 'Académico';
+      case 'aula':
+        return 'Aula';
+      case 'recursos':
+        return 'Recursos';
       case 'operacion':
         return 'Operación';
       case 'evaluacion':

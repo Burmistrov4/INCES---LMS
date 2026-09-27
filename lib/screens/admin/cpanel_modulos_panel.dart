@@ -301,6 +301,8 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
         return 'El núcleo del sistema. Sin esto no hay nada más.';
       case 'academico':
         return 'Currículo, horarios, inscripciones y asistencia.';
+      case 'aula':
+        return 'La clase en vivo: asistencia y tableros por sesión.';
       case 'recursos':
         return 'Almacenamiento y material de apoyo.';
       case 'evaluacion':
