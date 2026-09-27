@@ -41,10 +41,17 @@ import 'libro_calificaciones_panel.dart';
 ///
 /// ## El puerto, no el servicio
 ///
-/// La pantalla consume [AulaGateway]. La implementación HTTP está pendiente a
-/// propósito (ver la cabecera del puerto): el JSON del backend no está cerrado y
-/// adivinarlo daría una pantalla vacía sin error. Hoy se le pasa el doble de
-/// `test/support/fake_aula_gateway.dart`.
+/// La pantalla consume `AulaGateway`, y en producción recibe
+/// `BackendAulaGateway`: la implementación HTTP real, en
+/// `lib/services/aula_service.dart`, que cubre las doce operaciones contra
+/// `/api/v1/aula/*`. `resolverPuertaDeContenido` la devuelve cuando el llamante
+/// no inyecta nada, y los tres dashboards no inyectan nada.
+///
+/// Aquí decía que esa implementación «está pendiente a propósito» y que sólo se
+/// le pasaba el doble de `test/support/fake_aula_gateway.dart`. **Envejeció.**
+/// Una nota de «falta hacer X» sobre algo ya hecho no es inocua: hace que quien
+/// lea el archivo crea que el aula sólo funciona contra un doble, y que el
+/// problema esté en otro sitio.
 class AulaVirtualDashboardScreen extends StatefulWidget {
   const AulaVirtualDashboardScreen({
     super.key,
