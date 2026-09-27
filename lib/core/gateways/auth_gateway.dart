@@ -1,4 +1,4 @@
-import '../models/perfil_usuario.dart';
+import '../../models/perfil_usuario.dart';
 
 /// Resultado de un alta de credenciales.
 ///
