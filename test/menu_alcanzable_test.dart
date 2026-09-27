@@ -254,6 +254,61 @@ void main() {
         findsNothing,
       );
     });
+
+    testWidgets('una sección apagada explica por qué, y no siempre lo mismo', (
+      tester,
+    ) async {
+      // Una sección gris sin explicación no se distingue de una plataforma
+      // incompleta. El mensaje genérico —«pendiente de construir»— además era
+      // falso sobre «Calificaciones» del docente: el libro de notas existe y
+      // está dentro de cada aula. `pendiente` es el hueco para decirlo.
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: IncesTheme.claro(),
+          home: AndamiajeApp(
+            items: const [
+              ItemNavegacion(
+                icono: Icons.tune_outlined,
+                titulo: 'Sin Motivo',
+                categoria: 'General',
+                disponible: false,
+              ),
+              ItemNavegacion(
+                icono: Icons.grading_outlined,
+                titulo: 'En Otro Sitio',
+                categoria: 'General',
+                disponible: false,
+                pendiente: 'Se hace dentro de cada aula.',
+              ),
+            ],
+            seleccionado: 0,
+            onSeleccionar: (_) {},
+            rolEtiqueta: 'Docente',
+            contenido: const SizedBox.shrink(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Se comparan los mensajes de **todos** los `Tooltip` del árbol y no un
+      // `findsOneWidget` por texto: el andamiaje ya pinta tooltips propios —el
+      // botón de replegar—, y contarlos sería frágil sin medir nada más.
+      expect(
+        tester.widgetList<Tooltip>(find.byType(Tooltip)).map((t) => t.message),
+        containsAll(<String>[
+          // Sin motivo declarado el mensaje sigue siendo el genérico: el cambio
+          // es aditivo y no reescribe el caso que ya existía.
+          'Sin Motivo — pendiente de construir',
+          // Con motivo, dice dónde está la función en vez de afirmar que falta.
+          'Se hace dentro de cada aula.',
+        ]),
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------

@@ -803,9 +803,15 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
+      // Sin `backgroundColor` a propósito: el tema ya pinta el `AppBar`
+      // (`IncesTheme.appBarTheme`), y aquí había un `Colors.blue[900]` —#0D47A1—
+      // que **no** es el azul del producto (`IncesTheme.azulPrimario`, #003B73).
+      // La primera pantalla que ve un aspirante usaba un azul distinto al del
+      // resto de la plataforma, que es exactamente lo que `main.dart` documenta
+      // haber corregido una vez: «cada pantalla se inventaba sus propios
+      // colores y la aplicación no se leía como un solo producto».
       appBar: AppBar(
         title: const Text('Inscripción - INCES La Isabelica'),
-        backgroundColor: Colors.blue[900],
         centerTitle: true,
       ),
       body: Column(

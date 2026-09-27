@@ -18,11 +18,17 @@ import 'mis_aulas_panel.dart';
 /// hace que la aplicación se lea como **una** plataforma con distintos permisos,
 /// y no como pantallas sueltas cosidas.
 ///
-/// Las secciones siguen siendo marcadores: dependen de los módulos M2
-/// (currículo), M3 (cuadrante) y M6/M7 (asistencia y calificaciones), que
-/// todavía no existen. Se muestran atenuadas y **no pulsables**, con el módulo
-/// del que dependen en el tooltip: así quien usa el panel entiende que falta
-/// algo concreto, en vez de sospechar que la aplicación está rota.
+/// Las secciones apagadas se muestran atenuadas y **no pulsables**, y su tooltip
+/// explica por qué: así quien usa el panel entiende qué falta, en vez de
+/// sospechar que la aplicación está rota.
+///
+/// Ese tooltip era **genérico** —«pendiente de construir»— y sobre
+/// «Calificaciones» era, además, **falso**: calificar existe desde M6 y está a
+/// un clic, dentro de cada aula (`aula_virtual_dashboard.dart`, botón
+/// «Calificar» de cada tarea). El texto sale ahora de `ItemNavegacion.pendiente`
+/// y para esa sección dice dónde está. Una sección gris sin explicación no se
+/// distingue de una plataforma incompleta, y el docente que la mira concluye que
+/// el sistema no califica.
 class DocenteDashboardScreen extends StatefulWidget {
   const DocenteDashboardScreen({
     super.key,
@@ -91,11 +97,18 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       categoria: 'Control de aulas',
       disponible: true,
     ),
+    // Apagada **y con motivo**, porque «pendiente de construir» aquí sería
+    // falso: el libro de calificaciones existe desde M6 y se abre desde cada
+    // aula. Lo que no hay es una sección suelta de notas, y crear una sería una
+    // segunda puerta al mismo sitio. El texto lleva al docente a la que sí hay,
+    // que es lo único que convierte un ítem gris en algo accionable.
     ItemNavegacion(
       icono: Icons.grading_outlined,
       titulo: 'Calificaciones',
       categoria: 'Control de aulas',
       disponible: false,
+      pendiente: 'Se califica dentro de cada aula. Abre Mis aulas, elige la '
+          'sección y entra en Trabajo de Clase.',
     ),
     ItemNavegacion(
       icono: Icons.folder_open_outlined,

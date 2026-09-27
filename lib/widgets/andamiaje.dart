@@ -11,6 +11,7 @@ class ItemNavegacion {
     required this.titulo,
     required this.categoria,
     this.disponible = true,
+    this.pendiente,
   });
 
   final IconData icono;
@@ -19,9 +20,22 @@ class ItemNavegacion {
   /// Agrupador visible en el menú: *Gestión Académica*, *Control de Aulas*…
   final String categoria;
 
-  /// `false` ⇒ la sección todavía no está construida. Se muestra atenuada y sin
-  /// acción, en vez de llevar a una pantalla vacía.
+  /// `false` ⇒ la sección no es pulsable. Se muestra atenuada y sin acción, en
+  /// vez de llevar a una pantalla vacía.
   final bool disponible;
+
+  /// Por qué está apagada, cuando **no** es «todavía no existe».
+  ///
+  /// `null` ⇒ el tooltip cae al mensaje genérico («pendiente de construir»). Se
+  /// usa para la sección que **sí existe** pero vive en otro sitio: sin esto el
+  /// menú afirmaría que falta algo que está construido, y quien lo busca no lo
+  /// encuentra. El caso real es «Calificaciones» en el panel del docente: el
+  /// libro de notas existe desde M6 y está a un clic, dentro de cada aula.
+  ///
+  /// **No puede contener paréntesis.** `test/menu_alcanzable_test.dart` delimita
+  /// cada `ItemNavegacion(…)` con el primer `),` que encuentra, y un paréntesis
+  /// dentro del texto cortaría el bloque por la mitad.
+  final String? pendiente;
 }
 
 /// Andamiaje de la aplicación: barra lateral replegable, encabezado y contenido.
@@ -416,11 +430,17 @@ class _ItemMenu extends StatelessWidget {
       ),
     );
 
+    // El mensaje de una sección apagada sale de `item.pendiente` cuando lo hay.
+    // «pendiente de construir» es la verdad **por defecto**, pero no siempre lo
+    // es —«Calificaciones» del docente existe y vive dentro del aula—, y un
+    // mensaje falso sobre algo construido manda al usuario a buscar lo que ya
+    // tiene. Replegado manda el título: el icono suelto no comunica nada y ahí
+    // la etiqueta no se ve.
     final conTooltip = replegado || !item.disponible
         ? Tooltip(
             message: replegado
                 ? item.titulo
-                : '${item.titulo} — pendiente de construir',
+                : item.pendiente ?? '${item.titulo} — pendiente de construir',
             child: contenido,
           )
         : contenido;
