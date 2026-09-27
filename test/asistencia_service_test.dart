@@ -306,4 +306,45 @@ void main() {
       expect(evento.marca, isNull);
     });
   });
+
+  group('la costura entre el panel del docente y el del alumno', () {
+    test('el par que codifica el docente es el que el alumno sabe leer', () {
+      // **Por qué esta prueba existe, y es la más barata de las importantes.**
+      //
+      // El docente pinta `'$sesionId:${qr.codigo}'` (`asistencia_qr_panel.dart`) y
+      // el alumno lo vuelve a partir con `ParseQr.de()`
+      // (`marcar_asistencia_panel.dart`). Son dos piezas en dos archivos
+      // distintos, y si la forma se separa el QR **se pinta igual** y la base lo
+      // rechaza. Es el patrón exacto de **D21**: un defecto que vive en la costura
+      // y que ninguna de las dos mitades revela por su lado.
+      //
+      // No se puede comprobar desde el árbol de widgets: medido en el paquete,
+      // `QrImageView` guarda el texto en un campo **privado** (`final String?
+      // _data`) y no expone getter, así que el contenido codificado no es legible.
+      // Por eso la costura se fija aquí, con la **misma expresión** que usa el
+      // panel. Es una copia, y una copia puede desviarse: la prueba lo dice en voz
+      // alta en vez de fingir que lee el widget.
+      const sesionId = 'e5e5e5e5-0001-4001-8001-000000000001';
+
+      final qr = AsistenciaService.codigoQr(
+        qrSecret: '3f2a9c1e5b7d8042a6c9e1f3b5d70842a1c3e5f7',
+        sesionId: sesionId,
+        ventanaSeg: 15,
+        ahora: DateTime.fromMillisecondsSinceEpoch(
+          1785000030 * 1000,
+          isUtc: true,
+        ),
+      );
+
+      final par = ParseQr.de('$sesionId:${qr.codigo}');
+
+      expect(
+        par,
+        isNotNull,
+        reason: 'el docente codifica algo que el panel del alumno no sabe leer',
+      );
+      expect(par!.sesionId, sesionId);
+      expect(par.codigo, qr.codigo);
+    });
+  });
 }

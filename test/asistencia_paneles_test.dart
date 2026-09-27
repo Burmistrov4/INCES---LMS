@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:inces_lms_app/core/errors/app_exception.dart';
+import 'package:inces_lms_app/core/gateways/aula_gateway.dart';
 import 'package:inces_lms_app/screens/aspirante/marcar_asistencia_panel.dart';
 import 'package:inces_lms_app/screens/docente/asistencia_qr_panel.dart';
 
@@ -122,17 +123,27 @@ void main() {
       // Lo que se codifica es `<sesión>:<seis dígitos>` — el mismo par que el
       // panel del alumno sabe volver a separar con `ParseQr`.
       //
-      // Se comprueba la **forma** y no el valor exacto, y es deliberado: el panel
-      // llama a `codigoQr` sin `ahora`, así que lee el reloj de verdad y no hay
-      // forma de inyectarle un instante. Afirmar un valor concreto sería una
-      // prueba que falla una vez cada quince segundos. La paridad del valor con
-      // Postgres la fija `asistencia_service_test.dart` contra vectores dorados.
-      final qr = tester.widget<QrImageView>(find.byType(QrImageView));
+      // **Aquí NO se afirma ese texto, y no por comodidad: no se puede.** Medido
+      // en el paquete: `QrImageView` recibe `required String data` pero lo guarda
+      // en un campo **privado** (`final String? _data`), sin getter público, así
+      // que el contenido codificado no es legible desde el árbol de widgets. Lo
+      // que sí se puede leer es la etiqueta de accesibilidad que el panel pone
+      // encima, y esa se afirma abajo.
+      //
+      // La **costura** —que lo que el docente codifica sea lo que el alumno sabe
+      // leer— se fija en `asistencia_service_test.dart`, que es donde vive la
+      // derivación del código. Tampoco se afirma aquí un valor concreto: el panel
+      // llama a `codigoQr` sin `ahora`, así que lee el reloj de verdad y afirmar
+      // un valor sería una prueba que falla una vez cada quince segundos.
+      expect(find.byType(QrImageView), findsOneWidget);
       expect(
-        qr.data,
-        matches(
-          RegExp('^e5e5e5e5-0001-4001-8001-000000000001:\\d{6}\$'),
+        find.byWidgetPredicate(
+          (w) =>
+              w is Semantics &&
+              (w.properties.label ?? '').startsWith('Código QR de asistencia.'),
         ),
+        findsOneWidget,
+        reason: 'el QR tiene que anunciar su caducidad a quien no lo ve',
       );
 
       // Y el canal en vivo se abrió para esa misma sesión.
