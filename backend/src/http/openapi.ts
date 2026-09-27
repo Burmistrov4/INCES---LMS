@@ -3562,7 +3562,9 @@ export function construirRegistro(): OpenAPIRegistry {
       200: { description: 'La sesión creada, con el secreto del QR.' },
       400: error('La sección no es un UUID o la ventana está fuera de rango (5-120 s).'),
       401: RESPUESTAS_ERROR[401],
-      403: error('No dictas esa sección (RLS) o no tienes sesión.'),
+      403: error(
+        'No dictas esa sección (RLS), o el módulo de asistencia está apagado (MODULO_DESHABILITADO).',
+      ),
       503: RESPUESTAS_ERROR[503],
     },
   });
@@ -3580,6 +3582,9 @@ export function construirRegistro(): OpenAPIRegistry {
       200: { description: 'Las marcas visibles para el llamante.' },
       400: error('El identificador no es un UUID.'),
       401: RESPUESTAS_ERROR[401],
+      403: error(
+        'El módulo de asistencia está apagado (MODULO_DESHABILITADO) o tu rol no está autorizado (MODULO_NO_AUTORIZADO).',
+      ),
       503: RESPUESTAS_ERROR[503],
     },
   });
@@ -3590,7 +3595,7 @@ export function construirRegistro(): OpenAPIRegistry {
     path: '/api/v1/asistencia/marcar',
     summary: 'Marca asistencia escaneando el QR (estudiante)',
     description:
-      'La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago.',
+      'La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago. **Esta ruta NO lleva guardia de módulo, a propósito (D19):** la bandera `m7_asistencia` tiene lista blanca `["docente","admin"]`, así que envolverla devolvería 403 al alumno — que es precisamente quien marca. Sus barreras son la sesión y la RLS.',
     security: [{ bearerAuth: [] }],
     responses: {
       200: { description: 'La marca quedó (o ya estaba: `duplicada: true`).' },
@@ -3614,7 +3619,9 @@ export function construirRegistro(): OpenAPIRegistry {
       200: { description: 'La sesión quedó cerrada.' },
       400: error('El identificador no es un UUID.'),
       401: RESPUESTAS_ERROR[401],
-      403: error('No eres quien abrió la sesión (NO_ES_TUYA).'),
+      403: error(
+        'No eres quien abrió la sesión (NO_ES_TUYA), o el módulo de asistencia está apagado (MODULO_DESHABILITADO).',
+      ),
       503: RESPUESTAS_ERROR[503],
     },
   });
@@ -3631,6 +3638,9 @@ export function construirRegistro(): OpenAPIRegistry {
       200: { description: 'Descripción del canal WS: cómo hacer el upgrade.' },
       400: error('Falta `?sesion=<uuid>` en la consulta.'),
       401: RESPUESTAS_ERROR[401],
+      403: error(
+        'El módulo de asistencia está apagado (MODULO_DESHABILITADO) o tu rol no está autorizado (MODULO_NO_AUTORIZADO). La guardia corre también en el upgrade, no sólo en el GET plano.',
+      ),
     },
   });
 

@@ -201,10 +201,12 @@ export function construirApp(env: Env, deps: DependenciasApp): FastifyInstance {
   rutasInscripciones(app, depsRutas);
   // M7: asistencia concurrente (QR efímero + WebSocket). Las escrituras pasan
   // por REST y las valida la RLS; el WS sólo avisa a la pantalla del docente.
-  rutasAsistencia(app);
-  // M5 necesita el almacenamiento inyectado; M2, M3 y M4, la caché de módulos
-  // para su guardia de bandera. Reciben `depsRutas` los cuatro, y ya no queda
-  // ningún registrador que no necesite nada inyectado.
+  // Necesita la caché de módulos para su guardia de bandera (D19), que cubre
+  // las cuatro superficies del docente pero **no** `POST /marcar`.
+  rutasAsistencia(app, depsRutas);
+  // M5 necesita el almacenamiento inyectado; M2, M3, M4 y M7, la caché de
+  // módulos para su guardia de bandera. Reciben `depsRutas` todos, y ya no
+  // queda ningún registrador que no necesite nada inyectado.
   rutasArchivos(app, depsRutas);
   // M6 reutiliza los archivos de M5 (las guías y las entregas cuelgan de sus
   // tablas) y necesita la caché de módulos para su propia guardia.

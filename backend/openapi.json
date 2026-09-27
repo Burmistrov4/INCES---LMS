@@ -9314,7 +9314,7 @@
             }
           },
           "403": {
-            "description": "No dictas esa sección (RLS) o no tienes sesión.",
+            "description": "No dictas esa sección (RLS), o el módulo de asistencia está apagado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9385,6 +9385,16 @@
               }
             }
           },
+          "403": {
+            "description": "El módulo de asistencia está apagado (MODULO_DESHABILITADO) o tu rol no está autorizado (MODULO_NO_AUTORIZADO).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "El servicio o la base de datos no están disponibles.",
             "content": {
@@ -9404,7 +9414,7 @@
           "Asistencia"
         ],
         "summary": "Marca asistencia escaneando el QR (estudiante)",
-        "description": "La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago.",
+        "description": "La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago. **Esta ruta NO lleva guardia de módulo, a propósito (D19):** la bandera `m7_asistencia` tiene lista blanca `[\"docente\",\"admin\"]`, así que envolverla devolvería 403 al alumno — que es precisamente quien marca. Sus barreras son la sesión y la RLS.",
         "security": [
           {
             "bearerAuth": []
@@ -9507,7 +9517,7 @@
             }
           },
           "403": {
-            "description": "No eres quien abrió la sesión (NO_ES_TUYA).",
+            "description": "No eres quien abrió la sesión (NO_ES_TUYA), o el módulo de asistencia está apagado (MODULO_DESHABILITADO).",
             "content": {
               "application/json": {
                 "schema": {
@@ -9557,6 +9567,16 @@
           },
           "401": {
             "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "El módulo de asistencia está apagado (MODULO_DESHABILITADO) o tu rol no está autorizado (MODULO_NO_AUTORIZADO). La guardia corre también en el upgrade, no sólo en el GET plano.",
             "content": {
               "application/json": {
                 "schema": {

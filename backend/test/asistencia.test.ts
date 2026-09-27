@@ -116,42 +116,33 @@ describe('control de acceso a la asistencia', () => {
   });
 });
 
-describe('la guardia de módulo que M7 NO tiene', () => {
-  it('con `m7_asistencia` apagada, las rutas siguen respondiendo: no hay guardia cableada', async () => {
-    // **Esta prueba fija un estado que no es el deseado, y lo hace a propósito.**
-    //
-    // Es D19: `m7_asistencia` está encendida y con lista blanca
-    // (`['docente','admin']`), pero **ninguna** de sus rutas lleva
-    // `exigirModulo('m7_asistencia')`. Ponérsela tal cual devolvería 403 al
-    // estudiante en `POST /marcar` —porque la lista blanca lo excluye— y la
-    // asistencia es precisamente lo que el estudiante tiene que poder hacer.
-    //
-    // Sin una prueba que fije el estado actual, la decisión de producto se
-    // tomaría a ciegas: nadie notaría que la bandera del módulo no hace nada en
-    // M7, ni que el día que se cablee el 403 aparecerá. Aquí se deja escrito y
-    // medido. Cuando la decisión se tome —ensanchar la lista y proteger todo, o
-    // proteger sólo las rutas del docente—, esta prueba **fallará** y obligará a
-    // actualizarla, que es exactamente lo que se quiere de un cambio de contrato.
+describe('la guardia de módulo de M7 (D19, decisión de producto tomada)', () => {
+  /**
+   * Semilla con `m7_asistencia` apagada, **afirmando el apagado antes de usarlo**.
+   *
+   * La afirmación no es ceremonia. Hasta el 2026-09-27 la semilla del arnés **no
+   * traía esta fila**: el `.map` no encontraba nada que cambiar, así que la
+   * prueba pasaba **sin haber apagado el módulo** y ningún rojo lo delató. Pedir
+   * la fila por su nombre convierte un no-op silencioso en un fallo de una línea.
+   */
+  function conAsistenciaApagada() {
     const modulos = MODULOS_POR_DEFECTO.map((m) =>
       m.clave === 'm7_asistencia' ? { ...m, habilitado: false } : m,
     );
-
-    // La premisa se comprueba **antes** de usarla, y no es ceremonia.
-    //
-    // Hasta el 2026-09-27 la semilla del arnés **no traía esta fila**: el `.map`
-    // de arriba no encontraba nada que cambiar, así que la prueba pasaba **sin
-    // haber apagado el módulo** —medía «la ruta responde», no «la ruta responde
-    // con el módulo apagado»— y ningún rojo lo delató. Afirmar que el apagado
-    // ocurrió de verdad es lo que convierte un no-op silencioso en un fallo de
-    // una línea con el nombre del archivo que falta.
     const apagado = modulos.find((m) => m.clave === 'm7_asistencia');
     expect(apagado, 'la semilla del arnés no trae `m7_asistencia`').toBeDefined();
     expect(
       apagado!.habilitado,
       'el módulo no quedó apagado: la prueba no está midiendo la bandera',
     ).toBe(false);
+    return crearArnés({ modulos });
+  }
 
-    const arnes = crearArnés({ modulos });
+  it('apagada, las tres rutas del docente REST responden 403 MODULO_DESHABILITADO', async () => {
+    // D19 se resolvió protegiendo **sólo las rutas del docente**. Con la bandera
+    // apagada, abrir, leer las marcas y cerrar dejan de atender —y con un error
+    // explícito, no un 500 ni una lista vacía que parezca «no ha marcado nadie»—.
+    const arnes = conAsistenciaApagada();
     app = arnes.app;
 
     const marcas = await app.inject({
@@ -159,11 +150,102 @@ describe('la guardia de módulo que M7 NO tiene', () => {
       url: `/api/v1/asistencia/sesiones/${ID_SESION_ASISTENCIA}/marcas`,
       headers: conToken(TOKEN_DOCENTE),
     });
+    expect(marcas.statusCode).toBe(403);
+    expect(marcas.json().error.codigo).toBe('MODULO_DESHABILITADO');
 
-    // Ni 403 MODULO_DESHABILITADO ni 404 MODULO_DESCONOCIDO: 200. La bandera no
-    // se consulta.
-    expect(marcas.statusCode).toBe(200);
-    expect(marcas.json()).toEqual({ marcas: [] });
+    const abrir = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/sesiones',
+      headers: conToken(TOKEN_DOCENTE),
+      payload: { seccionId: ID_SECCION_SA, ventanaSeg: VENTANA_SEG_POR_DEFECTO },
+    });
+    expect(abrir.statusCode).toBe(403);
+    expect(abrir.json().error.codigo).toBe('MODULO_DESHABILITADO');
+
+    const cerrar = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/asistencia/sesiones/${ID_SESION_ASISTENCIA}/cerrar`,
+      headers: conToken(TOKEN_DOCENTE),
+    });
+    expect(cerrar.statusCode).toBe(403);
+    expect(cerrar.json().error.codigo).toBe('MODULO_DESHABILITADO');
+  });
+
+  it('apagada, el ALUMNO sigue marcando: es la razón de no proteger `POST /marcar`', async () => {
+    // **Ésta es la prueba que justifica la decisión entera.** `m7_asistencia`
+    // tiene lista blanca `['docente','admin']`, así que envolver `POST /marcar`
+    // en la guardia devolvería 403 al alumno —el único rol que marca— y la
+    // asistencia, que es el propósito del módulo, quedaría rota justo por la
+    // bandera que se supone la administra. Con el módulo apagado la marca sigue
+    // entrando; sus barreras son la sesión y la RLS.
+    const arnes = conAsistenciaApagada();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { sesionId: ID_SESION_ASISTENCIA, codigo: codigoVigente() },
+    });
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toEqual({ ok: true, duplicada: false });
+  });
+
+  it('encendida, la lista blanca deja pasar al docente y frena al alumno', async () => {
+    // La lista blanca `['docente','admin']` es la otra mitad de la decisión: no
+    // basta con que el módulo esté encendido, hay que estar en la lista. El
+    // tablero de marcas es del docente; el alumno marca, no lee la lista.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const comoDocente = await app.inject({
+      method: 'GET',
+      url: `/api/v1/asistencia/sesiones/${ID_SESION_ASISTENCIA}/marcas`,
+      headers: conToken(TOKEN_DOCENTE),
+    });
+    expect(comoDocente.statusCode).toBe(200);
+
+    const comoAlumno = await app.inject({
+      method: 'GET',
+      url: `/api/v1/asistencia/sesiones/${ID_SESION_ASISTENCIA}/marcas`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+    expect(comoAlumno.statusCode).toBe(403);
+    expect(comoAlumno.json().error.codigo).toBe('MODULO_NO_AUTORIZADO');
+  });
+
+  it('la guardia corre TAMBIÉN en el upgrade del WebSocket, no sólo en el GET plano', async () => {
+    // Sin esta prueba, la mitad «avisa» del módulo seguiría en vivo con la
+    // bandera apagada: el tablero del docente se conectaría y recibiría marcas
+    // aunque el administrador hubiera apagado la asistencia. El plugin
+    // `@fastify/websocket` despacha el `upgrade` por el router normal de Fastify
+    // —«so that it will invoke hooks»—, así que el `preHandler` de ruta corta el
+    // handshake con el mismo 403 que las rutas REST. Aquí se mide.
+    const arnes = conAsistenciaApagada();
+    app = arnes.app;
+
+    const direccion = await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = direccion.replace(/^http/, 'ws');
+
+    const { mensajes, errores, cerrado } = abrirRt(
+      `${base}/api/v1/asistencia/rt?sesion=${ID_SESION_ASISTENCIA}&token=${TOKEN_DOCENTE}`,
+      {},
+    );
+
+    const resultado = await Promise.race([
+      esperarMensaje(mensajes, 2000).then(
+        () => 'mensaje',
+        () => 'tiempo',
+      ),
+      cerrado.then(({ codigo }) => `cerrado:${codigo}`),
+    ]);
+
+    // El cliente ve un handshake rechazado con el 403 del servidor y **ningún**
+    // mensaje: el canal no llegó a abrirse.
+    expect(errores.join(' ')).toContain('403');
+    expect(resultado).not.toBe('mensaje');
+    expect(mensajes).toHaveLength(0);
   });
 });
 
@@ -328,11 +410,22 @@ describe('marcar asistencia', () => {
     const arnes = crearArnés();
     app = arnes.app;
 
+    // El código se calcula **una sola vez** y se reutiliza en la afirmación.
+    //
+    // Calcularlo dos veces —una para el payload y otra para el `expect`— hacía
+    // que la prueba dependiera del reloj de pared: `codigoVigente()` deriva de la
+    // ventana de 15 s (`floor(now/1000/15)`), así que si entre las dos llamadas
+    // caía un cambio de ventana, la marca guardaba el código de la ventana
+    // anterior —que la RLS acepta, porque también admite `ventana - 1`— y la
+    // afirmación comparaba contra el de la nueva. Un rojo esporádico sin relación
+    // con el código de producción. Medido el 2026-09-27, en la suite completa.
+    const codigo = codigoVigente();
+
     const respuesta = await app.inject({
       method: 'POST',
       url: '/api/v1/asistencia/marcar',
       headers: conToken(TOKEN_ALUMNO),
-      payload: { sesionId: ID_SESION_ASISTENCIA, codigo: codigoVigente() },
+      payload: { sesionId: ID_SESION_ASISTENCIA, codigo },
     });
 
     expect(respuesta.statusCode).toBe(200);
@@ -344,7 +437,7 @@ describe('marcar asistencia', () => {
     expect(marca.estudianteId).toBe(ID_ALUMNO);
     // Se guarda **el código que el alumno presentó**, no el que la base esperaba:
     // la columna `code` es de auditoría y sirve para reconstruir qué se escaneó.
-    expect(marca.codigo).toBe(codigoVigente());
+    expect(marca.codigo).toBe(codigo);
   });
 
   it('el mismo alumno marcando otra vez no duplica: responde `duplicada` y no un error', async () => {

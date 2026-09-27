@@ -2,7 +2,9 @@ import fastifyWebsocket from '@fastify/websocket';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
+import type { DependenciasRutas } from '../dependencias.js';
 import { exigirSesion, reposDe } from '../plugins/autenticacion.js';
+import { exigirModulo } from '../plugins/modulos.js';
 
 /**
  * Rutas de la asistencia concurrente (QR efímero + WebSocket). M7.
@@ -25,17 +27,51 @@ import { exigirSesion, reposDe } from '../plugins/autenticacion.js';
  * código en cada ventana de 15 s. Si un alumno fotografía la pantalla, el
  * código ya caducó —la ventana chica es el antídoto barato—.
  *
- * **El código se compruña en la base, no aquí — ADR-003:** la frontera es la
+ * **El código se comprueba en la base, no aquí — ADR-003:** la frontera es la
  * RLS, no la API. Esta ruta sólo hace la forma (Zod) y empuja el evento al WS.
+ *
+ * **La guardia de módulo cubre sólo las rutas del docente (D19, cerrada).**
+ * La bandera `m7_asistencia` está encendida y con lista blanca
+ * `['docente','admin']`. Si se aplicara a las cinco rutas, `POST /marcar`
+ * devolvería 403 al estudiante —que es justo quien tiene que marcar—, porque la
+ * lista blanca lo excluye. La decisión de producto, por tanto, no es «todo o
+ * nada»: se protegen las cuatro superficies del docente (abrir, leer marcas,
+ * cerrar y el canal en vivo) y se deja `POST /marcar` protegido **sólo** por
+ * `exigirSesion()`. Así apagar el módulo desde el cPanel esconde de verdad el
+ * tablero del docente sin romperle la asistencia al alumno.
  */
-export function rutasAsistencia(app: FastifyInstance): void {
+export function rutasAsistencia(app: FastifyInstance, deps: DependenciasRutas): void {
+  /**
+   * La guardia del módulo, construida **una sola vez**.
+   *
+   * `exigirModulo` es una fábrica: recibe la caché y la clave y devuelve el
+   * `preHandler`. Se construye aquí arriba para que la clave `m7_asistencia`
+   * aparezca una sola vez en el archivo —si el módulo se renombrara, hay un
+   * único sitio que corregir—. El hook es una función sin estado, así que
+   * compartirlo entre las cinco superficies es seguro.
+   *
+   * **Va siempre en segundo lugar, después de `exigirSesion()`.** El orden no es
+   * cosmético: sin sesión, `request.usuario` es `null` y la guardia no puede
+   * distinguir «el módulo está apagado» de «no hay quien pregunte». Colocada
+   * primero, una petición anónima recibiría 403 (o 404, si faltara la semilla)
+   * en vez del **401** que le corresponde — que es justo lo que exige
+   * `openapi.test.ts`, que inyecta cada ruta documentada sin token y comprueba
+   * que responde 401 y no 404.
+   *
+   * Aquí el `exigirSesion()` no se repite en cada ruta porque el plugin ya lo
+   * declara **como hook de instancia** (`asistencia.addHook('preHandler', …)`
+   * unas líneas más abajo). Los hooks de instancia corren antes que los de
+   * ruta, así que el orden correcto sale solo: sesión primero, módulo después.
+   */
+  const exigirAsistencia = exigirModulo(deps.caches.modulos, 'm7_asistencia');
+
   // --- REST: crear, marcar, leer, cerrar -----------------------------------
   app.register(
     async (asistencia) => {
       asistencia.addHook('preHandler', exigirSesion());
 
       // Docente: abre una sesión y recibe el secreto del QR (una sola vez).
-      asistencia.post('/sesiones', async (request) => {
+      asistencia.post('/sesiones', { preHandler: [exigirAsistencia] }, async (request) => {
         const { seccionId, ventanaSeg } = esquemaCrearSesion.parse(request.body);
         const usuario = request.usuario!;
 
@@ -49,13 +85,23 @@ export function rutasAsistencia(app: FastifyInstance): void {
       });
 
       // Docente/admin: las marcas de una sesión, en orden de llegada.
-      asistencia.get<{ Params: { id: string } }>('/sesiones/:id/marcas', async (request) => {
-        const { id } = esquemaIdSesion.parse(request.params);
-        const marcas = await reposDe(request).asistencia.marcasDeSesion(id);
-        return { marcas };
-      });
+      asistencia.get<{ Params: { id: string } }>(
+        '/sesiones/:id/marcas',
+        { preHandler: [exigirAsistencia] },
+        async (request) => {
+          const { id } = esquemaIdSesion.parse(request.params);
+          const marcas = await reposDe(request).asistencia.marcasDeSesion(id);
+          return { marcas };
+        },
+      );
 
       // Estudiante: marca asistencia. La RLS valida el código — aquí se espera.
+      //
+      // **Sin guardia de módulo, a propósito (D19).** `m7_asistencia` tiene
+      // lista blanca `['docente','admin']`, así que envolver esta ruta en
+      // `exigirAsistencia` devolvería 403 al alumno — el único rol que marca.
+      // La protección que le corresponde es la sesión (hook de instancia) y, en
+      // cuanto al contenido, la RLS de la base.
       asistencia.post('/marcar', async (request) => {
         const { sesionId, codigo } = esquemaMarcar.parse(request.body);
         const usuario = request.usuario!;
@@ -76,12 +122,16 @@ export function rutasAsistencia(app: FastifyInstance): void {
       });
 
       // Docente: cierra la sesión. Las marcas se conservan.
-      asistencia.patch<{ Params: { id: string } }>('/sesiones/:id/cerrar', async (request) => {
-        const { id } = esquemaIdSesion.parse(request.params);
-        await reposDe(request).asistencia.cerrarSesion(id, request.usuario!.id);
-        difundir(id, { tipo: 'sesion_cerrada', sesionId: id });
-        return { ok: true };
-      });
+      asistencia.patch<{ Params: { id: string } }>(
+        '/sesiones/:id/cerrar',
+        { preHandler: [exigirAsistencia] },
+        async (request) => {
+          const { id } = esquemaIdSesion.parse(request.params);
+          await reposDe(request).asistencia.cerrarSesion(id, request.usuario!.id);
+          difundir(id, { tipo: 'sesion_cerrada', sesionId: id });
+          return { ok: true };
+        },
+      );
     },
     { prefix: '/api/v1/asistencia' },
   );
@@ -104,6 +154,13 @@ export function rutasAsistencia(app: FastifyInstance): void {
       rt.route({
         method: 'GET',
         url: '/rt',
+        // La guardia también cubre el upgrade, no sólo el GET plano: el plugin
+        // de WebSocket despacha el `upgrade` **por el router normal** de Fastify
+        // «so that it will invoke hooks», así que un `preHandler` de ruta corre
+        // antes de que el socket se abra. Medido en `@fastify/websocket` 11.3.1
+        // (`index.js`, el `onUpgrade`). Sin esto, el tablero del docente seguiría
+        // en vivo con el módulo apagado.
+        preHandler: [exigirAsistencia],
         // `wsHandler` y no `websocket: true`: éste último sustituye el handler
         // HTTP por un 404 fijo, y el contrato OpenAPI del repo —que pide a cada
         // ruta documentada responder algo distinto de 404— reprobaría la ruta.
