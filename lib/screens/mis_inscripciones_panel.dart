@@ -244,12 +244,26 @@ class _PanelMisInscripcionesState extends State<PanelMisInscripciones> {
           const SizedBox(height: 12),
         ],
 
-        SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final i in _ordenadas) _tarjetaInscripcion(i),
-            ],
+        // `Flexible` y no el scroll suelto. **En un `Column`, un hijo no
+        // flexible recibe la altura del eje principal como *ilimitada***, así
+        // que el `SingleChildScrollView` se dimensionaba a su contenido entero
+        // en vez de a lo que sobra, y desbordaba el alto acotado que le entrega
+        // `ContenidoSeccion`. Con `Flexible` (ajuste holgado, no `Expanded`)
+        // recibe la altura restante y desplaza dentro.
+        //
+        // Medido: dos tarjetas más el aviso de cabecera desbordaban **52 px** a
+        // 800×600. Lo destaparon —de rebote— las dos pruebas de urgencia, que
+        // montan dos inscripciones; las de una sola pasaban. El aviso de
+        // cabecera que se añadió arriba fue lo que terminó de desbordar una
+        // estructura que ya estaba al límite.
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final i in _ordenadas) _tarjetaInscripcion(i),
+              ],
+            ),
           ),
         ),
       ],

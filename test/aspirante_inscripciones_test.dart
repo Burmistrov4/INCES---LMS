@@ -410,5 +410,53 @@ void main() {
 
       expect(find.textContaining('esperando respuesta'), findsNothing);
     });
+
+    testWidgets('con varias tarjetas el panel no desborda la altura acotada',
+        (tester) async {
+      // Esta prueba existe por un fallo **medido**, no supuesto: en un `Column`,
+      // un hijo no flexible recibe la altura del eje principal como
+      // *ilimitada*, así que el `SingleChildScrollView` de las tarjetas se
+      // dimensionaba a su contenido entero y desbordaba los 519 px que da
+      // `ContenidoSeccion`. A 800×600, dos tarjetas más el aviso de cabecera
+      // desbordaban **52 px**.
+      //
+      // Lo destaparon de rebote las dos pruebas de urgencia —las únicas que
+      // montaban dos inscripciones—, y eso es frágil: si mañana alguien las
+      // deja en una sola, la guarda desaparece sin que nadie lo note. Aquí se
+      // fija a propósito, con tres tarjetas, que es más de lo que falló.
+      //
+      // No hace falta buscar el desborde: `RenderFlex overflowed` **lanza** en
+      // `flutter test`, así que montar el panel en la ventana por defecto *es*
+      // la auditoría; lo único necesario es no dejar pasar la excepción.
+      final fake = FakeInscripcionGateway()
+        ..misInscripcionesDevueltas = [
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-1',
+            materia: 'Alfa',
+            estado: EstadoInscripcion.pendingBid,
+            ofertaVenceEn:
+                DateTime.now().add(const Duration(hours: 4)).toIso8601String(),
+          ),
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-2',
+            materia: 'Beta',
+            estado: EstadoInscripcion.waitlisted,
+            posicionEnCola: 1,
+          ),
+          inscripcionDetalladaEjemplo(
+            seccionId: 'sec-3',
+            materia: 'Gamma',
+            estado: EstadoInscripcion.enrolled,
+          ),
+        ];
+      await montarPanel(
+        tester,
+        PanelMisInscripciones(
+          repositorio: InscripcionesRepository(gateway: fake),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+    });
   });
 }
