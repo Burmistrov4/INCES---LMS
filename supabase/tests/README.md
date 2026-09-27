@@ -17,7 +17,19 @@ npm install
 npm test
 ```
 
-Salida esperada: `TODO VERDE — 40 aserciones pasadas, 0 fallidas`.
+El script imprime el total de aserciones al terminar y sale con código distinto
+de cero si alguna falla. **El número no se escribe aquí a propósito**: este README
+decía «40 aserciones» mientras el script ya iba por **494**, y una cifra copiada
+envejece sola. Lo mide `medir-conteos.mjs` y lo imprime `npm test`.
+
+## Herramientas del directorio
+
+| Archivo | Para qué |
+| --- | --- |
+| `validate.mjs` | El arnés. Aplica todas las migraciones y ejerce semilla, RLS y vistas. Es lo que corre `npm test` y **lo que corre CI** |
+| `medir-conteos.mjs` | Sólo lectura. Imprime los conteos que `ESTADO_DEL_SISTEMA.md` afirma como «medidos», para no copiarlos hacia adelante |
+| `vectores-codigo-qr.mjs` | Genera los **vectores dorados** del código de asistencia (M7) con PostgreSQL de verdad, como literal de Dart para `test/asistencia_service_test.dart`. Herramienta de mantenimiento: **no** la ejecuta CI |
+| `supabase_shim.sql` | Emula lo que Supabase aporta de fábrica (`auth`, `auth.uid()`, roles y privilegios por defecto) |
 
 ## Cómo funciona
 
@@ -32,20 +44,37 @@ Salida esperada: `TODO VERDE — 40 aserciones pasadas, 0 fallidas`.
 
 ## Qué cubre
 
-| Bloque | Comprueba |
-| --- | --- |
-| Semilla | 9 módulos M0–M8, M9 descartado, estado inicial honesto |
-| Cortacircuitos | `m0_cpanel` no se puede apagar ni borrar |
-| Auditoría | cada cambio deja rastro con valor anterior y nuevo |
-| Idempotencia | reaplicar la semilla no revive ni duplica nada |
-| Onboarding | el trigger crea perfil y ficha atómicamente |
-| RLS no-admin | lee módulos, no los edita, no ve la auditoría ni settings privados |
-| RLS admin | edita módulos, lee todo |
-| RLS anónimo | sólo parámetros públicos; sin acceso al catálogo de módulos |
-| Restricciones | roles, formato de clave y tipo de parámetro validados |
+Las secciones del script, en su orden y con sus propios títulos. **Se copiaron del
+script el 2026-09-27**; si añades una sección a `validate.mjs` y no la añades aquí,
+este README empieza a mentir — que es exactamente lo que le había pasado.
+
+| # | Bloque | Comprueba |
+| --- | --- | --- |
+| 1–6 | Núcleo | Aplicación de migraciones, semilla de `system_modules` y de `system_settings`, cortacircuitos del cPanel, auditoría de configuración e idempotencia de la semilla |
+| 7 | Onboarding | El trigger crea perfil y ficha atómicamente, con datos de prueba |
+| 8–11 | RLS y restricciones | Usuario autenticado sin privilegios, administrador, visitante anónimo, y restricciones de integridad (roles, formato de clave, tipo de parámetro) |
+| 12 | D8 | Protección del último administrador activo |
+| 13–16 | Módulo 2 | Currículo y Pensum, `programs` absorbiendo cursos (D12), `sections` rediseñada (D13) y las RPC del asistente |
+| 17 | Módulo 3 | Aulas, períodos, guardias y cuadrante — incluida la comprobación de que el trigger funciona para un `authenticated` real y no para el dueño de la tabla |
+| 18 | Módulo 4 | Inscripciones y cupos: cola FIFO, ofertas y reincorporación |
+| 19 | Módulo 5 | Archivos (R2): RLS, RPCs y frontera de escritura |
+| 20 | Módulo 6 | Aula Virtual: RLS, RPCs y el ciclo de calificación |
+| 21–22 | Planilla (M4) | Catálogo de inscripción y `datos_planilla`, y la guardia de escritura de la planilla |
+| 23 | HACER (M4) | Exportación: `v_exportacion_hacer` filtra por `ENROLLED`, aplana el catálogo y `anon` recibe `42501` |
+
+> **Nota sobre la numeración de las secciones.** Los títulos del script tienen
+> tres secciones numeradas **14** (`14. D12 cerrada…`, `14. Módulo 3…` y
+> `14.8 El trigger funciona…`). No se renumeraron a propósito: hay referencias a
+> «§14» y «§22» en `ESTADO_DEL_SISTEMA.md` que apuntan a esos números, y
+> reordenarlos rompería esas citas para arreglar algo cosmético. Queda anotado.
 
 ## Límites
 
 PGlite es Postgres de verdad, pero **no es Supabase**: no prueba PostgREST, ni
 GoTrue, ni el comportamiento de `auth.jwt()`. La verificación final contra el
 proyecto real sigue siendo necesaria. Esto atrapa lo caro antes de llegar ahí.
+
+**Lo que este arnés no puede ver** y conviene no confundir con cobertura: que la
+RLS decida bien *en la nube* (eso lo hace `verificar-esquema.mjs`), ni que las
+pantallas de Flutter hagan lo que dicen (eso es `test/`, y para M7 está en
+`test/asistencia_paneles_test.dart`).
