@@ -135,7 +135,6 @@ void main() {
       // derivación del código. Tampoco se afirma aquí un valor concreto: el panel
       // llama a `codigoQr` sin `ahora`, así que lee el reloj de verdad y afirmar
       // un valor sería una prueba que falla una vez cada quince segundos.
-      expect(find.byType(QrImageView), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (w) =>
