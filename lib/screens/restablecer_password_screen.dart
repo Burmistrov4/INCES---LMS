@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_service.dart';
+import '../theme/inces_theme.dart';
 
 /// Pantalla donde el usuario define una contraseña nueva.
 ///
@@ -23,6 +23,17 @@ import '../services/auth_service.dart';
 /// El token de recuperación **caduca** (una hora por defecto). Si el usuario
 /// llega tarde, no hay sesión y esta pantalla lo dice con claridad en lugar de
 /// dejar el botón sin efecto.
+///
+/// ## Por qué esta pantalla dejó de ser oscura
+///
+/// Estaba forzada a `#0F172A` con literales —los mismos valores que
+/// `IncesTheme.fondoOscuro`, `superficieOscura`, `bordeOscuro` y
+/// `textoApagadoOscuro`, copiados a mano—. Con `ThemeMode.system` en claro, el
+/// usuario que llega desde el correo de recuperación aterrizaba en una pantalla
+/// oscura que además repetía el sistema de diseño en lugar de usarlo.
+///
+/// Ahora todo sale del `ColorScheme`. Un literal de color aquí es un color que
+/// no sigue al tema, y no queda ninguno.
 class RestablecerPasswordScreen extends StatefulWidget {
   const RestablecerPasswordScreen({super.key});
 
@@ -68,9 +79,11 @@ class _RestablecerPasswordScreenState
     resultado.when(
       success: (_) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Contraseña actualizada. Ya puedes iniciar sesión.'),
-            backgroundColor: Color(0xFF16A34A),
+          SnackBar(
+            content: const Text(
+              'Contraseña actualizada. Ya puedes iniciar sesión.',
+            ),
+            backgroundColor: IncesTheme.exito,
           ),
         );
         Navigator.of(context).pop();
@@ -83,21 +96,20 @@ class _RestablecerPasswordScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final haySesion = _authService.tieneSesion;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      // Sin `backgroundColor`: lo pone el tema. Ésta era la segunda pantalla
+      // que se quedaba oscura en un sistema en claro.
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
+            // `Card` sin `color` ni `elevation`: hereda el `cardTheme`, que ya
+            // trae la superficie, el borde y la ausencia de tinte de M3.
             child: Card(
-              color: const Color(0xFF1E293B),
-              elevation: 8,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
               child: Padding(
                 padding: const EdgeInsets.all(32),
                 child: Form(
@@ -106,9 +118,9 @@ class _RestablecerPasswordScreenState
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.lock_reset_outlined,
-                        color: Color(0xFF2563EB),
+                        color: theme.colorScheme.primary,
                         size: 48,
                       ),
                       const SizedBox(height: 16),
@@ -117,11 +129,7 @@ class _RestablecerPasswordScreenState
                             ? 'Nueva contraseña'
                             : 'Enlace no válido o caducado',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        style: theme.textTheme.headlineSmall,
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -132,41 +140,34 @@ class _RestablecerPasswordScreenState
                                 'seguridad. Solicita uno nuevo desde la '
                                 'pantalla de inicio de sesión.',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: const Color(0xFF94A3B8),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 24),
 
                       if (haySesion) ...[
+                        // Sin `style`, `labelStyle`, `fillColor` ni colores en
+                        // los iconos: el `inputDecorationTheme` del tema ya los
+                        // define, y repetirlos era lo que los desincronizaba.
                         TextFormField(
                           controller: _passwordController,
                           obscureText: !_passwordVisible,
-                          style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             labelText: 'Nueva contraseña',
-                            labelStyle:
-                                const TextStyle(color: Color(0xFF94A3B8)),
-                            prefixIcon: const Icon(
-                              Icons.lock_outline,
-                              color: Color(0xFF64748B),
-                            ),
+                            prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
+                              tooltip: _passwordVisible
+                                  ? 'Ocultar contraseña'
+                                  : 'Mostrar contraseña',
                               icon: Icon(
                                 _passwordVisible
                                     ? Icons.visibility_off
                                     : Icons.visibility,
-                                color: const Color(0xFF64748B),
                               ),
                               onPressed: () => setState(
                                 () => _passwordVisible = !_passwordVisible,
                               ),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFF0F172A),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           validator: (valor) {
@@ -183,20 +184,9 @@ class _RestablecerPasswordScreenState
                         TextFormField(
                           controller: _confirmarController,
                           obscureText: !_passwordVisible,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
+                          decoration: const InputDecoration(
                             labelText: 'Confirmar contraseña',
-                            labelStyle:
-                                const TextStyle(color: Color(0xFF94A3B8)),
-                            prefixIcon: const Icon(
-                              Icons.lock_outline,
-                              color: Color(0xFF64748B),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFF0F172A),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
+                            prefixIcon: Icon(Icons.lock_outline),
                           ),
                           validator: (valor) {
                             if (valor != _passwordController.text) {
@@ -208,55 +198,24 @@ class _RestablecerPasswordScreenState
                         const SizedBox(height: 20),
 
                         if (_error != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF7F1D1D).withValues(
-                                alpha: 0.3,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: const Color(0xFFEF4444),
-                              ),
-                            ),
-                            child: Text(
-                              _error!,
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: const Color(0xFFFCA5A5),
-                              ),
-                            ),
-                          ),
+                          _avisoDeError(theme, _error!),
                           const SizedBox(height: 16),
                         ],
 
                         SizedBox(
                           height: 48,
+                          // Sin `styleFrom`: el tema da el azul y la forma.
                           child: ElevatedButton(
                             onPressed: _isLoading ? null : _handleRestablecer,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2563EB),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
                             child: _isLoading
                                 ? const SizedBox(
                                     width: 20,
                                     height: 20,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
                                     ),
                                   )
-                                : Text(
-                                    'Guardar contraseña',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
+                                : const Text('Guardar contraseña'),
                           ),
                         ),
                       ],
@@ -266,10 +225,6 @@ class _RestablecerPasswordScreenState
                         onPressed: () => Navigator.of(context).pop(),
                         child: Text(
                           haySesion ? 'Cancelar' : 'Volver al inicio',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: const Color(0xFF60A5FA),
-                          ),
                         ),
                       ),
                     ],
@@ -279,6 +234,38 @@ class _RestablecerPasswordScreenState
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// El recuadro de error, con el tono del tema.
+  ///
+  /// Antes usaba tres literales —`#7F1D1D` de fondo, `#EF4444` de borde y
+  /// `#FCA5A5` de texto— que estaban calculados para leerse **sólo** sobre
+  /// fondo oscuro. En claro, el texto rosado sobre blanco quedaba casi
+  /// invisible: el error existía y no se leía.
+  Widget _avisoDeError(ThemeData theme, String mensaje) {
+    final tono = theme.colorScheme.error;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: tono.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(IncesTheme.radioControl),
+        border: Border.all(color: tono.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, size: 18, color: tono),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: theme.textTheme.bodySmall?.copyWith(color: tono),
+            ),
+          ),
+        ],
       ),
     );
   }

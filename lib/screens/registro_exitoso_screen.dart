@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/planilla_pdf_service.dart';
+import '../theme/inces_theme.dart';
 
 /// Pantalla final del onboarding.
 ///
@@ -15,6 +16,18 @@ import '../services/planilla_pdf_service.dart';
 /// descargar el PDF de su planilla del INCES —ya llena— directamente desde aquí.
 /// El botón sólo se muestra en ese caso: sin sesión no hay JWT que enviar al
 /// backend, y la descarga devolvería 401.
+///
+/// ## Por qué esta pantalla dejó de ser oscura
+///
+/// Estaba forzada a `#0F172A` con literales, así que con `ThemeMode.system` en
+/// claro el aspirante aterrizaba en una pantalla oscura justo después de
+/// registrarse — y el resto de la aplicación es claro. Los literales eran los
+/// valores de `IncesTheme.fondoOscuro` y compañía, así que la pantalla *parecía*
+/// seguir el sistema de diseño sin seguirlo: tomaba la paleta oscura y la
+/// ignoraba cuando el sistema pedía la clara.
+///
+/// Ahora todo sale del `ColorScheme` del tema. Un literal de color que quede
+/// aquí es un color que no sigue al tema, y eso es lo que se retiró.
 class RegistroExitosoScreen extends StatefulWidget {
   final String email;
   final bool requiereTutorLegal;
@@ -123,6 +136,8 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
             children: [
               Icon(
                 esError ? Icons.error_outline : Icons.check_circle_outline,
+                // Blanco sobre el color de estado: el aviso va sobre un fondo
+                // saturado, y ahí el `onSurface` del tema sería ilegible.
                 color: Colors.white,
                 size: 20,
               ),
@@ -130,12 +145,13 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
               Expanded(child: Text(mensaje)),
             ],
           ),
-          backgroundColor:
-              esError ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+          // `IncesTheme.exito` y `.error` y no literales: son los mismos tonos
+          // que usa el resto de la aplicación para decir «bien» y «mal».
+          backgroundColor: esError ? IncesTheme.error : IncesTheme.exito,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 6),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(IncesTheme.radioControl),
           ),
         ),
       );
@@ -143,8 +159,11 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      // Sin `backgroundColor`: lo pone el tema. Ésta era la pantalla que se
+      // quedaba oscura en un sistema en claro.
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -152,46 +171,37 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
             constraints: const BoxConstraints(maxWidth: 520),
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF334155)),
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta + 4),
+              border: Border.all(color: theme.colorScheme.outline),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildIcono(),
+                _buildIcono(theme),
                 const SizedBox(height: 24),
                 Text(
                   _titulo,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                  style: theme.textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   _subtitulo,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    color: const Color(0xFF94A3B8),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   email,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+                  style: theme.textTheme.titleMedium,
                 ),
                 const SizedBox(height: 20),
-                _buildPanelProximosPasos(),
+                _buildPanelProximosPasos(theme),
                 if (sesionIniciada) ...[
                   const SizedBox(height: 16),
                   SizedBox(
@@ -202,10 +212,7 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.download_outlined),
                       label: Text(
@@ -213,36 +220,20 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
                             ? 'Generando PDF…'
                             : 'Descargar mi planilla (PDF)',
                       ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFF334155)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
                     ),
                   ),
                 ],
                 const SizedBox(height: 24),
                 SizedBox(
                   height: 48,
+                  // Sin `styleFrom`: el tema ya da el azul institucional y la
+                  // forma. Sobrescribirlo era lo que metía un azul distinto.
                   child: ElevatedButton(
                     onPressed: _irAlDestino,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
                     child: Text(
                       sesionIniciada
                           ? 'Ir a mi panel'
                           : 'Ir al inicio de sesión',
-                      style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
                     ),
                   ),
                 ),
@@ -254,45 +245,49 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
     );
   }
 
-  Widget _buildIcono() {
+  Widget _buildIcono(ThemeData theme) {
     final confirmando = requiereConfirmacionEmail && !sesionIniciada;
     return Container(
       width: 72,
       height: 72,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: Colors.green.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+        color: IncesTheme.exito.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta + 4),
+        border: Border.all(color: IncesTheme.exito.withValues(alpha: 0.4)),
       ),
       child: Icon(
         confirmando
             ? Icons.mark_email_read_outlined
             : Icons.check_circle_outline,
-        color: Colors.green,
+        color: IncesTheme.exito,
         size: 36,
       ),
     );
   }
 
-  Widget _buildPanelProximosPasos() {
+  Widget _buildPanelProximosPasos(ThemeData theme) {
     final pasos = <Widget>[
       if (requiereConfirmacionEmail && !sesionIniciada)
         _buildPaso(
+          theme,
           Icons.email_outlined,
           'Confirma tu correo electrónico para activar la cuenta.',
         )
       else
         _buildPaso(
+          theme,
           Icons.verified_outlined,
           'Tu cuenta ya está activa y con sesión iniciada.',
         ),
       _buildPaso(
+        theme,
         Icons.how_to_reg_outlined,
         'Podrás ingresar con tu cédula o correo y la contraseña que creaste.',
       ),
       if (requiereTutorLegal)
         _buildPaso(
+          theme,
           Icons.family_restroom,
           'Tu representante legal será contactado para validar la inscripción.',
         ),
@@ -301,21 +296,17 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF334155)),
+        // Superficie hundida: en claro queda un gris frío y en oscuro un tono
+        // por debajo de la tarjeta. El literal `#0F172A` daba el mismo bloque
+        // casi negro en los dos modos.
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta),
+        border: Border.all(color: theme.colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Próximos pasos',
-            style: GoogleFonts.inter(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
+          Text('Próximos pasos', style: theme.textTheme.titleSmall),
           const SizedBox(height: 10),
           for (var i = 0; i < pasos.length; i++) ...[
             if (i > 0) const SizedBox(height: 8),
@@ -334,18 +325,18 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
       ? 'Tu ficha quedó guardada y tu cuenta está lista.'
       : 'Enviamos las instrucciones de confirmación a:';
 
-  Widget _buildPaso(IconData icon, String text) {
+  Widget _buildPaso(ThemeData theme, IconData icon, String text) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: const Color(0xFF94A3B8), size: 20),
+        Icon(icon, color: theme.colorScheme.onSurfaceVariant, size: 20),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             text,
             style: GoogleFonts.inter(
               fontSize: 13,
-              color: const Color(0xFF94A3B8),
+              color: theme.colorScheme.onSurfaceVariant,
               height: 1.4,
             ),
           ),
