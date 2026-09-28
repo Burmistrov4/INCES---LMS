@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../core/gateways/aula_gateway.dart';
 import '../models/archivo.dart';
+import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
 import '../services/aula_service.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import '../widgets/modulos_del_menu.dart';
 import 'docente/asistencia_qr_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mi_horario_panel.dart';
@@ -35,9 +37,18 @@ class DocenteDashboardScreen extends StatefulWidget {
     this.auth,
     this.aulaGateway,
     this.aulasPropias,
+    this.modulos,
   });
 
   final AuthService? auth;
+
+  /// De dónde sale el estado de `system_modules` que gobierna el menú.
+  ///
+  /// Opcional **sólo para las pruebas**, como el resto de puertas de este
+  /// dashboard: en producción no se inyecta y se resuelve [ModuloRepository], que
+  /// lee por PostgREST. Ver `lib/widgets/modulos_del_menu.dart` para por qué esa
+  /// lectura la puede hacer un docente y no sólo un administrador.
+  final ModuloRepository? modulos;
 
   /// La puerta del **contenido** del Aula Virtual (M6).
   ///
@@ -61,8 +72,17 @@ class DocenteDashboardScreen extends StatefulWidget {
   State<DocenteDashboardScreen> createState() => _DocenteDashboardScreenState();
 }
 
-class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
+class _DocenteDashboardScreenState extends State<DocenteDashboardScreen>
+    with CargaDeModulos<DocenteDashboardScreen> {
   late final AuthService _auth = widget.auth ?? AuthService();
+
+  /// El estado real de `system_modules`, para que el menú no afirme que hay una
+  /// sección al otro lado cuando el administrador apagó su módulo.
+  late final ModuloRepository _modulosRepo =
+      widget.modulos ?? ModuloRepository();
+
+  @override
+  ModuloRepository get repositorioDeModulos => _modulosRepo;
 
   /// El listado de aulas de «Mis aulas».
   ///
@@ -90,18 +110,25 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       icono: Icons.dashboard_outlined,
       titulo: 'Mis aulas',
       categoria: 'Control de aulas',
+      modulo: 'm6_aula_virtual',
     ),
     ItemNavegacion(
       icono: Icons.fact_check_outlined,
       titulo: 'Asistencia',
       categoria: 'Control de aulas',
       disponible: true,
+      modulo: 'm7_asistencia',
     ),
     // Apagada **y con motivo**, porque «pendiente de construir» aquí sería
     // falso: el libro de calificaciones existe desde M6 y se abre desde cada
     // aula. Lo que no hay es una sección suelta de notas, y crear una sería una
     // segunda puerta al mismo sitio. El texto lleva al docente a la que sí hay,
     // que es lo único que convierte un ítem gris en algo accionable.
+    //
+    // **Sin `modulo:`**, y es deliberado: encender `m7_calificaciones` no puede
+    // encender esta sección porque no hay pantalla detrás. La bandera de aquí es
+    // un hecho del código —no existe—, no del servidor, y atarla al módulo
+    // prometería algo que el módulo no puede cumplir.
     ItemNavegacion(
       icono: Icons.grading_outlined,
       titulo: 'Calificaciones',
@@ -115,12 +142,14 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
       titulo: 'Material de apoyo',
       categoria: 'Recursos',
       disponible: true,
+      modulo: 'm5_archivos',
     ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
       titulo: 'Mi horario',
       categoria: 'Recursos',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
   ];
 
@@ -135,7 +164,11 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return AndamiajeApp(
-      items: _items,
+      // `menuConModulos` y no `_items`: el menú sale con el estado real de
+      // `system_modules` aplicado encima, así que apagar `m6_aula_virtual` o
+      // `m7_asistencia` desde el cPanel se refleja aquí en vez de llevar a un
+      // 403.
+      items: menuConModulos(_items),
       seleccionado: _seleccionada,
       onSeleccionar: (indice) => setState(() => _seleccionada = indice),
       rolEtiqueta: 'Docente',
@@ -157,8 +190,26 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen> {
   /// contrato leyendo este archivo: compara las ramas `case 'X'` con las
   /// secciones que tienen `disponible: true`, y esa comparación sólo se puede
   /// hacer si las ramas nombran los títulos. Es la red que faltaba cuando R-22.
+  ///
+  /// La lista que se consulta aquí es la **efectiva** —con los módulos
+  /// aplicados—, no `_items`: si el administrador apaga un módulo mientras el
+  /// docente está dentro de esa sección, el contenido tiene que dejar de
+  /// pintarse. El menú ya no deja volver a pulsarla, pero quedarse dentro es
+  /// posible, y pintar el panel de un módulo apagado haría parecer que el
+  /// interruptor no sirvió.
   Widget _contenido() {
-    final item = _items[_seleccionada];
+    final item = menuConModulos(_items)[_seleccionada];
+
+    if (!item.disponible) {
+      return ContenidoSeccion(
+        migas: ['Inicio', item.categoria, item.titulo],
+        child: PanelVacio(
+          titulo: item.titulo,
+          mensaje: item.pendiente ?? 'Esta sección no está disponible.',
+          icono: item.icono,
+        ),
+      );
+    }
 
     switch (item.titulo) {
       case 'Mis aulas':

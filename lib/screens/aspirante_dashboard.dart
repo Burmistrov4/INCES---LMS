@@ -7,11 +7,13 @@ import '../models/aspirante_model.dart';
 import '../models/inscripcion.dart';
 import '../repositories/aspirante_repository.dart';
 import '../repositories/inscripcion_repository.dart';
+import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
 import '../services/aula_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import '../widgets/modulos_del_menu.dart';
 import 'aspirante/marcar_asistencia_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mis_aulas_panel.dart';
@@ -37,10 +39,19 @@ class AspiranteDashboardScreen extends StatefulWidget {
     this.auth,
     this.aulaGateway,
     this.aulasPropias,
+    this.modulos,
   });
 
   final AspiranteRepository? repositorio;
   final AuthService? auth;
+
+  /// De dónde sale el estado de `system_modules` que gobierna el menú.
+  ///
+  /// Opcional **sólo para las pruebas**, como el resto de puertas de este
+  /// dashboard: en producción no se inyecta y se resuelve [ModuloRepository], que
+  /// lee por PostgREST. Ver `lib/widgets/modulos_del_menu.dart` para por qué esa
+  /// lectura la puede hacer un aprendiz y no sólo un administrador.
+  final ModuloRepository? modulos;
 
   /// La puerta del **contenido** del Aula Virtual (M6).
   ///
@@ -63,9 +74,18 @@ class AspiranteDashboardScreen extends StatefulWidget {
       _AspiranteDashboardScreenState();
 }
 
-class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
+class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
+    with CargaDeModulos<AspiranteDashboardScreen> {
   late final AspiranteRepository _repo =
       widget.repositorio ?? AspiranteRepository();
+
+  /// El estado real de `system_modules`, para que el menú no afirme que hay una
+  /// sección al otro lado cuando el administrador apagó su módulo.
+  late final ModuloRepository _modulosRepo =
+      widget.modulos ?? ModuloRepository();
+
+  @override
+  ModuloRepository get repositorioDeModulos => _modulosRepo;
   late final AuthService _auth = widget.auth ?? AuthService();
   final InscripcionesRepository _inscripciones = InscripcionesRepository();
 
@@ -95,6 +115,9 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   int _seleccionada = 0;
 
   static const List<ItemNavegacion> _items = [
+    // Sin `modulo:`: la ficha propia no es un módulo que se apague. Si el
+    // administrador apagara «inscripciones», el aprendiz seguiría necesitando
+    // ver el estado de la suya.
     ItemNavegacion(
       icono: Icons.badge_outlined,
       titulo: 'Mi inscripción',
@@ -115,35 +138,48 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       icono: Icons.explore_outlined,
       titulo: 'Ofertas de cupos',
       categoria: 'Académico',
+      modulo: 'm4_inscripciones',
     ),
     ItemNavegacion(
       icono: Icons.playlist_add_check_outlined,
       titulo: 'Mis inscripciones',
       categoria: 'Académico',
+      modulo: 'm4_inscripciones',
     ),
-    // «Mis aulas» es la entrada al Aula Virtual (M6). Se enciende aquí porque
-    // ya tiene su rama en el `switch` de `_contenido()`: un ítem encendido sin
-    // rama abriría en blanco, y una rama sin el ítem encendido sería código
-    // muerto (R-22). El listado sale de `/mi-horario` y el contenido del aula
-    // del servicio real de M6: el módulo se enciende o se apaga desde el cPanel,
-    // no desde este menú.
+    // «Mis aulas» es la entrada al Aula Virtual (M6). El listado sale de
+    // `/mi-horario` y el contenido del servicio real de M6: el módulo se enciende
+    // o se apaga desde el cPanel, y **eso es exactamente lo que ahora se lee**.
+    // Antes esta sección ignoraba el interruptor: con `m6_aula_virtual` apagado
+    // seguía encendida y el clic devolvía 403.
     ItemNavegacion(
       icono: Icons.class_outlined,
       titulo: 'Mis aulas',
       categoria: 'Académico',
+      modulo: 'm6_aula_virtual',
     ),
+    // «Mis entregas» es el gestor documental (M5) con el tipo de archivo de
+    // entrega: sube a R2 y funciona sin aula abierta, así que depende de
+    // `m5_archivos` y no de `m6_aula_virtual`.
     ItemNavegacion(
       icono: Icons.assignment_turned_in_outlined,
       titulo: 'Mis entregas',
       categoria: 'Académico',
       disponible: true,
+      modulo: 'm5_archivos',
     ),
     // M7 — el estudiante marca su asistencia tecleando o escaneando el QR.
+    //
+    // Se ata a `m7_asistencia` **aunque `roles_permitidos` diga
+    // `['docente','admin']`**: esa lista dice quién puede usar las rutas del
+    // docente —abrir sesión, leer marcas, cerrar—, no quién ve el menú. El
+    // aprendiz es quien marca, y si el administrador apaga el módulo, la sección
+    // se apaga para todos. Ver la nota de `ItemNavegacion.modulo`.
     ItemNavegacion(
       icono: Icons.fact_check_outlined,
       titulo: 'Asistencia',
       categoria: 'Académico',
       disponible: true,
+      modulo: 'm7_asistencia',
     ),
     // Se enciende al llegar la ruta de listado (D17). Lo que todavía **no**
     // puede mostrar es contenido: un estudiante no sabe qué `entidadId`
@@ -155,6 +191,7 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
       titulo: 'Material de apoyo',
       categoria: 'Académico',
       disponible: true,
+      modulo: 'm5_archivos',
     ),
   ];
 
@@ -197,7 +234,11 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return AndamiajeApp(
-      items: _items,
+      // `menuConModulos` y no `_items`: el menú sale con el estado real de
+      // `system_modules` aplicado encima, así que apagar `m6_aula_virtual` o
+      // `m4_inscripciones` desde el cPanel se refleja aquí en vez de llevar a un
+      // 403.
+      items: menuConModulos(_items),
       seleccionado: _seleccionada,
       onSeleccionar: (indice) => setState(() => _seleccionada = indice),
       rolEtiqueta: 'Estudiante',
@@ -218,8 +259,24 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen> {
   ///
   /// Es además lo que permite que `test/menu_alcanzable_test.dart` compruebe el
   /// contrato leyendo este archivo. Es la red que faltaba cuando R-22.
+  ///
+  /// La lista que se consulta aquí es la **efectiva** —con los módulos
+  /// aplicados—, no `_items`: si el administrador apaga un módulo mientras el
+  /// aprendiz está dentro de esa sección, el contenido tiene que dejar de
+  /// pintarse.
   Widget _contenido() {
-    final item = _items[_seleccionada];
+    final item = menuConModulos(_items)[_seleccionada];
+
+    if (!item.disponible) {
+      return ContenidoSeccion(
+        migas: ['Inicio', item.categoria, item.titulo],
+        child: PanelVacio(
+          titulo: item.titulo,
+          mensaje: item.pendiente ?? 'Esta sección no está disponible.',
+          icono: item.icono,
+        ),
+      );
+    }
 
     switch (item.titulo) {
       case 'Mi inscripción':

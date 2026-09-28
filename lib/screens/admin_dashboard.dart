@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
+import '../widgets/modulos_del_menu.dart';
 import 'admin/cpanel_auditoria_accesos_panel.dart';
 import 'admin/cpanel_auditoria_panel.dart';
 import 'admin/cpanel_modulos_panel.dart';
@@ -41,16 +42,30 @@ import 'perfil_panel.dart';
 ///    Antes se podía entrar a una pantalla que sólo decía «pendiente», lo que
 ///    hace dudar de si la aplicación está rota.
 class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({super.key, this.auth});
+  const AdminDashboardScreen({super.key, this.auth, this.modulos});
 
   final AuthService? auth;
+
+  /// De dónde sale el estado de `system_modules` que gobierna el menú.
+  ///
+  /// Aquí no es una comodidad: este panel es el que **enciende y apaga** los
+  /// módulos, y hasta ahora el menú no lo sabía. Opcional **sólo para las
+  /// pruebas**; en producción se resuelve [ModuloRepository].
+  final ModuloRepository? modulos;
 
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+    with CargaDeModulos<AdminDashboardScreen> {
   late final AuthService _auth = widget.auth ?? AuthService();
+
+  late final ModuloRepository _modulosRepo =
+      widget.modulos ?? ModuloRepository();
+
+  @override
+  ModuloRepository get repositorioDeModulos => _modulosRepo;
 
   int _seleccionada = 0;
 
@@ -64,37 +79,44 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       icono: Icons.tune_outlined,
       titulo: 'Módulos del Sistema',
       categoria: 'Administración del sistema',
+      modulo: 'm0_cpanel',
     ),
     ItemNavegacion(
       icono: Icons.settings_outlined,
       titulo: 'Parámetros',
       categoria: 'Administración del sistema',
+      modulo: 'm0_cpanel',
     ),
     ItemNavegacion(
       icono: Icons.history_outlined,
       titulo: 'Auditoría',
       categoria: 'Administración del sistema',
+      modulo: 'm0_cpanel',
     ),
     ItemNavegacion(
       icono: Icons.fingerprint_outlined,
       titulo: 'Auditoría de Accesos',
       categoria: 'Administración del sistema',
+      modulo: 'm0_cpanel',
     ),
     ItemNavegacion(
       icono: Icons.people_outline,
       titulo: 'Usuarios y Roles',
       categoria: 'Administración del sistema',
+      modulo: 'm1_onboarding',
     ),
     ItemNavegacion(
       icono: Icons.menu_book_outlined,
       titulo: 'Programas Académicos',
       categoria: 'Gestión académica',
+      modulo: 'm2_curriculo',
     ),
     ItemNavegacion(
       icono: Icons.confirmation_number_outlined,
       titulo: 'Inscripciones y Cupos',
       categoria: 'Gestión académica',
       disponible: true,
+      modulo: 'm4_inscripciones',
     ),
     // Va justo después de Inscripciones y no en «Administración del sistema»
     // aunque sea configuración: quien administra el CFS llega aquí pensando en
@@ -104,12 +126,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       titulo: 'Campos de Inscripción',
       categoria: 'Gestión académica',
       disponible: true,
+      modulo: 'm4_inscripciones',
     ),
     ItemNavegacion(
       icono: Icons.class_outlined,
       titulo: 'Secciones',
       categoria: 'Gestión académica',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
     // --- Los tres que faltaban (2026-09-27) --------------------------------
     //
@@ -136,25 +160,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       titulo: 'Lapsos Académicos',
       categoria: 'Gestión académica',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
     ItemNavegacion(
       icono: Icons.calendar_month_outlined,
       titulo: 'Cuadrante y Horarios',
       categoria: 'Control de aulas',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
     ItemNavegacion(
       icono: Icons.meeting_room_outlined,
       titulo: 'Espacios y Aulas',
       categoria: 'Control de aulas',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
     ItemNavegacion(
       icono: Icons.shield_outlined,
       titulo: 'Guardias Docentes',
       categoria: 'Control de aulas',
       disponible: true,
+      modulo: 'm3_cuadrante',
     ),
+    // Las dos de abajo siguen apagadas por **no existir la pantalla**, que es un
+    // hecho del código y no del servidor: por eso **no** llevan `modulo:`.
+    // Ponerles `m7_calificaciones` haría creer que encender ese módulo las
+    // enciende, y no hay nada que encender — la nota se pone dentro del aula.
     ItemNavegacion(
       icono: Icons.fact_check_outlined,
       titulo: 'Asistencia',
@@ -177,6 +209,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     // aparición y lo pinta tal cual. (El vocabulario que sí está centralizado es
     // el del **catálogo de módulos** —`ordenCategorias` en `ModuloRepository`—,
     // que es otra cosa: eso es lo que se agrupa en el cPanel de módulos.)
+    //
+    // Sin `modulo:`: el perfil propio no es un módulo que se apague.
     ItemNavegacion(
       icono: Icons.account_circle_outlined,
       titulo: 'Mi Perfil',
@@ -208,7 +242,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return AndamiajeApp(
-      items: _items,
+      // `menuConModulos` y no `_items`: el menú sale con el estado real de
+      // `system_modules` aplicado encima. Apagar un módulo desde este mismo
+      // panel —la sección de arriba— se refleja aquí.
+      items: menuConModulos(_items),
       seleccionado: _seleccionada,
       onSeleccionar: (indice) => setState(() => _seleccionada = indice),
       rolEtiqueta: 'Administrador Maestro',
@@ -220,7 +257,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _contenido() {
-    switch (_items[_seleccionada].titulo) {
+    final item = menuConModulos(_items)[_seleccionada];
+
+    // Alcanzable sólo si el módulo se apagó **después** de entrar: el menú ya no
+    // deja pulsar una sección apagada, así que esto no viene de un clic sino de
+    // un estado que cambió. Sin esta guarda el menú diría «apagado» y el
+    // contenido seguiría pintando el panel del módulo apagado — peor que no
+    // poder entrar, porque parece que la decisión del administrador no sirvió.
+    if (!item.disponible) {
+      return ContenidoSeccion(
+        migas: ['Inicio', item.categoria, item.titulo],
+        child: PanelVacio(
+          titulo: item.titulo,
+          mensaje: item.pendiente ?? 'Esta sección no está disponible.',
+          icono: item.icono,
+        ),
+      );
+    }
+
+    switch (item.titulo) {
       case 'Módulos del Sistema':
         return const ContenidoSeccion(
           migas: ['Inicio', 'Administración del sistema', 'Módulos'],

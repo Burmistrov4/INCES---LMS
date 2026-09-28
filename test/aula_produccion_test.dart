@@ -7,6 +7,8 @@ import 'package:http/testing.dart';
 
 import 'package:inces_lms_app/core/gateways/aula_gateway.dart';
 import 'package:inces_lms_app/core/network/api_client.dart';
+import 'package:inces_lms_app/models/system_module.dart';
+import 'package:inces_lms_app/repositories/modulo_repository.dart';
 import 'package:inces_lms_app/screens/aula_virtual_dashboard.dart';
 import 'package:inces_lms_app/screens/docente_dashboard.dart';
 import 'package:inces_lms_app/screens/mis_aulas_panel.dart';
@@ -93,6 +95,29 @@ BackendAulaGateway _aulaReal(_BackendDoblado backend) => BackendAulaGateway(
       tokenSesion: () => 'jwt-de-prueba',
     );
 
+/// El estado de módulos, doblado **siempre**, con `m6_aula_virtual` encendido.
+///
+/// El dashboard lee `system_modules` al montarse para decidir si «Mis aulas» es
+/// pulsable. Sin inyectar nada resolvería el repositorio real, que va a Supabase
+/// por PostgREST: en una prueba de widget `Supabase.instance` no está
+/// inicializado, así que esa lectura **fallaría** y el menú se quedaría abierto
+/// por el fail-open. El resultado sería el mismo —«Mis aulas» disponible—, pero
+/// por accidente y no por diseño.
+///
+/// Se dobla para que el verde signifique lo que dice: «Mis aulas» está
+/// disponible porque su módulo **está encendido**, que es su estado real hoy
+/// (medido: 8 módulos encendidos de 11).
+ModuloRepository _modulosDePrueba() => ModuloRepository(
+      gateway: FakeGateway()
+        ..listaModulos = const [
+          SystemModule(
+            clave: 'm6_aula_virtual',
+            nombre: 'Aula Virtual',
+            habilitado: true,
+          ),
+        ],
+    );
+
 /// Monta el dashboard del docente con lo mínimo.
 ///
 /// Se usa el del **docente** y no el del estudiante por una razón de forma: su
@@ -108,6 +133,7 @@ Future<void> _montarDocente(
   WidgetTester tester, {
   AulaGateway? aulaGateway,
   AulasPropiasGateway? aulasPropias,
+  ModuloRepository? modulos,
 }) async {
   // Ventana ancha y alta: por debajo de 900 px el menú pasa a cajón y a 1280
   // arranca replegado; y el listado de aulas es un `ListView`, que con la
@@ -122,6 +148,7 @@ Future<void> _montarDocente(
       theme: IncesTheme.claro(),
       home: DocenteDashboardScreen(
         auth: AuthService(gateway: FakeGateway()),
+        modulos: modulos ?? _modulosDePrueba(),
         aulaGateway: aulaGateway,
         aulasPropias: aulasPropias,
       ),

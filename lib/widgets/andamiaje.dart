@@ -12,6 +12,7 @@ class ItemNavegacion {
     required this.categoria,
     this.disponible = true,
     this.pendiente,
+    this.modulo,
   });
 
   final IconData icono;
@@ -22,6 +23,10 @@ class ItemNavegacion {
 
   /// `false` ⇒ la sección no es pulsable. Se muestra atenuada y sin acción, en
   /// vez de llevar a una pantalla vacía.
+  ///
+  /// Lo que declara esta bandera es **si la pantalla existe**, que es un hecho
+  /// del código. Que el módulo del que depende esté encendido es un hecho
+  /// **del servidor** y se aplica encima en tiempo de ejecución — ver [modulo].
   final bool disponible;
 
   /// Por qué está apagada, cuando **no** es «todavía no existe».
@@ -36,6 +41,42 @@ class ItemNavegacion {
   /// cada `ItemNavegacion(…)` con el primer `),` que encuentra, y un paréntesis
   /// dentro del texto cortaría el bloque por la mitad.
   final String? pendiente;
+
+  /// Clave del módulo de `system_modules` que gobierna esta sección, o `null`.
+  ///
+  /// `null` ⇒ la sección no depende de ningún módulo conmutable (el perfil
+  /// propio, la ficha del aspirante): apagarla no es una opción del cPanel.
+  ///
+  /// Cuando tiene valor, el estado real de ese módulo decide si la sección es
+  /// pulsable. Antes esa decisión **no existía**: los tres dashboards escribían
+  /// `disponible:` a mano y nadie leía `system_modules`, así que apagar
+  /// `m6_aula_virtual` desde el cPanel dejaba «Mis aulas» encendida y el clic
+  /// devolvía **403**. El menú afirmaba que había algo al otro lado.
+  ///
+  /// La traducción de clave a «está apagado» la hace
+  /// `aplicarEstadoDeModulos` en `lib/widgets/modulos_del_menu.dart`, que es
+  /// también donde vive la razón de que un módulo **desconocido** no apague
+  /// nada.
+  ///
+  /// Sólo se mira `habilitado`, **nunca** `roles_permitidos`: esa lista dice
+  /// quién puede usar las rutas del módulo, no quién puede ver el menú.
+  /// `m7_asistencia` la tiene en `['docente','admin']` y aun así el aprendiz
+  /// necesita su sección para marcar — es el rol que marca (D19).
+  final String? modulo;
+
+  /// Copia apagada por culpa de su módulo, con el motivo ya redactado.
+  ///
+  /// Existe en vez de un `copyWith` porque el motivo y la bandera van juntos
+  /// siempre: un `copyWith` permitiría apagar la sección y dejar el motivo
+  /// viejo, o al revés, y esas dos combinaciones no significan nada.
+  ItemNavegacion apagadoPorModulo(String motivo) => ItemNavegacion(
+        icono: icono,
+        titulo: titulo,
+        categoria: categoria,
+        disponible: false,
+        pendiente: motivo,
+        modulo: modulo,
+      );
 }
 
 /// Andamiaje de la aplicación: barra lateral replegable, encabezado y contenido.
