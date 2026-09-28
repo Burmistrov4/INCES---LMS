@@ -150,8 +150,21 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
     }
 
     setState(() {
+      // Dos casos, dos mensajes, y **ninguno repite la ayuda de arriba**.
+      //
+      // La primera versión del mensaje de campo vacío empezaba por «Escribe los
+      // seis dígitos…», que es literalmente como empieza la ayuda permanente del
+      // panel (la de `build()`, «Escribe los seis dígitos que el docente proyecta
+      // en la pizarra»). El alumno pulsaba «Marcar» sin escribir nada y leía, en
+      // rojo, casi lo mismo que ya tenía en negro dos centímetros más arriba: el
+      // mensaje no le decía nada nuevo. Se midió **por accidente útil** —una
+      // prueba que buscaba ese texto encontró dos coincidencias y se cayó en CI—,
+      // y el «is too many» era el síntoma de una redundancia real, no del test.
+      //
+      // Lo que separa a los dos casos es **qué hacer a continuación**: si no hay
+      // nada escrito, escribir; si hay algo que no sirve, revisarlo.
       _error = texto.isEmpty
-          ? 'Escribe los seis dígitos que aparecen en la pizarra.'
+          ? 'El campo está vacío: escribe el código de la pizarra.'
           : 'El código son seis dígitos. Revisa lo que escribiste.';
     });
   }

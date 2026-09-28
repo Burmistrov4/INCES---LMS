@@ -325,6 +325,21 @@ void main() {
       await tester.pump();
     }
 
+    // Los dos mensajes de error, declarados una sola vez, porque **son un
+    // contrato**: las dos pruebas de abajo afirman que cada caso produce el suyo
+    // y **no** el otro.
+    //
+    // Antes estaban escritos con `textContaining`, y el de campo vacío empezaba
+    // por «Escribe los seis dígitos» —igual que la ayuda permanente del panel—,
+    // así que el buscador encontraba dos coincidencias y la prueba se cayó en CI
+    // con un «is too many» que no nombraba el producto. Y nombraba algo: el
+    // mensaje de error repetía la ayuda. Se arreglaron las dos cosas —el texto,
+    // para que diga algo nuevo, y el buscador, para que sea exacto—, porque un
+    // `textContaining` sobre una cadena que es **prefijo de otra** es una prueba
+    // que se escribe mal.
+    const mensajeVacio = 'El campo está vacío: escribe el código de la pizarra.';
+    const mensajeMalEscrito = 'El código son seis dígitos. Revisa lo que escribiste.';
+
     testWidgets('un texto que no es ni un código ni un QR se rechaza en el cliente',
         (tester) async {
       // La primera barrera, y la única que ahorra una petición. Con D21 el panel
@@ -336,7 +351,11 @@ void main() {
       await tester.tap(find.text('Marcar'));
       await tester.pump();
 
-      expect(find.textContaining('El código son seis dígitos'), findsOneWidget);
+      expect(find.text(mensajeMalEscrito), findsOneWidget);
+      // Y **no** el del campo vacío: la prueba afirma la distinción, no sólo la
+      // presencia. Sin esta línea los dos mensajes podrían colapsar en uno y la
+      // prueba seguiría verde.
+      expect(find.text(mensajeVacio), findsNothing);
       // Y no se gastó ninguna petición.
       expect(fake.llamadas, isEmpty);
     });
@@ -345,12 +364,25 @@ void main() {
       // Dos situaciones y dos mensajes: «no escribiste nada» y «escribiste otra
       // cosa» no se arreglan igual, y un solo texto para las dos obliga al alumno
       // a adivinar qué le pasó.
+      //
+      // Y el mensaje tiene que ser **distinto de la ayuda permanente**, que es lo
+      // que se midió de verdad aquí: la primera versión de este texto empezaba
+      // por «Escribe los seis dígitos», igual que la ayuda, así que el alumno
+      // leía en rojo lo mismo que ya tenía en negro. Las dos aserciones —el suyo
+      // presente, el otro ausente— son las que sostienen el nombre de la prueba.
       await montarAlumno(tester);
 
       await tester.tap(find.text('Marcar'));
       await tester.pump();
 
-      expect(find.textContaining('Escribe los seis dígitos'), findsOneWidget);
+      expect(find.text(mensajeVacio), findsOneWidget);
+      expect(find.text(mensajeMalEscrito), findsNothing);
+      // Y la ayuda de arriba sigue estando: lo que se cambió es que el error ya
+      // no la repite, no que la ayuda se haya ido. Que Material pinte el
+      // `hintText` con el campo enfocado y vacío no es una apuesta: lo midió el
+      // propio fallo de CI, que listó **las dos** coincidencias y la primera era
+      // la ayuda con su `debugLabel` completo.
+      expect(find.textContaining('que el docente proyecta en la pizarra'), findsOneWidget);
       expect(fake.llamadas, isEmpty);
     });
 
