@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import type { DependenciasRutas } from '../dependencias.js';
+import type { PuertaAsistencia } from '../../dominio/puertos.js';
+import { ErrorApi } from '../../dominio/errores.js';
 import { exigirSesion, reposDe } from '../plugins/autenticacion.js';
 import { exigirModulo } from '../plugins/modulos.js';
 
@@ -29,6 +31,14 @@ import { exigirModulo } from '../plugins/modulos.js';
  *
  * **El código se comprueba en la base, no aquí — ADR-003:** la frontera es la
  * RLS, no la API. Esta ruta sólo hace la forma (Zod) y empuja el evento al WS.
+ *
+ * **Dos entradas para el mismo acto (D21, 2026-09-27).** `POST /marcar` acepta
+ * el par completo del QR (`{ sesionId, codigo }`) o **sólo los seis dígitos**
+ * (`{ codigo }`), y en el segundo caso la sesión la resuelve la base. La razón
+ * de que sean una sola ruta y no dos: lo que se guarda, quién puede guardarlo y
+ * lo que se avisa por el WS son idénticos; lo único que cambia es cómo se
+ * averigua el `sesionId`. Cuando llegue la cámara, inyectará el texto del QR en
+ * el mismo campo y tomará la primera vía sin tocar nada más.
  *
  * **La guardia de módulo cubre sólo las rutas del docente (D19, cerrada).**
  * La bandera `m7_asistencia` está encendida y con lista blanca
@@ -102,18 +112,47 @@ export function rutasAsistencia(app: FastifyInstance, deps: DependenciasRutas): 
       // `exigirAsistencia` devolvería 403 al alumno — el único rol que marca.
       // La protección que le corresponde es la sesión (hook de instancia) y, en
       // cuanto al contenido, la RLS de la base.
+      //
+      // **Las dos formas de decir QUÉ sesión, y por qué conviven (D21).**
+      //
+      //   · Con `sesionId` — el cuerpo trae el par completo `<uuid>:<6 dígitos>`
+      //     que codifica el QR del docente. Es la vía de siempre y la que usará
+      //     la cámara cuando llegue: el escáner no teclea, inyecta el texto
+      //     entero en el mismo campo.
+      //
+      //   · Sin `sesionId` — el alumno tecleó los SEIS DÍGITOS a mano. Entonces
+      //     la sesión la resuelve la base, porque el alumno no puede listar
+      //     `attendance_sessions` (no tiene política de SELECT) y no hay forma
+      //     de que el cliente sepa cuál es. La decisión de producto del
+      //     2026-09-27 fue empezar por aquí —toda la lógica, sin cámara— y
+      //     añadir el lector después sobre este mismo camino.
+      //
+      // En las dos, lo que se guarda y quién puede guardarlo es idéntico: la
+      // marca entra por la misma política RLS. Lo único que cambia es cómo se
+      // averigua el `sesionId`; y si la vía manual no encuentra sesión, el
+      // alumno recibe el motivo exacto en vez de un «no se pudo».
       asistencia.post('/marcar', async (request) => {
         const { sesionId, codigo } = esquemaMarcar.parse(request.body);
         const usuario = request.usuario!;
+        const puerta = reposDe(request).asistencia;
 
-        const resultado = await reposDe(request).asistencia.marcar(sesionId, codigo, usuario.id);
+        const sesion = sesionId
+          ? { id: sesionId, duplicada: false }
+          : await resolverSesion(puerta, codigo);
+
+        // El alumno ya está contado. Se responde igual que cuando el `unique`
+        // salta en el camino del QR: no es un error, y el cliente no debe
+        // cambiar su pantalla por algo que salió bien.
+        if (sesion.duplicada) return { ok: true, duplicada: true };
+
+        const resultado = await puerta.marcar(sesion.id, codigo, usuario.id);
 
         if (resultado !== 'duplicada') {
           // Avisa al canal WS: la pantalla del docente pinta la fila verde
           // sin polling.
-          difundir(sesionId, {
+          difundir(sesion.id, {
             tipo: 'marca',
-            sesionId,
+            sesionId: sesion.id,
             marca: resultado,
           });
         }
@@ -200,9 +239,80 @@ const esquemaCrearSesion = z.object({
 const esquemaIdSesion = z.object({ id: z.string().uuid() });
 
 const esquemaMarcar = z.object({
-  sesionId: z.string().uuid(),
+  // Opcional a propósito: su AUSENCIA es lo que elige la vía manual (D21). Zod
+  // no comprueba aquí que el código tenga seis dígitos aunque la vía manual los
+  // exija, y es deliberado: un `refine` devolvería un 400 PETICION_INVALIDA
+  // —«tu petición está mal»— cuando lo que hay que decir es «ese código caducó».
+  // La forma la comprueba `asistencia_resolver_codigo`, que responde con un
+  // veredicto que sí se puede explicar.
+  sesionId: z.string().uuid().optional(),
   codigo: z.string().min(1, 'Falta el código del QR.'),
 });
+
+/**
+ * Traduce el veredicto de la base a la sesión, o al error que le toca.
+ *
+ * **Por qué el veredicto se decide en la base y se explica aquí.** Qué sesión
+ * reconoce un código de seis dígitos depende de tres tablas que el alumno no
+ * puede leer (`attendance_sessions`, `enrollments`, y el secreto del QR). Esa
+ * pregunta se contesta una sola vez, en SQL, y vuelve como un estado. Lo que
+ * queda de este lado es presentación: qué código HTTP y qué frase en español le
+ * corresponden. Si mañana se añade un estado nuevo, el `never` del final impide
+ * compilar sin tratarlo.
+ *
+ * **Idempotencia.** `YA_MARCADO` no es un error: la marca existe, que es
+ * exactamente lo que el alumno quería. Se responde 200 con `duplicada: true`,
+ * igual que cuando el `unique` salta en el camino del QR. Devolver un 409 aquí
+ * obligaría a la pantalla a explicar un fallo que no lo es.
+ */
+async function resolverSesion(
+  puerta: PuertaAsistencia,
+  codigo: string,
+): Promise<{ id: string; duplicada: boolean }> {
+  const veredicto = await puerta.resolverPorCodigo(codigo);
+
+  switch (veredicto.estado) {
+    case 'OK':
+      if (!veredicto.sesionId) {
+        // No debería ocurrir —la base sólo devuelve OK con `sesionId`—, pero un
+        // `!` silenciaría un fallo real y dejaría viajar un `undefined` hasta el
+        // insert, donde el error sería mucho menos legible que éste.
+        throw ErrorApi.interno('La base resolvió el código pero no dijo qué sesión era.');
+      }
+      return { id: veredicto.sesionId, duplicada: false };
+
+    case 'YA_MARCADO':
+      return { id: veredicto.sesionId ?? '', duplicada: true };
+
+    case 'CODIGO_INVALIDO':
+      throw ErrorApi.invalido(
+        'CODIGO_INVALIDO',
+        'Ese código no es válido o ya caducó. Fíjate en los seis dígitos que se ven ahora en la pizarra.',
+      );
+
+    case 'SIN_SESION_ACTIVA':
+      throw ErrorApi.conflicto(
+        'SIN_SESION_ACTIVA',
+        'La sesión de asistencia no está abierta. Pídele al docente que la abra.',
+      );
+
+    case 'NO_INSCRITO':
+      throw ErrorApi.prohibido(
+        'NO_INSCRITO',
+        'Ese código es de una clase en la que no estás inscrito.',
+      );
+
+    case 'SIN_SESION':
+      throw ErrorApi.noAutorizado();
+  }
+
+  // Todas las ramas devuelven o lanzan, así que TypeScript sabe que aquí el
+  // estado es `never`. La asignación no es decorativa: si alguien añade un
+  // estado al union y olvida tratarlo, esta línea deja de compilar y el fallo
+  // aparece en `npm run typecheck` en vez de en la cara del alumno.
+  const jamas: never = veredicto.estado;
+  throw ErrorApi.interno(`Veredicto de código desconocido: ${String(jamas)}.`);
+}
 
 /**
  * Envuelve la fila en el sobre `{ sesion }` de la respuesta.

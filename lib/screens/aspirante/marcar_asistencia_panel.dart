@@ -1,34 +1,56 @@
 import 'package:flutter/material.dart';
 
+import '../../core/result.dart';
 import '../../services/asistencia_service.dart';
+import '../../theme/inces_theme.dart';
 
-/// Marcaje de asistencia del estudiante (M7).
+/// Marcaje de asistencia del estudiante (M7 · D21).
 ///
-/// **Por qué un campo de texto.** Hoy es la **única** vía de entrada: no hay
-/// cámara en este panel ni en el resto del cliente (`pubspec.yaml` sólo trae
-/// `qr_flutter`, que **pinta** QR, no los lee). El campo acepta el código tal
-/// como lo codifica la pizarra —`<uuid>:<6 dígitos>`— porque es lo que exige
-/// tanto el `ParseQr` de aquí abajo como el cuerpo de `POST /asistencia/marcar`
-/// (`{ sesionId, codigo }`): sin el UUID no hay sesión que marcar.
+/// **El campo son SEIS DÍGITOS, y eso es una decisión de producto.**
+/// Hasta el 2026-09-27 esta pantalla pedía el par completo `<uuid>:<6 dígitos>`
+/// —el texto que codifica el QR del docente—, y teclear un UUID a mano no es una
+/// interacción: es un castigo. Ahora el alumno escribe lo que ve en la pizarra y
+/// el servidor resuelve la sesión.
 ///
-/// **El campo NO limita el largo, y es deliberado.** Hasta el 2026-09-27 llevaba
-/// `maxLength: 6` y `keyboardType: number`, así que sólo admitía seis dígitos
-/// mientras `ParseQr` exige 43 caracteres: `ParseQr.de()` devolvía `null`
-/// **siempre** y la pantalla contestaba «el código no tiene la forma del QR»
-/// hiciera lo que hiciera el alumno. Estaba muerta y nadie lo había visto.
-/// Ver **D21** en `ESTADO_DEL_SISTEMA.md`; `test/asistencia_paneles_test.dart`
-/// lo fija con una prueba que afirma el contenido del campo.
+/// **El campo NO lleva `maxLength`, y es la lección de D21 aplicada.**
+/// Aquella pantalla tenía `maxLength: 6` **mientras su parser exigía 43
+/// caracteres**: `TextField` inserta un `LengthLimitingTextInputFormatter` en
+/// cuanto `maxLength != null`, ese formateador **trunca en silencio**, y el
+/// resultado fue una pantalla muerta que nadie vio porque no había ninguna prueba
+/// que la ejercitara. Volver a poner un tope aquí —aunque hoy el caso común sean
+/// seis dígitos— reintroduciría la misma trampa por otra puerta: el día que algo
+/// meta el par del QR en este campo, el tope lo recortaría sin decir nada.
 ///
-/// **Deuda de diseño declarada, no resuelta aquí:** teclear (o pegar) un UUID a
-/// mano es mal UX, y sin cámara no hay atajo. Las dos salidas honestas —añadir
-/// un lector (`mobile_scanner`) o una ruta que resuelva la sesión abierta a
-/// partir de los seis dígitos— son decisiones de producto, no un arreglo
-/// mecánico. La ventana de 15 segundos sigue siendo el único guardián serio.
+/// Así que el tope no está: **quien decide qué se escribió es el parser**, que
+/// distingue las dos formas y explica lo demás con un mensaje. Un texto que no
+/// sirve da un error legible; un texto que sirve pasa. Nunca un recorte mudo.
+///
+/// **Las dos formas de entrar conviven, y la segunda es para la cámara.** Si el
+/// texto trae el par `<uuid>:<6 dígitos>` se usa tal cual —es lo que devolverá el
+/// lector de QR, que inyecta el contenido del código sin que nadie teclee—; si
+/// trae sólo seis dígitos, se manda sin sesión y la resuelve la base. Y si trae
+/// cualquier otra cosa, se dice qué se esperaba en vez de gastar una petición.
+///
+/// **El hueco de la cámara ya está abierto.** `accionAdyacente` se pinta al lado
+/// del campo, dentro del mismo `Row`, con el campo en `Expanded`. Hoy es `null`
+/// —el campo ocupa el ancho entero— y el día que exista el botón «Escanear QR»
+/// no hay que tocar el layout: se pasa el botón y el campo cede el espacio. Es
+/// la diferencia entre dejar el sitio preparado y tener que rehacer la pantalla.
+///
+/// **La ventana de 15 segundos sigue siendo el único guardián serio** y por eso
+/// los mensajes de error empujan a mirar la pizarra otra vez en vez de invitar a
+/// reintentar lo mismo.
 class MarcarAsistenciaPanel extends StatefulWidget {
-  const MarcarAsistenciaPanel({super.key, this.servicio});
+  const MarcarAsistenciaPanel({super.key, this.servicio, this.accionAdyacente});
 
   /// Opcional, sólo para las pruebas: inyectar un servicio falso.
   final AsistenciaService? servicio;
+
+  /// El hueco del futuro botón «Escanear QR» (D21, segunda mitad).
+  ///
+  /// `null` hoy. Va DENTRO del `Row` del campo, así que cuando llegue el lector
+  /// se pasa aquí y aparece a su derecha sin rehacer nada.
+  final Widget? accionAdyacente;
 
   @override
   State<MarcarAsistenciaPanel> createState() => _MarcarAsistenciaPanelState();
@@ -36,6 +58,12 @@ class MarcarAsistenciaPanel extends StatefulWidget {
 
 /// El QR que el docente proyecta es `<uuid>:<6 dígitos>`. Esta parte aísla el
 /// par: sin UUID válido el cliente no tiene sesión; sin dígitos no tiene código.
+///
+/// **Sigue viva, y ahora por dos motivos.** Es el contrato del contenido del QR
+/// —lo que el lector devolverá tal cual— y `test/asistencia_service_test.dart` lo
+/// fija; y desde D21 es la rama que el panel toma cuando el texto trae el par, que
+/// es como entrará el escáner. Lo que cambió es quién la alimenta —antes el
+/// alumno tecleando, ahora la cámara inyectando—, no lo que significa.
 class ParseQr {
   ParseQr({required this.sesionId, required this.codigo});
 
@@ -54,13 +82,45 @@ class ParseQr {
   }
 }
 
+/// Los seis dígitos del camino manual (D21).
+///
+/// Se separa de [ParseQr] porque son dos cosas distintas y el día que se añada
+/// un tercer formato hay que poder leer cuál falló: [ParseQr] describe un par
+/// con sesión, esto describe un código suelto. La forma se valida **también en
+/// el servidor** (`asistencia_resolver_codigo` comprueba `^[0-9]{6}$`), y no es
+/// duplicación inútil: aquí sirve para no gastar una petición de red en algo que
+/// se ve mal a simple vista, y allí para que la regla viaje con la función si
+/// alguien la llama por PostgREST de frente.
+class CodigoManual {
+  const CodigoManual(this.codigo);
+
+  final String codigo;
+
+  static CodigoManual? de(String texto) {
+    final limpio = texto.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(limpio)) return null;
+    return CodigoManual(limpio);
+  }
+}
+
 class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
   late final AsistenciaService _servicio = widget.servicio ?? AsistenciaService();
   final _entrada = TextEditingController();
+
   bool _ocupado = false;
 
-  String? _mensajeError;
-  bool _hecho = false;
+  /// La marca entró ahora mismo.
+  bool _marcada = false;
+
+  /// La marca ya estaba: se pulsó dos veces o el alumno se adelantó a sí mismo.
+  ///
+  /// **No es un error y por eso tiene estado propio.** El servidor responde
+  /// `duplicada: true` con un 200 —igual que en la vía del QR—, así que
+  /// pintarlo de rojo sería contradecir al servidor y asustar al alumno por algo
+  /// que salió bien.
+  bool _yaEstaba = false;
+
+  String? _error;
 
   @override
   void dispose() {
@@ -68,24 +128,76 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
     super.dispose();
   }
 
+  /// El campo y el envío comparten la decisión de qué se escribió.
+  ///
+  /// Las dos formas válidas y el orden importan: primero el par del QR —es más
+  /// específico, y un `<uuid>:<dígitos>` nunca es «seis dígitos»— y después los
+  /// seis dígitos sueltos. Cualquier otra cosa se explica en la propia pantalla
+  /// en vez de mandarse a la red para recibir un «no» más lento.
   Future<void> _marcar() async {
-    final par = ParseQr.de(_entrada.text);
-    if (par == null) {
-      setState(() {
-        _mensajeError =
-            'El código no tiene la forma del QR. Pégalo tal cual: `<uuid>:<6 dígitos>`.';
-      });
+    final texto = _entrada.text.trim();
+
+    final par = ParseQr.de(texto);
+    if (par != null) {
+      await _enviar(sesionId: par.sesionId, codigo: par.codigo);
       return;
     }
 
-    setState(() { _ocupado = true; _mensajeError = null; });
+    final manual = CodigoManual.de(texto);
+    if (manual != null) {
+      await _enviar(codigo: manual.codigo);
+      return;
+    }
 
-    final resultado = await _servicio.marcar(sesionId: par.sesionId, codigo: par.codigo);
+    setState(() {
+      _error = texto.isEmpty
+          ? 'Escribe los seis dígitos que aparecen en la pizarra.'
+          : 'El código son seis dígitos. Revisa lo que escribiste.';
+    });
+  }
+
+  /// Un solo envío para las dos formas; la única diferencia es si va la sesión.
+  Future<void> _enviar({String? sesionId, required String codigo}) async {
+    setState(() {
+      _ocupado = true;
+      _error = null;
+    });
+
+    // Las dos vías devuelven cosas distintas —la manual sabe si ya estaba, la del
+    // QR no—, así que se normalizan al mismo tipo antes de tratar el resultado
+    // una sola vez. `when` y no `map`: `map` sobre un `Result<void>` obliga a
+    // pasar un valor de tipo `void` a la transformación, y eso es pedirle al
+    // analizador que confíe en nosotros.
+    final Result<bool> resultado;
+    if (sesionId == null) {
+      resultado = await _servicio.marcarConCodigo(codigo: codigo);
+    } else {
+      final porQr = await _servicio.marcar(sesionId: sesionId, codigo: codigo);
+      resultado = porQr.when(
+        // La vía del QR nunca llega aquí «duplicada»: eso lo dice el servidor en
+        // el cuerpo de una respuesta 200, y `marcar` no lo expone. Se asume
+        // marca nueva, que es lo que la pantalla pinta.
+        success: (_) => const Success<bool>(false),
+        failure: (e) => Failure<bool>(e),
+      );
+    }
+
+    if (!mounted) return;
+
     resultado.when(
-      success: (_) => setState(() { _ocupado = false; _hecho = true; }),
+      success: (yaEstaba) => setState(() {
+        _ocupado = false;
+        _yaEstaba = yaEstaba;
+        _marcada = !yaEstaba;
+      }),
+      // El mensaje se muestra tal como lo manda el servidor. **No se traduce
+      // aquí a propósito**: «código caducado», «no hay clase abierta» y «no
+      // estás inscrito» los distingue la base —es la única que ve las tres
+      // tablas—, y reescribirlos en el cliente crearía una segunda copia que se
+      // desviaría en cuanto se afine uno de los tres.
       failure: (e) => setState(() {
         _ocupado = false;
-        _mensajeError = e.message;
+        _error = e.message;
       }),
     );
   }
@@ -93,6 +205,7 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final terminado = _marcada || _yaEstaba;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -103,44 +216,74 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.qr_code_scanner, size: 48),
+              Icon(
+                terminado ? Icons.check_circle : Icons.pin_outlined,
+                size: 48,
+                color: terminado ? IncesTheme.exito : theme.colorScheme.primary,
+              ),
               const SizedBox(height: 8),
               Text(
-                _hecho ? 'Listo. Ya cuentas.' : 'Marca tu asistencia',
+                _marcada
+                    ? 'Listo. Ya cuentas.'
+                    : _yaEstaba
+                        ? 'Ya estabas contado.'
+                        : 'Marca tu asistencia',
                 style: theme.textTheme.titleLarge,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 4),
               Text(
-                _hecho
+                _marcada
                     ? 'La marca ya está guardada y el docente la ve en su pantalla.'
-                    : 'Escanea el QR de la pizarra o escribe el código que aparece. Caduca cada pocos segundos.',
+                    : _yaEstaba
+                        ? 'Tu asistencia en esta clase ya estaba registrada. No hace falta repetirla.'
+                        : 'Escribe los seis dígitos que el docente proyecta en la pizarra. Cambian cada pocos segundos.',
                 style: theme.textTheme.bodySmall,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              TextField(
-                controller: _entrada,
-                enabled: !_hecho && !_ocupado,
-                decoration: InputDecoration(
-                  labelText: 'Código',
-                  // La pista tiene que mostrar la forma REAL: con `ej: 471212`
-                  // el alumno escribía seis dígitos y el parser los rechazaba
-                  // —el UUID es obligatorio—, así que la ayuda y el error se
-                  // contradecían entre sí. Ver D21.
-                  hintText: '<uuid>:471212',
-                  border: const OutlineInputBorder(),
-                  errorText: _mensajeError,
-                ),
-                textInputAction: TextInputAction.done,
-                // `text`, no `number`: un teclado numérico no puede producir ni
-                // el UUID ni los dos puntos.
-                keyboardType: TextInputType.text,
-                onSubmitted: (_) => _marcar(),
+
+              // --- El campo, y el hueco del lector de QR ---------------------
+              //  `Expanded` en el campo y el hueco al lado: hoy el hueco es
+              //  `null` y el campo ocupa todo el ancho; el día que exista el
+              //  botón, aparece a la derecha y el campo cede el espacio solo.
+              //  Sin `Expanded` el `Row` reventaría al aparecer el botón, que es
+              //  la razón de dejarlo preparado en vez de añadirlo después.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _entrada,
+                      enabled: !terminado && !_ocupado,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        labelText: 'Código de la pizarra',
+                        hintText: '471212',
+                        border: const OutlineInputBorder(),
+                        // Sin `counterText`: no hay `maxLength`, así que Material
+                        // no pinta contador ninguno y anularlo aquí sería una
+                        // línea que finge proteger de algo que ya no existe.
+                        errorText: _error,
+                      ),
+                      // `number` para que en el móvil salga el teclado numérico,
+                      // que es el que sirve para los seis dígitos.
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineSmall?.copyWith(letterSpacing: 8),
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _marcar(),
+                    ),
+                  ),
+                  if (widget.accionAdyacente != null) ...[
+                    const SizedBox(width: 8),
+                    widget.accionAdyacente!,
+                  ],
+                ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _ocupado || _hecho ? null : _marcar,
+                onPressed: _ocupado || terminado ? null : _marcar,
                 icon: _ocupado
                     ? const SizedBox(
                         width: 16,
@@ -148,8 +291,22 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.fact_check),
-                label: Text(_hecho ? 'Marcada' : 'Marcar'),
+                label: Text(terminado ? 'Marcada' : 'Marcar'),
               ),
+              // La salida de emergencia del que se equivocó de código o quiere
+              // marcar otra vez: sin esto, el estado terminal sería una jaula.
+              if (terminado) ...[
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: () => setState(() {
+                    _marcada = false;
+                    _yaEstaba = false;
+                    _error = null;
+                    _entrada.clear();
+                  }),
+                  child: const Text('Marcar otra clase'),
+                ),
+              ],
             ],
           ),
         ),

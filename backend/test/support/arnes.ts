@@ -23,6 +23,7 @@ import type {
   PuertaSecciones,
   Repositorios,
   SesionAsistencia,
+  VeredictoCodigo,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
 import { renderizarPlanillaPdf } from '../../src/infra/planilla-pdf.js';
@@ -4199,6 +4200,63 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
 
       estado.marcasAsistencia = [...estado.marcasAsistencia, marca];
       return aMarcaAsistencia(marca);
+    },
+
+    /**
+     * Espejo de `asistencia_resolver_codigo` (202609270001), la vía manual de
+     * D21.
+     *
+     * **Se reproduce entera, y no es celo de más.** Las cuatro preguntas que
+     * contesta —¿es de seis dígitos?, ¿hay alguna sesión abierta?, ¿cuál
+     * reconoce el código?, ¿está el alumno matriculado en ella?— son las que la
+     * ruta tiene que traducir a cuatro respuestas distintas. Un doble que
+     * devolviera siempre `OK` dejaría los tres caminos de error sin ejercitar y
+     * la pantalla del alumno sin probar justo donde importa: decirle qué pasó.
+     *
+     * El desempate cuando dos sesiones produjeran los mismos seis dígitos
+     * reproduce el `order by` de la función: primero aquella en la que el alumno
+     * SÍ está matriculado, y a igualdad la abierta más recientemente. Sin ese
+     * orden, el veredicto dependería del orden de un array en memoria, que es la
+     * clase de cosa que cambia sola cuando alguien reordena una semilla.
+     */
+    async resolverPorCodigo(codigo: string): Promise<VeredictoCodigo> {
+      revisar('asistencia.resolverPorCodigo');
+
+      const yo = estado.usuarioActual;
+      if (!yo) return { estado: 'SIN_SESION' };
+
+      const limpio = (codigo ?? '').trim();
+      if (!/^[0-9]{6}$/.test(limpio)) return { estado: 'CODIGO_INVALIDO' };
+
+      const abiertas = estado.sesionesAsistencia.filter((s) => s.status === 'OPEN');
+      if (abiertas.length === 0) return { estado: 'SIN_SESION_ACTIVA' };
+
+      const reconocen = (sesion: SesionAsistenciaFalsa): boolean => {
+        const ventana = ventanaDeAsistencia(sesion.ventanaSeg);
+        return (
+          codigoAsistenciaEnVentana(sesion.qrSecret, sesion.id, ventana) === limpio ||
+          codigoAsistenciaEnVentana(sesion.qrSecret, sesion.id, ventana - 1) === limpio
+        );
+      };
+
+      const candidatas = abiertas
+        .filter(reconocen)
+        .sort((a, b) => (b.abiertaEn ?? '').localeCompare(a.abiertaEn ?? ''));
+
+      const elegida =
+        candidatas.find((s) => estaMatriculado(s.seccionId, yo)) ?? candidatas[0];
+
+      // Hay clase abierta, pero ninguna reconoce esos dígitos.
+      if (!elegida) return { estado: 'CODIGO_INVALIDO' };
+
+      if (!estaMatriculado(elegida.seccionId, yo)) return { estado: 'NO_INSCRITO' };
+
+      const yaMarcada = estado.marcasAsistencia.some(
+        (m) => m.sesionId === elegida.id && m.estudianteId === yo,
+      );
+      if (yaMarcada) return { estado: 'YA_MARCADO', sesionId: elegida.id };
+
+      return { estado: 'OK', sesionId: elegida.id, seccionId: elegida.seccionId };
     },
 
     async cerrarSesion(sesionId: string, abiertoPor: string) {

@@ -18,7 +18,8 @@ import 'support/fake_aula_gateway.dart';
 /// tienen caminos que fallan en silencio: el panel del docente rota el QR solo y
 /// pinta lo que llega por el canal, y el del alumno tiene que distinguir «el
 /// código no tiene la forma» de «la base lo rechazó» — dos errores con el mismo
-/// síntoma para el usuario.
+/// síntoma para el usuario—, y desde D21 además elegir entre las dos vías de
+/// entrada sin confundirlas.
 ///
 /// **La trampa de esta suite, y cómo se evita.** El panel del docente arranca un
 /// `Timer.periodic` de un segundo para rotar el QR. Por eso aquí **no se usa
@@ -33,8 +34,12 @@ import 'support/fake_aula_gateway.dart';
 /// nada:**
 ///
 /// * **D21** — el campo del alumno llevaba `maxLength: 6`, así que nunca podía
-///   contener el `<uuid>:<6 dígitos>` que exige `ParseQr`: la pantalla estaba
-///   muerta y no había ninguna prueba que lo dijera.
+///   contener el `<uuid>:<6 dígitos>` que exigía su parser: la pantalla estaba
+///   muerta y no había ninguna prueba que lo dijera. **Cerrado el 2026-09-27**,
+///   y no arreglando el tope sino cambiando el producto: el alumno teclea los
+///   seis dígitos y el servidor resuelve la sesión. La prueba que lo fija ahora
+///   afirma que el campo **sigue sin tope** —un `maxLength` volvería a truncar
+///   en silencio— y que lo que no se entiende se explica en vez de recortarse.
 /// * **D22** — el panel del docente escuchaba `onError` pero no `onDone`, así
 ///   que un cierre **limpio** del socket congelaba el tablero en silencio.
 ///
@@ -306,63 +311,156 @@ void main() {
   });
 
   group('el panel del alumno', () {
-    Future<void> montarAlumno(WidgetTester tester) async {
+    Future<void> montarAlumno(WidgetTester tester, {Widget? accionAdyacente}) async {
       await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: MarcarAsistenciaPanel(servicio: fake))),
+        MaterialApp(
+          home: Scaffold(
+            body: MarcarAsistenciaPanel(
+              servicio: fake,
+              accionAdyacente: accionAdyacente,
+            ),
+          ),
+        ),
       );
       await tester.pump();
     }
 
-    testWidgets('un texto sin la forma del QR se rechaza en el cliente',
+    testWidgets('un texto que no es ni un código ni un QR se rechaza en el cliente',
         (tester) async {
-      // La primera barrera, y la única que ahorra una petición. El mensaje nombra
-      // la forma esperada a propósito: el alumno que teclea a mano no tiene por
-      // qué saber que hace falta el UUID delante.
+      // La primera barrera, y la única que ahorra una petición. Con D21 el panel
+      // acepta DOS formas —los seis dígitos de la pizarra y el par del QR—, así
+      // que lo que se rechaza aquí es lo que no es ninguna de las dos.
+      await montarAlumno(tester);
+
+      await tester.enterText(find.byType(TextField), '12345');
+      await tester.tap(find.text('Marcar'));
+      await tester.pump();
+
+      expect(find.textContaining('El código son seis dígitos'), findsOneWidget);
+      // Y no se gastó ninguna petición.
+      expect(fake.llamadas, isEmpty);
+    });
+
+    testWidgets('un campo vacío se explica distinto que uno mal escrito', (tester) async {
+      // Dos situaciones y dos mensajes: «no escribiste nada» y «escribiste otra
+      // cosa» no se arreglan igual, y un solo texto para las dos obliga al alumno
+      // a adivinar qué le pasó.
+      await montarAlumno(tester);
+
+      await tester.tap(find.text('Marcar'));
+      await tester.pump();
+
+      expect(find.textContaining('Escribe los seis dígitos'), findsOneWidget);
+      expect(fake.llamadas, isEmpty);
+    });
+
+    testWidgets('el campo NO lleva `maxLength`: la truncación silenciosa de D21 no puede volver',
+        (tester) async {
+      // **D21, fijado en la dirección contraria a como estaba, y a propósito.**
+      //
+      // Hasta el 2026-09-27 el campo llevaba `maxLength: 6` mientras su parser
+      // exigía 43 caracteres. `TextField` inserta un
+      // `LengthLimitingTextInputFormatter` en cuanto `maxLength != null`, y ese
+      // formateador **trunca en silencio**: el texto quedaba en seis caracteres,
+      // `ParseQr.de()` devolvía `null` siempre, y la pantalla respondía «no tiene
+      // la forma del QR» hiciera lo que hiciera el alumno. Estaba muerta.
+      //
+      // La versión anterior de esta prueba pedía justamente lo contrario —que no
+      // hubiera tope, porque el único camino era teclear el par entero—. Ahora el
+      // caso común son seis dígitos, y la tentación de volver a poner el tope es
+      // fuerte. Por eso la prueba afirma que **no está**: un tope recortaría sin
+      // decir nada el día que algo meta el par del QR en este campo, y volvería
+      // a crear el mismo fallo por otra puerta.
+      //
+      // Lo que decide qué se escribió es el parser, y lo que no entiende lo
+      // explica. Nunca un recorte mudo.
+      await montarAlumno(tester);
+
+      const parDelQr = 'e5e5e5e5-0001-4001-8001-000000000001:471212';
+      await tester.enterText(find.byType(TextField), parDelQr);
+      await tester.pump();
+
+      final campo = tester.widget<TextField>(find.byType(TextField));
+      expect(campo.maxLength, isNull);
+      // Y el efecto, que es lo que de verdad importa: el texto sobrevive entero
+      // en vez de quedar recortado a seis caracteres.
+      expect(campo.controller?.text, parDelQr);
+    });
+
+    testWidgets('seis dígitos y nada más: se manda SIN sesión y el servidor la resuelve',
+        (tester) async {
+      // **El camino que D21 añadió.** La prueba comprueba lo que distingue a esta
+      // vía de la del QR: que NO viaja un `sesionId`. Si el panel mandara la
+      // sesión de otro sitio, el alumno estaría marcando en una clase que no es
+      // y la base lo rechazaría por una razón que no tiene nada que ver.
       await montarAlumno(tester);
 
       await tester.enterText(find.byType(TextField), '471212');
       await tester.tap(find.text('Marcar'));
       await tester.pump();
-
-      expect(find.textContaining('no tiene la forma del QR'), findsOneWidget);
-      // Y no se gastó ninguna petición.
-      expect(fake.llamadas, isEmpty);
-    });
-
-    testWidgets('el campo conserva el código entero — sin esto la pantalla está muerta',
-        (tester) async {
-      // **D21, fijado, y es la prueba más importante de este archivo.**
-      //
-      // Hasta el 2026-09-27 el campo llevaba `maxLength: 6` y
-      // `keyboardType: number`, mientras `ParseQr` exige `<uuid>:<6 dígitos>`
-      // —43 caracteres—. `TextField` inserta un `LengthLimitingTextInputFormatter`
-      // en cuanto `maxLength != null`, y ese formateador **trunca**: medido en el
-      // SDK, `LengthLimitingTextInputFormatter.formatEditUpdate` devuelve
-      // `truncate(newValue, maxLength)` para todos los modos menos `none`, y el
-      // modo por defecto de web es `truncateAfterCompositionEnds`, que también
-      // trunca. Así que el texto quedaba en seis caracteres, `ParseQr.de()`
-      // devolvía `null` **siempre**, y la pantalla respondía «no tiene la forma
-      // del QR» hiciera lo que hiciera el alumno. El camino de teclear —el único
-      // que existe, porque no hay cámara— no funcionaba.
-      //
-      // Esta prueba no comprueba una conducta nueva: comprueba que el campo **no**
-      // recorta. Es la única forma de que el defecto no vuelva con un `maxLength`
-      // copiado de otro formulario.
-      await montarAlumno(tester);
-
-      const codigoCompleto = 'e5e5e5e5-0001-4001-8001-000000000001:471212';
-      await tester.enterText(find.byType(TextField), codigoCompleto);
       await tester.pump();
 
-      final campo = tester.widget<TextField>(find.byType(TextField));
-      // La causa: no hay tope declarado.
-      expect(campo.maxLength, isNull);
-      // Y el efecto, que es lo que de verdad importa: el texto sobrevive entero.
-      expect(campo.controller?.text, codigoCompleto);
+      expect(fake.ultimoCodigoSuelto, '471212');
+      // La vía del QR no se tocó: ni sesión marcada ni código por ese camino.
+      expect(fake.ultimoSesionIdMarcado, isNull);
+      expect(fake.ultimoCodigoMarcado, isNull);
+      expect(fake.llamadas, contains('marcarConCodigo:471212'));
+
+      expect(find.text('Listo. Ya cuentas.'), findsOneWidget);
     });
 
-    testWidgets('un código con la forma correcta se manda partido en sesión y código',
+    testWidgets('si ya estaba contado, la pantalla lo dice sin pintarlo como un fallo',
         (tester) async {
+      // El servidor responde 200 con `duplicada: true` —no es un error—, así que
+      // la pantalla tiene que decir «ya estabas» y no «algo salió mal». Pintarlo
+      // de rojo contradiría al servidor y asustaría al alumno por algo que salió
+      // bien.
+      fake.marcarConCodigoDevuelveDuplicada = true;
+
+      await montarAlumno(tester);
+
+      await tester.enterText(find.byType(TextField), '471212');
+      await tester.tap(find.text('Marcar'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Ya estabas contado.'), findsOneWidget);
+      expect(find.textContaining('ya estaba registrada'), findsOneWidget);
+      // Y NO se confunde con la marca nueva.
+      expect(find.text('Listo. Ya cuentas.'), findsNothing);
+    });
+
+    testWidgets('el hueco del lector de QR está abierto: el campo cede el ancho al botón',
+        (tester) async {
+      // **D21, segunda mitad.** Hoy no hay cámara, y por eso `accionAdyacente` es
+      // `null`. Lo que esta prueba fija es que el día que llegue **no habrá que
+      // rehacer el layout**: el campo está en `Expanded` dentro de un `Row`, así
+      // que el botón entra a su derecha y el campo se encoge solo. Sin el
+      // `Expanded` —el error fácil— el `Row` desbordaría al aparecer el botón y
+      // el fallo saldría en producción, no aquí.
+      await montarAlumno(tester, accionAdyacente: const Icon(Icons.qr_code_scanner));
+
+      expect(find.byIcon(Icons.qr_code_scanner), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      // Nada desbordado: si el `Row` no estuviera preparado, flutter_test
+      // reportaría el desborde como excepción de la prueba.
+      expect(tester.takeException(), isNull);
+
+      // Y el campo sigue siendo usable con el hueco ocupado.
+      await tester.enterText(find.byType(TextField), '471212');
+      await tester.tap(find.text('Marcar'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(fake.ultimoCodigoSuelto, '471212');
+    });
+
+    testWidgets('el par del QR se manda partido en sesión y código: es el camino de la cámara',
+        (tester) async {
+      // El texto que el lector de QR devolverá tal cual cuando llegue. Se mete
+      // con `enterText` —el mismo camino que usará la inyección del escáner, que
+      // tampoco pasa por el teclado— y tiene que partirse en dos campos: si
+      // viajara entero, la base recibiría un `sesionId` que no es un UUID.
       await montarAlumno(tester);
 
       await tester.enterText(

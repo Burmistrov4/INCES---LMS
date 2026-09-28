@@ -1059,8 +1059,49 @@ export interface PuertaAsistencia {
   marcasDeSesion(sesionId: string): Promise<MarcaAsistencia[]>;
   /** Marca la asistencia del usuario autenticado. La RLS valida el código. */
   marcar(sesionId: string, codigo: string, estudianteId: string): Promise<MarcaAsistencia | 'duplicada'>;
+  /**
+   * De los SEIS DÍGITOS a la sesión abierta (D21, ruta manual).
+   *
+   * **Por qué esto no puede hacerlo el cliente.** El alumno no tiene política de
+   * `SELECT` sobre `attendance_sessions` —sólo el docente y el admin—, así que
+   * no puede listar las sesiones abiertas para buscar cuál reconoce su código.
+   * Tampoco puede leer `qr_secret`. La resolución vive en la base
+   * (`asistencia_resolver_codigo`, 202609270001), que usa `auth.uid()` como
+   * identidad REAL: no se le pasa el alumno, lo deduce del token con el que se
+   * llama.
+   *
+   * Devuelve un **veredicto**, no una fila: la ruta necesita distinguir «el
+   * código está mal» de «no hay clase abierta» de «no estás inscrito» para poder
+   * decírselo al alumno, y un `null` obligaría a adivinar cuál de los tres fue.
+   */
+  resolverPorCodigo(codigo: string): Promise<VeredictoCodigo>;
   /** Cierra la sesión (las marcas se conservan). */
   cerrarSesion(sesionId: string, abiertoPor: string): Promise<void>;
+}
+
+/**
+ * El veredicto del resolutor de D21. Espejo de lo que devuelve
+ * `public.asistencia_resolver_codigo` (202609270001).
+ *
+ * `SIN_SESION` no debería llegar nunca desde una ruta autenticada —el hook
+ * `exigirSesion()` la corta antes—, pero se nombra porque la función de la base
+ * lo devuelve cuando `auth.uid()` es nulo, y un `switch` sin ese caso dejaría el
+ * valor cayendo en el `default` sin que nadie lo note.
+ */
+export type EstadoResolucionCodigo =
+  | 'OK'
+  | 'CODIGO_INVALIDO'
+  | 'SIN_SESION_ACTIVA'
+  | 'NO_INSCRITO'
+  | 'YA_MARCADO'
+  | 'SIN_SESION';
+
+export interface VeredictoCodigo {
+  estado: EstadoResolucionCodigo;
+  /** Sólo en `OK` y `YA_MARCADO`: la sesión que el código identifica. */
+  sesionId?: string;
+  /** Sólo en `OK`: la sección de esa sesión. */
+  seccionId?: string;
 }
 
 export interface EntradaCrearSesion {

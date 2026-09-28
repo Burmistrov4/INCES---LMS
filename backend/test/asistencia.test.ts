@@ -1104,3 +1104,263 @@ describe('el canal en vivo (WebSocket)', () => {
     expect(mensajes).toHaveLength(0);
   });
 });
+
+/**
+ * D21 — la vía manual: el alumno teclea los SEIS DÍGITOS.
+ *
+ * **Por qué una vía y no un botón más.** Hasta el 2026-09-27 el panel del alumno
+ * pedía el par completo `<uuid>:<6 dígitos>`, y teclear un UUID a mano no es una
+ * interacción: es un castigo. La decisión de producto fue empezar por aquí —toda
+ * la lógica, sin cámara— porque el lector `mobile_scanner` añade una dependencia
+ * nativa y un permiso, y ninguna de las dos cosas hace falta para saber si el
+ * código es válido, si la sesión está abierta y si el alumno está matriculado.
+ *
+ * **El `sesionId` lo resuelve el servidor, y no por comodidad.** El alumno no
+ * tiene política de `SELECT` sobre `attendance_sessions`: no puede listar las
+ * sesiones abiertas ni leer `qr_secret`, así que no hay forma de que el cliente
+ * sepa qué sesión reconoce su código. La resolución vive en
+ * `public.asistencia_resolver_codigo` (202609270001) y corre con el `auth.uid()`
+ * del token del alumno.
+ *
+ * **Lo que estas pruebas NO pueden demostrar, y lo dice el archivo desde el
+ * principio:** que la política RLS de verdad deje pasar la marca. El doble del
+ * arnés reproduce la política y el resolutor para que la ruta trate bien lo que
+ * le llega; quien los aplica es Postgres. Eso lo mide
+ * `supabase/tests/validate.mjs` (secciones 20 y 20.2) contra un PostgreSQL real.
+ */
+describe('D21 · marcar con los seis dígitos, sin UUID', () => {
+  it('el alumno matriculado marca escribiendo sólo el código: el servidor resuelve la sesión', async () => {
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    // Se calcula UNA vez y se reutiliza, por la misma razón que en la vía del
+    // QR: dos llamadas pueden caer en ventanas distintas y volver la prueba
+    // dependiente del reloj de pared.
+    const codigo = codigoVigente();
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      // Sin `sesionId`. Es la única diferencia con la vía del QR.
+      payload: { codigo },
+    });
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toEqual({ ok: true, duplicada: false });
+
+    expect(arnes.estado.marcasAsistencia).toHaveLength(1);
+    const marca = arnes.estado.marcasAsistencia[0]!;
+    // La sesión la puso el servidor, y tiene que ser la que el código identifica.
+    expect(marca.sesionId).toBe(ID_SESION_ASISTENCIA);
+    expect(marca.estudianteId).toBe(ID_ALUMNO);
+    expect(marca.codigo).toBe(codigo);
+  });
+
+  it('un código equivocado da 422 CODIGO_INVALIDO, no el 403 mudo de la RLS', async () => {
+    // **Ésta es la razón de que la resolución exista.** Por la vía del QR, un
+    // código malo lo frena la RLS y el alumno recibe un 403 cuyo mensaje —está
+    // escrito en este mismo archivo, en otra prueba— no puede decir qué pasó,
+    // porque la política no distingue «código caducado» de «no estás
+    // matriculado». Resolviendo antes, sí se puede decir.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo: '000000' },
+    });
+
+    expect(respuesta.statusCode).toBe(422);
+    expect(respuesta.json().error.codigo).toBe('CODIGO_INVALIDO');
+    expect(arnes.estado.marcasAsistencia).toHaveLength(0);
+  });
+
+  it('un código que no son seis dígitos da 422 y no 400: la forma la juzga el dominio', async () => {
+    // Zod sólo exige que el campo no venga vacío. Un `refine` que exigiera
+    // `/^\d{6}$/` devolvería 400 PETICION_INVALIDA —«tu petición está mal»—
+    // cuando lo correcto es «ese código no sirve, vuelve a mirar la pizarra».
+    // El 422 y el 400 se ven iguales en un log y no se sienten igual en la
+    // pantalla del alumno.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    for (const codigo of ['12ab', '12345', '1234567', 'abc']) {
+      const respuesta = await app.inject({
+        method: 'POST',
+        url: '/api/v1/asistencia/marcar',
+        headers: conToken(TOKEN_ALUMNO),
+        payload: { codigo },
+      });
+
+      expect(respuesta.statusCode, `codigo=${codigo}`).toBe(422);
+      expect(respuesta.json().error.codigo, `codigo=${codigo}`).toBe('CODIGO_INVALIDO');
+    }
+    expect(arnes.estado.marcasAsistencia).toHaveLength(0);
+  });
+
+  it('el alumno NO matriculado recibe 403 NO_INSCRITO, que es distinto de «código inválido»', async () => {
+    // El código es CORRECTO: el segundo alumno no está en la sección, y eso es
+    // lo que hay que decirle. Sin la resolución, este caso y el de arriba
+    // llegarían los dos como el mismo 403 de la política.
+    //
+    // El segundo alumno hay que darlo de alta explícitamente —no viene en
+    // `PERFILES_POR_DEFECTO`—, igual que en la prueba equivalente de la vía del
+    // QR: meterlo en la semilla por defecto cambiaría el total de usuarios y
+    // rompería las pruebas de paginación de M1.
+    const arnes = crearArnés({
+      perfiles: [...PERFILES_POR_DEFECTO, PERFIL_ALUMNO_2],
+      identidades: { [TOKEN_ALUMNO_2]: ID_ALUMNO_2 },
+    });
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO_2),
+      payload: { codigo: codigoVigente() },
+    });
+
+    expect(respuesta.statusCode).toBe(403);
+    expect(respuesta.json().error.codigo).toBe('NO_INSCRITO');
+    expect(arnes.estado.marcasAsistencia).toHaveLength(0);
+  });
+
+  it('sin ninguna sesión abierta el veredicto es 409 SIN_SESION_ACTIVA', async () => {
+    // Se siembra sin sesiones. Es el caso del alumno que abre la app cuando el
+    // docente todavía no ha empezado: no es que su código esté mal, es que no
+    // hay nada que marcar, y la pantalla tiene que poder decir eso.
+    const arnes = crearArnés({ sesionesAsistencia: [] });
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo: codigoVigente() },
+    });
+
+    expect(respuesta.statusCode).toBe(409);
+    expect(respuesta.json().error.codigo).toBe('SIN_SESION_ACTIVA');
+  });
+
+  it('con la sesión CERRADA el mismo código da 409 SIN_SESION_ACTIVA', async () => {
+    // Distinto del anterior y a propósito: aquí la sesión existió y se cerró. El
+    // alumno llega tarde. Desde fuera se ve igual —no hay nada abierto— y por eso
+    // comparten veredicto; lo que importa es que NO sea «código inválido», que le
+    // haría revisar los dígitos cuando el problema es el reloj.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const codigo = codigoVigente();
+
+    const cerrada = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/asistencia/sesiones/${ID_SESION_ASISTENCIA}/cerrar`,
+      headers: conToken(TOKEN_DOCENTE),
+    });
+    expect(cerrada.statusCode).toBe(200);
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo },
+    });
+
+    expect(respuesta.statusCode).toBe(409);
+    expect(respuesta.json().error.codigo).toBe('SIN_SESION_ACTIVA');
+    expect(arnes.estado.marcasAsistencia).toHaveLength(0);
+  });
+
+  it('volver a marcar con los seis dígitos responde `duplicada`, no un error', async () => {
+    // Mismo contrato que la vía del QR: pulsar dos veces no puede parecer un
+    // fallo con la asistencia ya registrada. Aquí el atajo es explícito —el
+    // resolutor lo detecta antes de intentar el INSERT—, así que hay que probar
+    // que devuelve lo mismo que devolvería el `23505`.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const codigo = codigoVigente();
+
+    const primera = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo },
+    });
+    const segunda = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo },
+    });
+
+    expect(primera.json().duplicada).toBe(false);
+    expect(segunda.statusCode).toBe(200);
+    expect(segunda.json()).toEqual({ ok: true, duplicada: true });
+    expect(arnes.estado.marcasAsistencia).toHaveLength(1);
+  });
+
+  it('la marca de la vía manual llega al canal en vivo igual que la del QR', async () => {
+    // El `difundir` cambió de argumento al unificar las dos vías —de `sesionId`
+    // a `sesion.id`—, y un error ahí dejaría al docente mirando un tablero
+    // quieto sin que ninguna prueba de REST lo notara. Se ejerce el empuje real.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const direccion = await app.listen({ port: 0, host: '127.0.0.1' });
+    const base = direccion.replace(/^http/, 'ws');
+
+    const { mensajes } = abrirRt(
+      `${base}/api/v1/asistencia/rt?sesion=${ID_SESION_ASISTENCIA}`,
+      { headers: conToken(TOKEN_DOCENTE) },
+    );
+
+    await esperarMensaje(mensajes);
+    expect(mensajes[0]).toEqual({ tipo: 'conectado', sesionId: ID_SESION_ASISTENCIA });
+
+    const marcado = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { codigo: codigoVigente() },
+    });
+    expect(marcado.statusCode).toBe(200);
+
+    const limite = Date.now() + 3000;
+    while (mensajes.length < 2 && Date.now() < limite) {
+      await new Promise((seguir) => setTimeout(seguir, 25));
+    }
+
+    expect(mensajes).toHaveLength(2);
+    const evento = mensajes[1] as { tipo: string; sesionId: string; marca: { student_id: string } };
+    expect(evento.tipo).toBe('marca');
+    // La sesión que el servidor resolvió, no la que el cliente mandó —que no
+    // mandó ninguna.
+    expect(evento.sesionId).toBe(ID_SESION_ASISTENCIA);
+    expect(evento.marca.student_id).toBe(ID_ALUMNO);
+  });
+
+  it('la vía del QR sigue intacta: con `sesionId` no se resuelve nada', async () => {
+    // La prueba que protege la compatibilidad hacia atrás. Cuando llegue la
+    // cámara, el escáner inyectará el par `<uuid>:<dígitos>` en el mismo campo y
+    // tomará esta rama; si unificarlas hubiera roto la rama vieja, el lector
+    // nacería sobre un camino muerto.
+    const arnes = crearArnés();
+    app = arnes.app;
+
+    const respuesta = await app.inject({
+      method: 'POST',
+      url: '/api/v1/asistencia/marcar',
+      headers: conToken(TOKEN_ALUMNO),
+      payload: { sesionId: ID_SESION_ASISTENCIA, codigo: codigoVigente() },
+    });
+
+    expect(respuesta.statusCode).toBe(200);
+    expect(respuesta.json()).toEqual({ ok: true, duplicada: false });
+    expect(arnes.estado.marcasAsistencia).toHaveLength(1);
+  });
+});

@@ -4,6 +4,7 @@ import type {
   MarcaAsistencia,
   PuertaAsistencia,
   SesionAsistencia,
+  VeredictoCodigo,
   CambiosAula,
   CambiosClase,
   CambiosGuardia,
@@ -3909,6 +3910,41 @@ class AsistenciaSupabase implements PuertaAsistencia {
       throw traducirError(respuesta.error, 'marcar asistencia');
     }
     return respuesta.data as MarcaAsistencia;
+  }
+
+  /**
+   * De los seis dígitos a la sesión abierta (D21). Una sola llamada a la RPC
+   * `asistencia_resolver_codigo`, que corre `security definer` con el `auth.uid()`
+   * del token de ESTE cliente: el repositorio está atado al token del llamante
+   * (`reposDePeticion`), así que la base ve al alumno de verdad y no al `service_role`.
+   *
+   * **Aquí no se valida nada, y es a propósito.** Qué sesión reconoce el código,
+   * si la sesión está abierta y si el alumno está matriculado son tres preguntas
+   * sobre tablas que el alumno no puede leer; replicarlas en TypeScript sería una
+   * segunda copia de la regla que se desviaría de la primera. Lo único que se
+   * hace aquí es traducir la forma.
+   */
+  async resolverPorCodigo(codigo: string): Promise<VeredictoCodigo> {
+    const respuesta = await this.cliente.rpc('asistencia_resolver_codigo', {
+      p_codigo: codigo,
+    });
+
+    if (respuesta.error) {
+      throw traducirError(respuesta.error, 'resolver el código de asistencia');
+    }
+
+    // La RPC devuelve `jsonb`. Un `null` —función ausente, migración sin
+    // aplicar— NO se convierte en un `OK` por defecto: se traduce a un veredicto
+    // que la ruta sabe explicar, porque «no se pudo resolver» y «el código está
+    // mal» son cosas distintas y el alumno merece saber cuál le pasó.
+    const datos = respuesta.data as VeredictoCodigo | null;
+    if (!datos || typeof datos.estado !== 'string') {
+      throw ErrorApi.interno(
+        'La resolución del código de asistencia no devolvió un veredicto legible.',
+      );
+    }
+
+    return datos;
   }
 
   async cerrarSesion(sesionId: string, abiertoPor: string): Promise<void> {

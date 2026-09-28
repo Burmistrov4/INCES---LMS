@@ -40,6 +40,14 @@ class FakeAsistenciaService extends AsistenciaService {
   String? ultimoCodigoMarcado;
   String? ultimoSesionIdEnVivo;
 
+  /// El código de la vía MANUAL de D21: seis dígitos, sin sesión.
+  ///
+  /// Va en su propio campo y no reutiliza [ultimoCodigoMarcado] a propósito: si
+  /// las dos vías escribieran en el mismo sitio, una prueba que viera el código
+  /// correcto no podría distinguir por cuál de las dos entró, y esa distinción
+  /// es justo lo que D21 añadió.
+  String? ultimoCodigoSuelto;
+
   void limpiarLlamadas() => llamadas.clear();
 
   // --- Datos que devuelve ---------------------------------------------------
@@ -64,6 +72,14 @@ class FakeAsistenciaService extends AsistenciaService {
   Object? errorAlCerrar;
   Object? errorAlMarcar;
   Object? errorAlListarMarcas;
+
+  /// Lo que devuelve la vía manual cuando el alumno ya estaba contado.
+  ///
+  /// Es un dato y no un fallo: el servidor responde 200 con `duplicada: true`, y
+  /// la pantalla tiene que pintarlo como un «ya estabas» y no como un error. Sin
+  /// este interruptor, ese camino —el único que distingue «marqué» de «ya
+  /// estaba»— no se podría provocar desde una prueba.
+  bool marcarConCodigoDevuelveDuplicada = false;
 
   // --- El canal en vivo -----------------------------------------------------
 
@@ -172,6 +188,28 @@ class FakeAsistenciaService extends AsistenciaService {
     final fallo = errorAlMarcar;
     if (fallo != null) return Failure<void>(_comoAppException(fallo));
     return const Success<void>(null);
+  }
+
+  /// La vía MANUAL (D21): seis dígitos y ninguna sesión.
+  ///
+  /// Comparte [errorAlMarcar] con la vía del QR a propósito: para la pantalla,
+  /// «la base rechazó la marca» es el mismo hecho por los dos caminos, y lo que
+  /// cambia es sólo el mensaje que el servidor manda dentro. Un segundo campo de
+  /// error dejaría creer que son dos fallos distintos.
+  @override
+  Future<Result<bool>> marcarConCodigo({required String codigo}) async {
+    llamadas.add('marcarConCodigo:$codigo');
+    ultimoCodigoSuelto = codigo;
+
+    if (retenerMarcar) {
+      final espera = Completer<void>();
+      _marcasRetenidas.add(espera);
+      await espera.future;
+    }
+
+    final fallo = errorAlMarcar;
+    if (fallo != null) return Failure<bool>(_comoAppException(fallo));
+    return Success<bool>(marcarConCodigoDevuelveDuplicada);
   }
 
   @override

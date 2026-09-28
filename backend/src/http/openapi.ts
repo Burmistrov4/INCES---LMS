@@ -3593,15 +3593,19 @@ export function construirRegistro(): OpenAPIRegistry {
     ...asistenciaTag,
     method: 'post',
     path: '/api/v1/asistencia/marcar',
-    summary: 'Marca asistencia escaneando el QR (estudiante)',
+    summary: 'Marca asistencia con el QR o con los seis dígitos (estudiante)',
     description:
-      'La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago. **Esta ruta NO lleva guardia de módulo, a propósito (D19):** la bandera `m7_asistencia` tiene lista blanca `["docente","admin"]`, así que envolverla devolvería 403 al alumno — que es precisamente quien marca. Sus barreras son la sesión y la RLS.',
+      'La validación del código **no vive aquí**: vive en la RLS `attendance_marks_estudiante_insert`, que exige código vigente, sesión abierta y estar ENROLLED. Un código de hace dos rotaciones da 403, no un mensaje vago. **Esta ruta NO lleva guardia de módulo, a propósito (D19):** la bandera `m7_asistencia` tiene lista blanca `["docente","admin"]`, así que envolverla devolvería 403 al alumno — que es precisamente quien marca. Sus barreras son la sesión y la RLS. **Dos formas de cuerpo, una sola marca (D21):** con `sesionId` (el par `<uuid>:<dígitos>` que codifica el QR) la sesión viene dada; sin él, se entienden seis dígitos tecleados y la sesión la resuelve la base con la identidad del token, porque el alumno no tiene política de SELECT sobre `attendance_sessions` y no puede buscarla. Los cuatro veredictos posibles de esa resolución —`CODIGO_INVALIDO`, `SIN_SESION_ACTIVA`, `NO_INSCRITO`, ya marcado— se explican cada uno con su código, para que la pantalla pueda decir qué pasó en vez de «no se pudo».',
     security: [{ bearerAuth: [] }],
     responses: {
       200: { description: 'La marca quedó (o ya estaba: `duplicada: true`).' },
       400: error('Falta el código o el identificador no es un UUID.'),
       401: RESPUESTAS_ERROR[401],
-      403: error('Código caducado, sesión cerrada o no estás inscrito (la RLS lo frena).'),
+      403: error(
+        'No estás inscrito en esa sección (NO_INSCRITO), o la RLS frenó la marca (código caducado o sesión cerrada).',
+      ),
+      409: error('No hay ninguna sesión de asistencia abierta (SIN_SESION_ACTIVA).'),
+      422: error('El código no es válido o ya caducó (CODIGO_INVALIDO).'),
       503: RESPUESTAS_ERROR[503],
     },
   });

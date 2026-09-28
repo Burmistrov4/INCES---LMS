@@ -62,6 +62,23 @@ export class ErrorApi extends Error {
     return new ErrorApi(400, 'PETICION_INVALIDA', mensaje, detalles);
   }
 
+  /**
+   * El dato está bien formado pero no es válido **en este momento**.
+   *
+   * **422 y no 400, y la diferencia importa para el usuario.** Un 400 dice «lo
+   * que mandaste está roto»; un 422 dice «lo que mandaste es correcto, pero no
+   * aplica ahora». El código rotativo del QR de asistencia (M7) es el caso que
+   * obligó a separarlos: seis dígitos bien escritos que ya caducaron merecen
+   * «vuelve a mirar la pizarra», no «tu petición está mal», que manda a nadie a
+   * arreglar nada.
+   *
+   * `peticionInvalida` NO sirve para esto porque fija el código a
+   * `PETICION_INVALIDA`; aquí el código es del dominio y el cliente decide con él.
+   */
+  static invalido(codigo: string, mensaje: string, detalles?: unknown) {
+    return new ErrorApi(422, codigo, mensaje, detalles);
+  }
+
   static interno(mensaje = 'Ocurrió un error inesperado.') {
     return new ErrorApi(500, 'ERROR_INTERNO', mensaje);
   }

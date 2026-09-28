@@ -125,6 +125,33 @@ class AsistenciaService {
     });
   }
 
+  /// Marca con SÓLO los seis dígitos (D21). El servidor resuelve la sesión.
+  ///
+  /// **Por qué es un método aparte y no un `sesionId` opcional en `marcar`.**
+  /// Los dos envíos son distintos de verdad: `marcar` manda un par y este manda
+  /// una sola cosa. Un parámetro opcional habría dejado la decisión —«¿hay
+  /// sesión o no?»— repartida entre el llamador y el método; separados, cada uno
+  /// tiene su contrato y su prueba.
+  ///
+  /// El alumno no puede resolver la sesión por su cuenta: no tiene política de
+  /// `SELECT` sobre `attendance_sessions` y no ve `qr_secret`. La resuelve la
+  /// base (`asistencia_resolver_codigo`, 202609270001) con el `auth.uid()` del
+  /// token de esta llamada.
+  ///
+  /// Devuelve `true` cuando la marca **ya estaba** (`duplicada`), y no un error:
+  /// pulsar dos veces no puede parecer un fallo con la asistencia ya registrada.
+  Future<Result<bool>> marcarConCodigo({required String codigo}) {
+    return Result.guard(() async {
+      final resp = await _api.post(
+        '$_ruta/marcar',
+        token: _token(),
+        // Sin `sesionId`: su ausencia es lo que elige la vía manual.
+        cuerpo: {'codigo': codigo},
+      );
+      return resp['duplicada'] == true;
+    });
+  }
+
   /// Las marcas de una sesión, en orden, para la recarga o el informe final.
   Future<Result<List<MarcaAsistencia>>> marcas({required String sesionId}) {
     return Result.guard(() async {
