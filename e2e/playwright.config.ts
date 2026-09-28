@@ -27,6 +27,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { defineConfig, devices } from '@playwright/test';
+// El tipo lo pone Playwright y no se inventa uno propio: `ReporterDescription`
+// es una unión con literales (`['github']`, `['list']`, `['html', {…}]`…), así
+// que un `Array<string | [string, unknown]>` **no** encaja —lo midió `tsc`, que
+// rechazó las tres formas antes de que esto llegara a CI—.
+import type { ReporterDescription } from '@playwright/test';
 
 // --- Carga del entorno local -------------------------------------------------
 //
@@ -109,6 +114,25 @@ const servidores = [
     : []),
 ];
 
+// --- Reporteros --------------------------------------------------------------
+//
+// `list` para que el registro se lea en CI sin descargar artefactos; `html` para
+// mirar el fallo en local.
+//
+// **`github` sólo en CI, y es la pieza que hace legible un fallo desde fuera.**
+// Declarar `reporter` explícitamente **desactiva** el reporter `github` que
+// Playwright pondría solo dentro de Actions, así que hasta el 2026-09-28 un fallo
+// de esta suite llegaba como `Process completed with exit code 1` y **nada más**:
+// ni la prueba, ni el mensaje, ni la línea. El informe HTML sí tiene el detalle,
+// pero vive en un artefacto que hay que descargar, y los registros del job exigen
+// permisos de administración. Con `github`, cada fallo se publica como anotación
+// del check-run —la única fuente que se lee sin permisos—, con archivo y línea.
+const reporteros: ReporterDescription[] = [
+  ['list'],
+  ['html', { outputFolder: 'informe', open: 'never' }],
+];
+if (process.env.GITHUB_ACTIONS) reporteros.push(['github']);
+
 export default defineConfig({
   testDir: './tests',
 
@@ -127,12 +151,7 @@ export default defineConfig({
   // como para merecer una segunda oportunidad, y un fallo real falla dos veces.
   retries: process.env.CI ? 1 : 0,
 
-  // `list` para que el registro se lea en CI sin descargar artefactos; `html`
-  // para mirar el fallo en local.
-  reporter: [
-    ['list'],
-    ['html', { outputFolder: 'informe', open: 'never' }],
-  ],
+  reporter: reporteros,
 
   use: {
     baseURL: BASE_URL,
