@@ -397,6 +397,98 @@ void main() {
       );
     });
   });
+
+  // ---------------------------------------------------------------------------
+  //  La misma dirección, un nivel más abajo
+  // ---------------------------------------------------------------------------
+  //
+  // La guardia de arriba mira **archivos**: «toda pantalla se importa desde algún
+  // sitio». Pero un archivo puede importarse y tener dentro una clase que no
+  // construye nadie, y eso no lo ve nadie: `flutter analyze` **no avisa** de una
+  // clase pública sin usar —no es un aviso, es API—, así que el código muerto se
+  // acumula en silencio. No es hipotético: `_DialogoReincorporar` estuvo en la
+  // lista de deudas dando vueltas cuando ya estaba cableado, y al revés, tres
+  // paneles de M3 estuvieron construidos y sin cablear.
+  //
+  // Medido el 2026-09-28: `TarjetaAccesoSeccion`, en `admin_dashboard.dart`,
+  // estaba declarada, documentada como «reutilizable cuando el resto de secciones
+  // tengan contenido propio» y **no la construía nadie** — ni el código de
+  // producción ni una sola prueba. Noventa líneas de interfaz que nadie podía
+  // ver. Se borró, y esta comprobación existe para que no vuelva a pasar.
+  //
+  // La regla **no** es «contar menciones», y el motivo importa: una clase **con**
+  // constructor explícito suma dos menciones propias estando muerta —la
+  // declaración y el constructor—, mientras que una **sin** constructor suma una
+  // sola cuando está muerta y dos cuando se usa una vez. «Dos menciones propias»
+  // significa «muerta» en un caso y «viva» en el otro, así que contar no
+  // distingue nada. Hay que saber si hay constructor, y se mira en la cabecera de
+  // la clase y las tres líneas que la siguen, que es donde va siempre en este
+  // código.
+  //
+  // Se cuenta también una mención en un comentario, y es deliberado: hace la
+  // comprobación **más permisiva**, que es la dirección segura. Prefiere dejar
+  // pasar una clase muerta antes que poner en rojo una que sí se usa.
+  //
+  // El algoritmo se validó **por mutación** antes de escribirlo aquí: sobre el
+  // árbol de hoy da cero, y sobre `admin_dashboard.dart` tal y como estaba en
+  // `f3c7731` —antes de borrar la clase— da exactamente «TarjetaAccesoSeccion».
+  // Un guardián que no atrapa el caso que lo motivó no sirve de nada.
+  group('ninguna clase queda muerta · la misma dirección, un nivel abajo', () {
+    test('toda clase o mixin de lib/screens y lib/widgets se menciona en algún '
+        'sitio', () {
+      final lib = _raizLib();
+
+      final archivos = lib
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList();
+
+      final textos = <String, String>{
+        for (final f in archivos) f.path: f.readAsStringSync(),
+      };
+
+      // Sólo la superficie de interfaz. Los gateways y servicios de `lib/core` y
+      // `lib/services` quedan fuera a propósito: ahí sí hay implementaciones que
+      // elige una exportación condicional y que ningún archivo importa por su
+      // nombre (`selector_archivos_web.dart` es el caso), y señalarlas sería
+      // falso. Es la misma excepción que documenta la guardia de archivos.
+      final declarantes =
+          archivos.where((f) => _esSuperficieDeInterfaz(f.path)).toList();
+
+      expect(
+        declarantes.length,
+        greaterThan(20),
+        reason: 'el barrido no encontró pantallas ni widgets: la ruta está mal y '
+            'el verde de abajo no significaría nada',
+      );
+
+      final muertas = <String>[];
+
+      for (final archivo in declarantes) {
+        final fuente = textos[archivo.path]!;
+
+        for (final m in _declaracionesDeClase.allMatches(fuente)) {
+          final nombre = m.group(1)!;
+
+          if (!_estaMuerta(nombre, m.start, archivo.path, fuente, textos)) {
+            continue;
+          }
+
+          muertas.add('${_etiquetaPantalla(archivo.path)} → $nombre');
+        }
+      }
+
+      expect(
+        muertas,
+        isEmpty,
+        reason: 'estas clases existen y no las construye nadie: están muertas. '
+            '`flutter analyze` no lo dice —una clase pública sin usar no es un '
+            'aviso, es API—, así que sólo se ve midiendo. Cablea la clase donde '
+            'corresponde, o bórrala si ya no sirve.',
+      );
+    });
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -533,4 +625,78 @@ Directory _raizLib() {
   }
 
   fail('No se encontró lib/ subiendo desde ${Directory.current.path}');
+}
+
+// -----------------------------------------------------------------------------
+//  Clases muertas
+// -----------------------------------------------------------------------------
+
+/// Las declaraciones de clase y de mixin de un archivo, con su nombre.
+///
+/// Cubre las cinco formas que Dart permite además de `class` —`abstract`,
+/// `sealed`, `base`, `final`, `interface`— y `mixin`, aunque hoy en
+/// `lib/screens` y `lib/widgets` sólo haya `class`: el día que alguien escriba
+/// `sealed class`, una comprobación que no lo mirara dejaría de cubrir esa clase
+/// sin avisar.
+final RegExp _declaracionesDeClase = RegExp(
+  r'^(?:abstract |sealed |base |final |interface )?'
+  r'(?:class|mixin)\s+([A-Z][A-Za-z0-9_]*)',
+  multiLine: true,
+);
+
+/// ¿La ruta está bajo `lib/screens/` o `lib/widgets/`?
+///
+/// Se comparan **segmentos** y no una subcadena, por lo mismo que en
+/// [_bajoLibScreens]: una ruta relativa no contiene la barra inicial.
+bool _esSuperficieDeInterfaz(String ruta) {
+  final partes = _normalizar(ruta).split('/');
+  final i = partes.indexOf('lib');
+  if (i == -1 || i + 1 >= partes.length) return false;
+  return partes[i + 1] == 'screens' || partes[i + 1] == 'widgets';
+}
+
+/// ¿[nombre] está declarada y no la construye nadie?
+///
+/// La regla, y por qué no basta con contar menciones, está explicada en el
+/// comentario del grupo que usa esto. En una línea: una mención en **otro**
+/// archivo basta para estar viva; dentro del suyo, se descuentan la declaración y
+/// el constructor cuando lo hay, y si no sobra ninguna mención, está muerta.
+bool _estaMuerta(
+  String nombre,
+  int inicioDeclaracion,
+  String archivoQueDeclara,
+  String fuenteQueDeclara,
+  Map<String, String> textos,
+) {
+  final patron = RegExp('\\b${RegExp.escape(nombre)}\\b');
+
+  for (final entrada in textos.entries) {
+    if (entrada.key != archivoQueDeclara && patron.hasMatch(entrada.value)) {
+      return false;
+    }
+  }
+
+  // Línea (0-based) donde está la declaración, contando saltos de línea.
+  final lineaCabecera =
+      '\n'.allMatches(fuenteQueDeclara.substring(0, inicioDeclaracion)).length;
+
+  final lineas = fuenteQueDeclara.split('\n');
+  final fin = lineaCabecera + 4 > lineas.length
+      ? lineas.length
+      : lineaCabecera + 4;
+
+  // El constructor va justo debajo del `{` de la cabecera en todo este código,
+  // así que mirar cuatro líneas es holgado y no depende del formato del resto.
+  final ventana = lineas.sublist(lineaCabecera, fin).join('\n');
+
+  final tieneConstructor = RegExp(
+    '^\\s*(?:const\\s+)?${RegExp.escape(nombre)}\\s*\\(',
+    multiLine: true,
+  ).hasMatch(ventana);
+
+  // 1 por la declaración, y 1 más por el constructor cuando lo hay. Si no sobra
+  // ninguna mención propia, no la construye nadie.
+  final esperadas = 1 + (tieneConstructor ? 1 : 0);
+
+  return patron.allMatches(fuenteQueDeclara).length <= esperadas;
 }
