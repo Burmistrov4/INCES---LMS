@@ -4,7 +4,52 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-27 · **Módulo 7 (Asistencia QR en vivo)
+> **Última actualización:** 2026-09-28 · **El Módulo 7 no funcionaba, y se supo al
+> medirlo.** Auditar la deuda de M7 con la RLS **ejercida de verdad** —no leída—
+> encontró **tres defectos que llevaban desde el 2026-09-26 escondidos detrás de
+> verdes**:
+>
+> - **D27 · la política del alumno era inalcanzable.** `attendance_marks_estudiante_insert`
+>   comprobaba el código llamando a `asistencia_codigo_vigente(...)` dentro de su
+>   `WITH CHECK`, y una migración anterior le había hecho `revoke … from
+>   authenticated` creyendo —**falso**— que «sólo la llaman las políticas RLS».
+>   **PostgreSQL evalúa el `EXECUTE` de una función contra el rol que consulta**, así
+>   que la política moría con `42501` **antes** de decidir nada: **el alumno no podía
+>   marcar asistencia, nunca, por ningún camino**. Cerrado en `202609270001` con
+>   `asistencia_puede_marcar(...)`, que comprueba **inscrito + sesión abierta antes de
+>   mirar el código**: conceder `EXECUTE` sobre la otra habría convertido la función
+>   en un **oráculo de fuerza bruta de seis dígitos**.
+> - **D28 · el docente no podía cerrar su sesión.** `attendance_sessions` tenía
+>   políticas de `INSERT` y `SELECT` y **ninguna de `UPDATE`**: el botón «Cerrar»
+>   afectaba **0 filas** y el backend lo leía como «no es tuya». Añadida
+>   `attendance_sessions_docente_update`, con `using` **y** `with check`.
+> - **D29 · las aserciones negativas estaban verdes por el motivo equivocado.** Doce
+>   pruebas afirmaban que el ajeno, el vencido y el de lista de espera **no** marcan;
+>   todas verdes con el **mismo** `42501` de D27, o sea que no distinguían nada. La
+>   primera vez que se ejercitó el **camino feliz** —el inscrito con el código
+>   vigente **sí** marca— salió el bug en una línea.
+>
+> **Y D21 queda cerrada por la vía manual, que era la decisión de producto
+> abierta.** El alumno escribe los **seis dígitos** de la pizarra: el cliente manda
+> sólo el código, el servidor **resuelve la sesión** (`asistencia_resolver_codigo`,
+> `security definer` — el alumno no puede listar `attendance_sessions`, así que la
+> resolución tiene que ser del servidor) y devuelve un veredicto que el backend
+> traduce a **cuatro códigos distintos**: 422 `CODIGO_INVALIDO`, 409
+> `SIN_SESION_ACTIVA`, 403 `NO_INSCRITO` y 401 sin sesión. **El panel ya tiene el
+> hueco del lector**: el campo va en `Expanded` dentro de un `Row` con un
+> `accionAdyacente` opcional, así que el día que llegue `mobile_scanner` **no hay que
+> rehacer el layout**. **Y el campo NO lleva `maxLength` a propósito:** un `TextField`
+> con `maxLength` **trunca en silencio**, y ése fue exactamente el mecanismo que dejó
+> la pantalla muerta en D21; la prueba afirma que `maxLength` **es nulo**, para que el
+> recorte mudo no pueda volver por otra puerta.
+>
+> **⚠️ La migración `202609270001` NO está aplicada en la nube** — medido:
+> **31 aplicadas, 1 pendiente, 0 con deriva**. Hasta que se aplique, **marcar
+> asistencia sigue roto en producción** y el frontend nuevo apunta a un camino
+> muerto. Es un comando:
+> `SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs`
+>
+> **Lo anterior, 2026-09-27:** **Módulo 7 (Asistencia QR en vivo)
 > construido y desplegado**, y **la bandera de módulo ya no es decorativa en M2, M3
 > ni M4**. **D18 cerrada:** M7 ya tiene pruebas de comportamiento —**32 en el
 > backend, en verde y medidas aquí**; **26 declaraciones más en Flutter,
@@ -57,9 +102,12 @@
 > **D12 y D14 cerradas del todo el 2026-09-25** (`202609250002`: fuera la vista
 > `cursos` y fuera la tolerancia transitoria al nombre del curso). **Aplicada a la
 > nube el mismo día**, así que el repositorio y el proyecto ya no divergen **en eso**.
-> **El repositorio y la nube ya están alineados: 31 migraciones escritas, 31
-> aplicadas** (y **6 vistas escritas, 6 aplicadas**), medido el **2026-09-26** con
-> `apply-migrations.mjs --check` — **0 pendientes, 0 con deriva**. `202609250004` —la
+> **El repositorio y la nube estuvieron alineados hasta el 2026-09-27: 31
+> migraciones escritas, 31 aplicadas** (y **6 vistas escritas, 6 aplicadas**),
+> medido el **2026-09-26** con `apply-migrations.mjs --check` — **0 pendientes, 0
+> con deriva**. **Y ya no lo están: re-medido el 2026-09-28, hay 32 escritas y 31
+> aplicadas — `202609270001` está pendiente**, 0 con deriva. Es la reparación de
+> M7, y **sin ella marcar asistencia no funciona en la nube**. `202609250004` —la
 > vista de exportación hacia HACER— quedó **aplicada el 2026-09-25**: el esquema se
 > reverificó contra la nube y una **sonda viva con JWT reales** (18/18) comprobó lo
 > que de verdad importaba —que un estudiante **no** pueda descargarse la nómina del
@@ -164,9 +212,10 @@
 | **Módulo 6 Aula Virtual (backend)** | Las 10 rutas del aula (tablón, trabajo, entregas, calificar, devolver, libro) con `exigirAula` | ✅ **Completo** |
 | **Módulo 6 Aula Virtual (frontend)** | Aula del alumno + **Centro de Mando del Docente**: `crear_anuncio_panel`, `crear_tarea_panel`, `libro_calificaciones_panel` | ✅ **Construido y probado** (2026-09-22): **10 pruebas de widget** nuevas, con dobles estrictos. El bucle docente→alumno es demostrable: publicar → sembrar entregas → entregar → calificar → devolver |
 | **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. **Aplicado a la nube el 2026-09-22**; medido encendido el 2026-09-24 |
-| **Módulo 7 Asistencia QR (esquema)** | `attendance_sessions`, `attendance_marks`, la vista `v_attendance_sesiones`, 3 funciones y 5 políticas RLS | ✅ **Aplicado y verificado en la nube** (`202609260001`..`202609260004`, 2026-09-26) |
-| **Módulo 7 Asistencia QR (backend)** | Las 4 rutas REST de `/api/v1/asistencia` y el canal WebSocket `GET /rt` | ✅ **Completo**. **Sin guardia de módulo a propósito**: ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`**, que es quien marca — ver §3 |
-| **Módulo 7 Asistencia QR (frontend)** | `asistencia_qr_panel` (tablero del docente, QR efímero y marcas en vivo) y `marcar_asistencia_panel` (el alumno marca), montados en sus dashboards | ✅ **Construido y con pruebas propias desde el 2026-09-27** (D18). `test/asistencia_paneles_test.dart` monta los dos paneles sobre un doble de `AsistenciaService` y ejerce los caminos que fallaban en silencio: abrir sesión, pintar el QR, ver llegar una marca por el canal, rehidratar las guardadas, cerrar, y los fallos. `test/asistencia_service_test.dart` fija la **paridad del código del QR** contra **13 vectores calculados por PostgreSQL** —comprobados uno a uno, idénticos— más `ParseQr` y los eventos del canal. **Verificado en CI:** `Flutter CI` #49 sobre `4eb123e`, `completed successfully`. **Y escribirlas encontró dos defectos reales** — **D21** y **D22** —, los dos resueltos el mismo día |
+| **Módulo 7 Asistencia QR (esquema)** | `attendance_sessions`, `attendance_marks`, la vista `v_attendance_sesiones`, 3 funciones y 5 políticas RLS | ✅ **Aplicado y verificado en la nube** (`202609260001`..`202609260004`, 2026-09-26). **Pero dos de esas políticas no funcionaban** — D27 y D28 —, y se supo el 2026-09-28 **ejerciendo la RLS**, no leyéndola |
+| **Módulo 7 Asistencia QR (reparación)** | `202609270001_asistencia_marca_y_cierre.sql`: `asistencia_puede_marcar()`, `asistencia_resolver_codigo()`, `alter policy` de la inserción del alumno y la política `UPDATE` que faltaba | ⚠️ **ESCRITA, PROBADA Y COMMITEADA — NO APLICADA EN LA NUBE.** Medido el 2026-09-28: **31 aplicadas, 1 pendiente, 0 con deriva**. Mientras no se aplique, **marcar asistencia sigue roto en producción**. Se aplica con `SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs` |
+| **Módulo 7 Asistencia QR (backend)** | Las 4 rutas REST de `/api/v1/asistencia` y el canal WebSocket `GET /rt` | ✅ **Completo**. **Sin guardia de módulo a propósito**: ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`**, que es quien marca — ver §3. **`POST /marcar` acepta dos formas desde D21**: el par `<uuid>:<6 dígitos>` (la cámara) y **sólo los seis dígitos**, que el servidor resuelve contra la sesión abierta. 9 pruebas nuevas; suite del backend **627/627** |
+| **Módulo 7 Asistencia QR (frontend)** | `asistencia_qr_panel` (tablero del docente, QR efímero y marcas en vivo) y `marcar_asistencia_panel` (el alumno marca), montados en sus dashboards | ✅ **Construido y con pruebas propias desde el 2026-09-27** (D18). `test/asistencia_paneles_test.dart` monta los dos paneles sobre un doble de `AsistenciaService` y ejerce los caminos que fallaban en silencio: abrir sesión, pintar el QR, ver llegar una marca por el canal, rehidratar las guardadas, cerrar, y los fallos. `test/asistencia_service_test.dart` fija la **paridad del código del QR** contra **13 vectores calculados por PostgreSQL** —comprobados uno a uno, idénticos— más `ParseQr` y los eventos del canal. **Verificado en CI:** `Flutter CI` #49 sobre `4eb123e`, `completed successfully`. **Y escribirlas encontró dos defectos reales** — **D21** y **D22** —, los dos resueltos el mismo día. **El 2026-09-28 se cerró D21 por la vía manual:** el alumno teclea **seis dígitos** y el servidor resuelve la sesión; el panel se reescribió para aceptar **las dos formas** (dígitos y par del QR) y **deja el hueco del lector de QR preparado** (`accionAdyacente`, dentro del mismo `Row`). **El campo perdió el `maxLength` a propósito** —un tope trunca en silencio, que es el mecanismo exacto que dejó la pantalla muerta— y una prueba afirma que sigue siendo `null` |
 | **Módulo 7 Asistencia QR (bandera)** | `m7_asistencia` | ✅ **ENCENDIDA** por `202609260002`, con `roles_permitidos = ['docente','admin']` |
 | **Fase 7+** | M6 Asistencia (fila muerta de la semilla), M7 Calificaciones y M8 Pasantías | ⏳ Pendiente |
 
@@ -174,8 +223,10 @@
 (backend **540**, Flutter **456**, SQL **402**); migraciones de M3 aplicadas y
 verificadas el **2026-09-17**, las dos de M4 y `202609210001` el **2026-09-18**, y
 las **cuatro últimas** (`202609210002`, `202609220001`, `202609220002`,
-`202609220003`) el **2026-09-22**. **No queda ninguna migración pendiente en la
-nube**: el libro mayor tiene las 20 del repositorio.
+`202609220003`) el **2026-09-22**. Entonces **no quedaba ninguna migración
+pendiente en la nube**: el libro mayor tenía las 20 del repositorio. (**Esa foto
+ya no vale**: el 2026-09-28 el libro mayor tiene **31 de las 32** del repositorio
+— ver la cabecera.)
 
 > **Cómo se midieron estas cifras:** con `node supabase/tests/medir-conteos.mjs`
 > (migraciones, OpenAPI y módulos sembrados) y con los corredores
@@ -185,9 +236,9 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | Sin problemas — **re-medido el 2026-09-25 sobre 167 archivos** (`lib/` + `test/`) con el servidor de análisis real: **0 errores, 0 avisos, 0 informativos** |
-| `flutter test` | **673 / 673** en verde — **medido en CI** (`Flutter CI` #22 sobre `4dc56c8`, `success`), **no aquí**: desde la shell del agente la suite **no arranca** (tuberías nombradas), así que **CI es el verificador**. El `#21` sobre `bc614bd` informó «**671 tests passed, 2 failed**» — o sea **673** pruebas — y las dos que fallaban eran **preexistentes**: el aviso nuevo que explica la exportación empujó la tarjeta de la sección por debajo del pliegue a 800×600 y el `tap` dejó de acertar (`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`: la trampa del `Stepper`, en otra pantalla). Se arregló con un ayudante `pulsar()` que hace `ensureVisible` antes de pulsar. **Antes:** 632 / 632 el 2026-09-25 en la terminal del usuario, y `Flutter CI` #20 sobre `269698d` en verde. **Ojo: la cifra de 673 es ANTERIOR al 2026-09-27.** Ese día se añadieron **tres archivos de M7** (`test/asistencia_service_test.dart`, `test/asistencia_paneles_test.dart` y el doble `test/support/fake_asistencia_service.dart`) que **no se pueden ejecutar desde esta shell** (`ERROR_PIPE_BUSY`). **Verificados en CI: `Flutter CI` #49 sobre `4eb123e` sale `completed successfully`**, análisis estático y suite completa incluidos. (#48 sobre `f1ce28c` fue el primer verde de M7; #49 añade los cambios de D24 y las dos pruebas nuevas.) **Un commit que sólo toca documentación no se re-verifica a propósito** —y por eso esta cifra no «envejece» con cada commit de docs—: lo que CI avala es **el código de `4eb123e`**, no el texto de este párrafo. La cifra exacta de casos **no se copia aquí a propósito**, y `flutter_ci.yml` ya explica por qué: un suelo escrito a mano envejece en silencio. Lo que sí es medible desde el repositorio es lo que **declaran** los dos archivos nuevos: **11** pruebas en el de paridad —y una de ellas recorre los **13 vectores dorados**— y **15** en el de los paneles. Ver **D18** |
+| `flutter test` | **804 pruebas: 803 en verde y 1 en rojo** — **medido en CI** (`Flutter CI` #62 sobre `e6db187`), **no aquí**: desde la shell del agente la suite **no arranca** (tuberías nombradas), así que **CI es el verificador**. El `#21` sobre `bc614bd` informó «**671 tests passed, 2 failed**» — o sea **673** pruebas — y las dos que fallaban eran **preexistentes**: el aviso nuevo que explica la exportación empujó la tarjeta de la sección por debajo del pliegue a 800×600 y el `tap` dejó de acertar (`Offset(564.0, 698.0)` en una raíz de `Size(800.0, 600.0)`: la trampa del `Stepper`, en otra pantalla). Se arregló con un ayudante `pulsar()` que hace `ensureVisible` antes de pulsar. **Antes:** 632 / 632 el 2026-09-25 en la terminal del usuario, y `Flutter CI` #20 sobre `269698d` en verde. **Ojo: la cifra de 673 es ANTERIOR al 2026-09-27.** Ese día se añadieron **tres archivos de M7** (`test/asistencia_service_test.dart`, `test/asistencia_paneles_test.dart` y el doble `test/support/fake_asistencia_service.dart`) que **no se pueden ejecutar desde esta shell** (`ERROR_PIPE_BUSY`). **Verificados en CI: `Flutter CI` #49 sobre `4eb123e` sale `completed successfully`**, análisis estático y suite completa incluidos. (#48 sobre `f1ce28c` fue el primer verde de M7; #49 añade los cambios de D24 y las dos pruebas nuevas.) **El 2026-09-28 la cifra subió a 804 al entrar D21 con su panel reescrito, y la corrida `#62` sobre `e6db187` trajo una roja —y era mía—: el error de «campo vacío» del panel empezaba por «Escribe los seis dígitos…», **igual que la ayuda permanente del panel**, así que la prueba que lo buscaba con `textContaining` encontraba **dos** coincidencias y caía con «is too many». El «is too many» no nombraba el producto, pero lo nombraba: era el síntoma de una redundancia real. El arreglo —mensaje que dice qué hacer, y buscador exacto que afirma también la **ausencia** del otro— está en `351cf68`, y **está pendiente de que CI lo confirme**: la corrida que midió el rojo es la de `e6db187`.** **Un commit que sólo toca documentación no se re-verifica a propósito** —y por eso esta cifra no «envejece» con cada commit de docs—: lo que CI avala es **el código de `4eb123e`**, no el texto de este párrafo. La cifra exacta de casos **no se copia aquí a propósito**, y `flutter_ci.yml` ya explica por qué: un suelo escrito a mano envejece en silencio. Lo que sí es medible desde el repositorio es lo que **declaran** los dos archivos nuevos: **11** pruebas en el de paridad —y una de ellas recorre los **13 vectores dorados**— y **15** en el de los paneles. Ver **D18** |
 | **Exportación hacia HACER (M4)** | ✅ **Escrita, aplicada y sondeada en vivo.** `v_exportacion_hacer` (`202609250004`) y `planilla_texto()` pasan las **24 aserciones de §22** contra PostgreSQL real, y desde el **2026-09-25 están en la nube** (26/26 migraciones, esquema reverificado sin fallos). La **sonda viva** (`C:/tmp/sonda-exportar/`, fuera del repo) creó una sección y tres usuarios temporales, entró con **JWT reales** por *password grant* y midió la RLS de verdad: el admin ve **4** filas, el estudiante matriculado ve **1** (la suya), el ajeno ve **0**, y `anon` recibe **401 `42501 permission denied for view`** — bloqueado por el `GRANT`, no por una política. La purga dejó **0 restos**. **Sigue abierto D17**: la vista expone lo que se puede exponer sin especificación. **El orden de despliegue sigue importando** —primero la migración, después el frontend— porque `AppException` **no distingue el error de objeto ausente**: el código exacto que devuelve PostgREST para una vista que no está en su caché de esquema **no se ha medido** (candidatos `42P01` y `PGRST205`, sin comprobar). Es deuda declarada, no un arreglo imaginado |
-| `npm run verify` (backend) | **615 / 615** en verde (**24** archivos) — **medido el 2026-09-27**, typecheck y lint incluidos. Eran **583 / 583** (23 archivos) el 2026-09-26 y **562 / 562** el 2026-09-25. Los **32** últimos son de **M7** (`test/asistencia.test.ts`), que hasta el 2026-09-27 no tenía ni una prueba de comportamiento en el backend — ver **D18**; los **21** de antes eran de la **guardia de módulo de M2/M3/M4** y del incidente de `roles_permitidos` |
+| `npm run verify` (backend) | **627 / 627** en verde (**24** archivos) — **medido el 2026-09-28**, typecheck y lint incluidos. Eran **615 / 615** el 2026-09-27, **583 / 583** (23 archivos) el 2026-09-26 y **562 / 562** el 2026-09-25. Los **12** últimos son de **D21** (`test/asistencia.test.ts`: el camino manual sin UUID, sus cuatro códigos de error y la paridad con el camino del QR); los **32** anteriores son de **M7** (`test/asistencia.test.ts`), que hasta el 2026-09-27 no tenía ni una prueba de comportamiento en el backend — ver **D18**; los **21** de antes eran de la **guardia de módulo de M2/M3/M4** y del incidente de `roles_permitidos` |
 | `npm run typecheck` (backend) | Sin errores — y desde el 2026-09-19 **incluye `scripts/`**, que antes quedaba fuera del `include` de `tsconfig.json` |
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
@@ -197,9 +248,9 @@ nube**: el libro mayor tiene las 20 del repositorio.
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
 | **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-26**, ya con el **bloque 10 (M7)**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4, la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) y, desde el 2026-09-26, las dos tablas de M7, sus cinco políticas, sus tres funciones y su vista. **Y esa misma ejecución encontró 3 fallos que eran del script, no de la base**: su lista de tablas esperadas, su total de módulos (**10**) y su lista de encendidos seguían congelados en M6, así que marcaba en rojo un esquema correcto. Corregido el script — y anotado, porque una red de seguridad desactualizada grita lobo y enseña a ignorarla |
-| **Libro mayor de migraciones (D10)** | **31** versiones aplicadas con checksum SHA-256 válido. **Ya no queda ninguna esperando** |
+| **Libro mayor de migraciones (D10)** | **31** versiones aplicadas con checksum SHA-256 válido, **y 1 esperando**: `202609270001`, la reparación de M7 (D27/D28). Re-medido el **2026-09-28** con `apply-migrations.mjs --check` → **1 pendiente, 0 con deriva**. El «ya no queda ninguna esperando» que decía este renglón dejó de ser cierto el 2026-09-27, el día que se escribió la migración |
 | **Sonda viva de `v_exportacion_hacer`** | ✅ 2026-09-25: **18/18**. Sección y tres usuarios **temporales** (admin + dos estudiantes), **JWT reales** por *password grant*, y la vista leída **por PostgREST** —el camino del cliente Flutter, no la `service_role`, que saltaría la RLS y aprobaría cualquier cosa—. El admin ve **4** filas; el matriculado **1** (la suya); el ajeno **0**, también sin filtro; `anon` recibe **401 `42501`**. El `left join` a `aspirantes` conserva la fila sin ficha, y la planilla vacía sale `NULL` y **no** `"null"`. Purga verificada: **0 restos**. `C:/tmp/sonda-exportar/` (fuera del repo) |
-| **Migraciones de M2, M3, M4, M5, M6 y M7 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25; **las cuatro de M7 —asistencia QR— y la corrección de permisos de M5** el 2026-09-26) — **24 tablas** + **6 vistas** aplicadas, con RLS activo en las 24 (ver §3) |
+| **Migraciones de M2, M3, M4, M5, M6 y M7 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25; **las cuatro de M7 —asistencia QR— y la corrección de permisos de M5** el 2026-09-26) — **24 tablas** + **6 vistas** aplicadas, con RLS activo en las 24 (ver §3). **Falta una: `202609270001`**, la reparación de M7 (D27/D28), escrita el 2026-09-27 y **todavía sin aplicar en la nube** |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ **Las dos aplicadas.** `202609210001_mod5_archivos.sql` — `files_metadata` + 3 RPC `security definer` + 2 parámetros — y `202609210002_mod5_habilitar_modulo.sql`, que enciende la bandera. (Este renglón decía «pendiente de aplicar» de la segunda; el libro mayor de **31 versiones** lo desmiente: `verificar-esquema.mjs` da `m5_archivos` como habilitado.) |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -300,8 +351,9 @@ nube**: el libro mayor tiene las 20 del repositorio.
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **treinta y una** migraciones
-se aplicaron contra el proyecto real `twdppwnxlnmxkiejbrei` y el resultado se
+**La base de datos ya está aplicada y verificada.** Las **treinta y una**
+migraciones que había el 2026-09-26 se aplicaron contra el proyecto real
+`twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **24 tablas** con RLS activo **en las 24**, **6 vistas** (las tres del Módulo 3,
 `v_ocupacion_secciones` de M4, `v_exportacion_hacer` y `v_attendance_sesiones` de
@@ -311,6 +363,14 @@ migración de D12 viven dentro de `programs` como `CURSO_LIBRE`. **Recontado el
 2026-09-26** contra el catálogo de la nube, después de aplicar `202609260005`. El
 2026-09-25 el mismo recuento daba **26 · 22 · 5 · 53 · 29 · 46**, con
 `supabase/contar-catalogo.mjs`.
+
+> **Ese recuento es el de la NUBE y sigue valiendo, pero el repositorio ya tiene
+> 32 archivos de migración.** `202609270001` no está aplicada, así que sus **+2
+> funciones** (`asistencia_puede_marcar` y `asistencia_resolver_codigo`) y **+1
+> política** (`attendance_sessions_docente_update`) **todavía no están en el
+> catálogo de la nube**: al aplicarla, las cifras suben a **58 funciones** y **52
+> políticas RLS**. Se dice aquí para que el recuento posterior no parezca una
+> deriva.
 
 > **La aritmética de M7 también cierra al dígito.** Las cuatro migraciones de la
 > asistencia QR (`202609260001`..`202609260004`) añaden **+2 tablas**
