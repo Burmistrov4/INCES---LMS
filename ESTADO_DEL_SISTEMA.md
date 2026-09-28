@@ -49,6 +49,14 @@
 > muerto. Es un comando:
 > `SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs`
 >
+> **Y la suite E2E, que llevaba cinco corridas en rojo, quedó arreglada y en verde**
+> (`5e039ab`). Su causa no eran las etiquetas: **abría `/`, y `/` es la portada desde
+> que existe**. Se pudo arreglar porque **antes se arregló la legibilidad del flujo**
+> (`b624628`): hasta entonces su única anotación era `Process completed with exit code
+> 1`, y el diagnóstico que sí se leía —«no hay ningún campo con la etiqueta …»— era
+> **falso**. Medido en local contra los servicios reales: **1 failed antes, 10/10 en
+> verde después**.
+>
 > **Lo anterior, 2026-09-27:** **Módulo 7 (Asistencia QR en vivo)
 > construido y desplegado**, y **la bandera de módulo ya no es decorativa en M2, M3
 > ni M4**. **D18 cerrada:** M7 ya tiene pruebas de comportamiento —**32 en el
@@ -1516,6 +1524,35 @@ El cliente sólo necesita leer `error.codigo`; el `mensaje` es para el usuario y
 > modificarlo contra un arnés que reproduce el contrato de DOM de Flutter y la
 > descarga real por `Blob`: 9 de 10 en verde**, y la que falla es la que debe
 > fallar. El paso menos verificado es escribir en un `TextField` de Flutter.
+
+> **✅ Actualizado el 2026-09-28 — esa deuda está cerrada, y por partida doble.**
+>
+> 1. **La suite SÍ se ejecutó contra la app real.** El 2026-09-27 dio **10/10 en
+>    verde** (login real contra el Supabase real, descarga real en un navegador
+>    real), pero el bundle servido era del **2026-09-26 01:40** y `HEAD` del 27: ese
+>    verde mide la **ruta de exportación** —cuyo diff posterior fue `+33/-0`,
+>    aditivo— y **no** el layout actual del panel.
+> 2. **Los secretos son SEIS, y están los seis puestos** (medido el 2026-09-28: el
+>    paso «Comprobar los secretos» pasa e imprime «Los seis secretos están
+>    presentes.»). La lista está en la tabla de `e2e/README.md`.
+> 3. **Estaba en rojo por un fallo REAL, y ya está arreglado.** La suite abría `/`, y
+>    `/` dejó de ser el login cuando se completó la **portada pública**: `AuthGate`
+>    devuelve `LandingPage` para la raíz, así que la suite tecleaba en un formulario
+>    que ya no estaba en pantalla. **Nunca fue un problema de etiquetas**
+>    —`login_screen.dart:306` dice `labelText: 'Cédula o Correo'`, que es justo lo que
+>    el POM busca—: lo delató el volcado del árbol accesible, que era la **portada
+>    entera**. Arreglado en `5e039ab`: `abrir('/#/login')`, con la ruta en el
+>    **fragmento** porque Flutter Web usa la estrategia de hash.
+> 4. **Y se pudo arreglar porque antes se arregló la legibilidad.** Hasta `b624628` la
+>    única anotación del check-run era `Process completed with exit code 1`: declarar
+>    `reporter` a mano **desactiva** el reporter `github` que Playwright pondría solo
+>    en Actions. La corrida siguiente trajo el diagnóstico entero —prueba, archivo,
+>    línea y árbol accesible—.
+>
+> **Medido en local, contra los servicios reales** (backend 3001, frontend 8090,
+> Supabase real, `build/web` del 2026-09-27 14:59): **1 failed antes, 10/10 en verde
+> después**, en 23,7 s. O sea que **esta suite se puede correr aquí**, sin esperar a
+> CI — que es lo que hizo posible arreglarla en una sola sesión.
 
 > **El 2026-09-25 llegaron las reglas de formateo de HACER, y el archivo cambió de
 > forma.** Lo que sigue sin especificarse son las **columnas** (D17); lo que llegó
