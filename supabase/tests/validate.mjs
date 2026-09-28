@@ -4059,6 +4059,371 @@ async function main() {
   );
   check('el rechazo de anon es de privilegios (42501)', anonExp?.code === '42501', `código ${anonExp?.code}`);
 
+  // ==========================================================================
+  // 20. Módulo 7 — Asistencia: la RLS del QR, ejercida de verdad
+  // ==========================================================================
+  //  Por qué esta sección existe, y por qué llega tarde.
+  //
+  //  Hasta hoy NADIE había ejecutado el INSERT del alumno. Las 32 pruebas de M7
+  //  del backend usan repositorios falsos, y este arnés sólo comprobaba que la
+  //  fila del módulo estuviera sembrada. La pregunta que nadie le había hecho
+  //  al motor es si un `authenticated` puede insertar en `attendance_marks`
+  //  —porque la política `attendance_marks_estudiante_insert` llama a
+  //  `asistencia_codigo_vigente`, y esa función está
+  //  `revoke all ... from public, anon, authenticated`—.
+  //
+  //  Un `revoke` sobre una función que una política necesita es exactamente el
+  //  tipo de fallo que no rompe la compilación y no se ve hasta producción: si
+  //  el motor exige EXECUTE al rol que consulta, la marca del alumno muere con
+  //  «permission denied for function» y la asistencia entera queda inservible
+  //  con todo en verde.
+  seccion('23. Módulo 7 — Asistencia: la RLS del QR, ejercida de verdad');
+
+  const SEC_M7 = SEC_M6; // la sección de M6 ya trae roster, docente y horario
+  const ALU_M7_OK = ALU_M6A; // ENROLLED
+  const ALU_M7_OTRO = ALU_M6B; // ENROLLED (segundo alumno legítimo)
+  const ALU_M7_ESPERA = ALU_M6W; // WAITLISTED
+  const ALU_M7_SIN = ALU_M6X; // sin matrícula
+  const DOC_M7 = DOC_M6;
+
+  const SES_M7 = 'f7000001-0000-4000-8000-000000000001';
+  const SECRETO_M7 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const VENTANA_M7 = 120;
+
+  // El docente abre la sesión CON SU TOKEN: quien deja pasar la fila es la
+  // política `attendance_sessions_docente_insert` (opened_by = auth.uid() y un
+  // schedule_slot suyo), no el privilegio del dueño de la tabla.
+  await como('authenticated', DOC_M7, () =>
+    db.exec(
+      `insert into public.attendance_sessions (id, section_id, opened_by, qr_secret, ventana_seg)
+       values ('${SES_M7}', '${SEC_M7}', '${DOC_M7}', '${SECRETO_M7}', ${VENTANA_M7})`,
+    ),
+  );
+  const sesionM7 = (
+    await db.query(`select status, qr_secret from public.attendance_sessions where id = '${SES_M7}'`)
+  ).rows[0];
+  check(
+    'el docente de la sección abre la sesión (RLS de INSERT en attendance_sessions)',
+    sesionM7?.status === 'OPEN',
+    String(sesionM7?.status),
+  );
+
+  // Los códigos se derivan como DUEÑO: la función pura está revocada para
+  // `authenticated` a propósito, así que aquí no hay atajo.
+  //   · `vigente`  → la ventana de ahora
+  //   · `caducado` → una ventana de hace ~16 horas: el QR fotografiado ayer
+  const codigosM7 = (
+    await db.query(
+      `select
+         public.asistencia_codigo_en_ventana('${SECRETO_M7}', '${SES_M7}',
+           floor(extract(epoch from now()) / ${VENTANA_M7})::bigint) as vigente,
+         public.asistencia_codigo_en_ventana('${SECRETO_M7}', '${SES_M7}',
+           floor(extract(epoch from now()) / ${VENTANA_M7})::bigint - 500) as caducado`,
+    )
+  ).rows[0];
+  check(
+    'los dos códigos de la sonda son de seis dígitos y distintos entre sí',
+    /^\d{6}$/.test(codigosM7.vigente) &&
+      /^\d{6}$/.test(codigosM7.caducado) &&
+      codigosM7.vigente !== codigosM7.caducado,
+    `${codigosM7.vigente} / ${codigosM7.caducado}`,
+  );
+
+  /** Devuelve un marcador atado a una sesión: `marcarEn(sesion)(actor, aNombreDe, code)`. */
+  const marcarEn = (sesion) => (actor, aNombreDe, code) =>
+    como('authenticated', actor, () =>
+      db.exec(
+        `insert into public.attendance_marks (session_id, student_id, code, ventana_idx)
+         values ('${sesion}', '${aNombreDe}', '${code}', 0)`,
+      ),
+    );
+  const marcarM7 = marcarEn(SES_M7);
+
+  // --- el orden importa: primero lo que DEBE fallar, para que la marca buena
+  //     del final no contamine a nadie con el unique (session_id, student_id).
+
+  const m7Ajeno = await esperaError(
+    'un alumno matriculado NO puede marcar a nombre de otro',
+    () => marcarM7(ALU_M7_OTRO, ALU_M7_OK, codigosM7.vigente),
+  );
+  check(
+    'el rechazo de «marcar por otro» es de RLS (42501)',
+    m7Ajeno?.code === '42501',
+    `código ${m7Ajeno?.code}: ${m7Ajeno?.message}`,
+  );
+
+  const m7Caducado = await esperaError(
+    'un código de una ventana vieja NO vale (el QR fotografiado caduca)',
+    () => marcarM7(ALU_M7_OTRO, ALU_M7_OTRO, codigosM7.caducado),
+  );
+  check(
+    'el rechazo del código caducado es de RLS (42501)',
+    m7Caducado?.code === '42501',
+    `código ${m7Caducado?.code}: ${m7Caducado?.message}`,
+  );
+
+  const m7EnEspera = await esperaError(
+    'un WAITLISTED no puede marcar: no está ENROLLED',
+    () => marcarM7(ALU_M7_ESPERA, ALU_M7_ESPERA, codigosM7.vigente),
+  );
+  check(
+    'el rechazo del que está en cola es de RLS (42501)',
+    m7EnEspera?.code === '42501',
+    `código ${m7EnEspera?.code}: ${m7EnEspera?.message}`,
+  );
+
+  const m7SinMatricula = await esperaError(
+    'un alumno sin matrícula en la sección no puede marcar',
+    () => marcarM7(ALU_M7_SIN, ALU_M7_SIN, codigosM7.vigente),
+  );
+  check(
+    'el rechazo del no matriculado es de RLS (42501)',
+    m7SinMatricula?.code === '42501',
+    `código ${m7SinMatricula?.code}: ${m7SinMatricula?.message}`,
+  );
+
+  const m7Anon = await esperaError('anon no puede marcar asistencia', () =>
+    como('anon', null, () =>
+      db.exec(
+        `insert into public.attendance_marks (session_id, student_id, code, ventana_idx)
+         values ('${SES_M7}', '${ALU_M7_OK}', '${codigosM7.vigente}', 0)`,
+      ),
+    ),
+  );
+  check('el rechazo de anon es de privilegios (42501)', m7Anon?.code === '42501', `código ${m7Anon?.code}`);
+
+  // --- LA ASERCIÓN QUE DECIDE SI EL MÓDULO FUNCIONA -------------------------
+  //  Un alumno ENROLLED, su propio `auth.uid()`, la sesión OPEN y el código de
+  //  la ventana actual. Es la única combinación que debe entrar.
+  //  No se usa `esperaError` aquí: ese ayudante ANOTA un fallo cuando no hay
+  //  excepción, así que invertirlo para el camino feliz dejaría una aserción
+  //  roja en el caso bueno. Se captura a mano.
+  let m7Buena;
+  try {
+    await marcarM7(ALU_M7_OK, ALU_M7_OK, codigosM7.vigente);
+  } catch (e) {
+    m7Buena = e;
+  }
+  check(
+    'el alumno ENROLLED con el código vigente SÍ marca (la política es alcanzable)',
+    m7Buena === undefined,
+    m7Buena ? `${m7Buena.code}: ${m7Buena.message}` : '',
+  );
+  const marcasM7 = (
+    await db.query(`select count(*)::int as n from public.attendance_marks where session_id = '${SES_M7}'`)
+  ).rows[0].n;
+  check('la marca quedó en la tabla (1 fila)', marcasM7 === 1, `hay ${marcasM7}`);
+
+  const m7Doble = await esperaError('el alumno no puede doble-contarse', () =>
+    marcarM7(ALU_M7_OK, ALU_M7_OK, codigosM7.vigente),
+  );
+  check(
+    'la segunda marca del mismo alumno choca con el unique (23505)',
+    m7Doble?.code === '23505',
+    `código ${m7Doble?.code}: ${m7Doble?.message}`,
+  );
+
+  // --- el secreto no se filtra -------------------------------------------------
+  const secretoAlumno = await como('authenticated', ALU_M7_OK, () =>
+    db.query(`select qr_secret from public.attendance_sessions where id = '${SES_M7}'`),
+  );
+  check(
+    'el alumno NO ve la sesión del docente (0 filas por RLS, no error)',
+    secretoAlumno.rows.length === 0,
+    `vio ${secretoAlumno.rows.length} fila(s)`,
+  );
+  const vistaAlumno = await como('authenticated', ALU_M7_OK, () =>
+    db.query(`select * from public.v_attendance_sesiones where id = '${SES_M7}'`),
+  );
+  check(
+    'la vista de sesiones tampoco se la muestra al alumno (security_invoker)',
+    vistaAlumno.rows.length === 0,
+    `vio ${vistaAlumno.rows.length} fila(s)`,
+  );
+  const vistaDocente = await como('authenticated', DOC_M7, () =>
+    db.query(`select * from public.v_attendance_sesiones where id = '${SES_M7}'`),
+  );
+  check(
+    'el docente SÍ ve su sesión por la vista, y la vista NO trae qr_secret',
+    vistaDocente.rows.length === 1 && !('qr_secret' in vistaDocente.rows[0]),
+    Object.keys(vistaDocente.rows[0] ?? {}).join(', '),
+  );
+
+  // --- las dos RPC que NO debe poder llamar un alumno --------------------------
+  const rpcVigente = await esperaError('el alumno no puede llamar asistencia_codigo_vigente', () =>
+    como('authenticated', ALU_M7_OK, () =>
+      db.query(`select * from public.asistencia_codigo_vigente('${SES_M7}', '${codigosM7.vigente}')`),
+    ),
+  );
+  check(
+    'asistencia_codigo_vigente está revocada para el alumno (42501)',
+    rpcVigente?.code === '42501',
+    `código ${rpcVigente?.code}: ${rpcVigente?.message}`,
+  );
+
+  const rpcActual = await esperaError('el alumno no puede pedirse el código actual', () =>
+    como('authenticated', ALU_M7_OK, () =>
+      db.query(`select public.asistencia_codigo_actual('${SES_M7}')`),
+    ),
+  );
+  check(
+    'asistencia_codigo_actual le responde 42501 al alumno (barrera de 202609260002)',
+    rpcActual?.code === '42501',
+    `código ${rpcActual?.code}: ${rpcActual?.message}`,
+  );
+
+  // --- cerrar la sesión: el botón «Cerrar» del docente -------------------------
+  //  `PATCH /asistencia/sesiones/:id/cerrar` hace un UPDATE del `status`. Nadie
+  //  había ejercido ese UPDATE con un docente real. La tabla tiene políticas de
+  //  INSERT y de SELECT para el docente, y `grant select, insert` — no de
+  //  UPDATE. Si el motor lo rechaza, el botón «Cerrar» del tablero falla
+  //  SIEMPRE y la sesión se queda abierta para siempre: nadie puede volver a
+  //  marcar en ella sin que el código siga rotando, y el docente no tiene forma
+  //  de pararla.
+  let cerrarErr;
+  let cerradas = 0;
+  try {
+    const cierre = await como('authenticated', DOC_M7, () =>
+      db.query(
+        `update public.attendance_sessions set status = 'CLOSED', closed_at = now()
+          where id = '${SES_M7}' returning id`,
+      ),
+    );
+    cerradas = cierre.rows.length;
+  } catch (e) {
+    cerrarErr = e;
+  }
+  check(
+    'el docente puede cerrar su sesión (el UPDATE es alcanzable)',
+    cerradas === 1,
+    cerrarErr ? `${cerrarErr.code}: ${cerrarErr.message}` : `filas afectadas: ${cerradas}`,
+  );
+
+  const m7Cerrada = await esperaError('con la sesión cerrada no se marca', () =>
+    marcarM7(ALU_M7_OTRO, ALU_M7_OTRO, codigosM7.vigente),
+  );
+  check(
+    'cerrada la sesión, el rechazo es de RLS (42501)',
+    m7Cerrada?.code === '42501',
+    `código ${m7Cerrada?.code}: ${m7Cerrada?.message}`,
+  );
+
+  // ==========================================================================
+  // 20.2 — El resolutor de D21: de seis dígitos a sesión
+  // ==========================================================================
+  //  Decisión de producto del 2026-09-27: el alumno teclea los seis dígitos y
+  //  el servidor resuelve la sesión, porque el alumno NO tiene política de
+  //  SELECT sobre `attendance_sessions` y no puede listarlas. Es la prueba de
+  //  integración de la ruta manual: se ejerce contra la base de verdad, con
+  //  identidades de verdad, y se comprueban los CUATRO veredictos que la UI
+  //  necesita para poder explicar qué pasó.
+  const SES_M7B = 'f7000002-0000-4000-8000-000000000002';
+  const SECRETO_M7B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+  /** Llama al resolutor como un rol concreto y devuelve el veredicto. */
+  const resolverComo = async (rol, sub, codigo) => {
+    const r = await como(rol, sub, () =>
+      db.query(`select public.asistencia_resolver_codigo('${codigo}') as v`),
+    );
+    return r.rows[0].v;
+  };
+
+  // 1. Sin ninguna sesión abierta (SES_M7 acaba de cerrarse).
+  const sinSesion = await resolverComo('authenticated', ALU_M7_OK, codigosM7.vigente);
+  check(
+    'sin sesiones abiertas el veredicto es SIN_SESION_ACTIVA',
+    sinSesion?.estado === 'SIN_SESION_ACTIVA',
+    JSON.stringify(sinSesion),
+  );
+
+  // 2. Se abre una segunda sesión, ahora en la MISMA sección, con otro secreto.
+  await como('authenticated', DOC_M7, () =>
+    db.exec(
+      `insert into public.attendance_sessions (id, section_id, opened_by, qr_secret, ventana_seg)
+       values ('${SES_M7B}', '${SEC_M7}', '${DOC_M7}', '${SECRETO_M7B}', ${VENTANA_M7})`,
+    ),
+  );
+  const codigosM7B = (
+    await db.query(
+      `select public.asistencia_codigo_en_ventana('${SECRETO_M7B}', '${SES_M7B}',
+                floor(extract(epoch from now()) / ${VENTANA_M7})::bigint) as vigente`,
+    )
+  ).rows[0];
+
+  // 3. La forma se comprueba dentro de la función, no sólo en el Zod.
+  const forma = await resolverComo('authenticated', ALU_M7_OK, '12ab');
+  check(
+    'un código que no son seis dígitos se rechaza sin tocar la base',
+    forma?.estado === 'CODIGO_INVALIDO',
+    JSON.stringify(forma),
+  );
+
+  // 4. Dígitos bien formados que no son el código de ninguna sesión abierta.
+  const erroneo = await resolverComo('authenticated', ALU_M7_OK, codigosM7.caducado);
+  check(
+    'seis dígitos que no son de ninguna sesión abierta → CODIGO_INVALIDO',
+    erroneo?.estado === 'CODIGO_INVALIDO',
+    JSON.stringify(erroneo),
+  );
+
+  // 5. El código es CORRECTO pero de una clase que no cursa. ALU_M6X no tiene
+  //    matrícula en esta sección, y es el caso que el alumno ve como «no estás
+  //    inscrito». El veredicto no devuelve el `seccionId`: no le sirve de nada.
+  const codigoAjeno = await resolverComo('authenticated', ALU_M7_SIN, codigosM7B.vigente);
+  check(
+    'código correcto de una sección ajena → NO_INSCRITO',
+    codigoAjeno?.estado === 'NO_INSCRITO' && codigoAjeno?.seccionId === undefined,
+    JSON.stringify(codigoAjeno),
+  );
+
+  // 6. El camino feliz: matriculado, sesión abierta, código vigente.
+  const resuelto = await resolverComo('authenticated', ALU_M7_OK, codigosM7B.vigente);
+  check(
+    'matriculado + sesión abierta + código vigente → OK con su sesionId',
+    resuelto?.estado === 'OK' && resuelto?.sesionId === SES_M7B,
+    JSON.stringify(resuelto),
+  );
+
+  // 7. Y el resolutor y la política tienen que coincidir: lo que el resolutor
+  //    declara marcable tiene que poder marcarse de verdad. Si divergieran, la
+  //    UI diría «listo» sobre una fila que nunca entró.
+  await marcarEn(SES_M7B)(ALU_M7_OK, ALU_M7_OK, codigosM7B.vigente);
+  const marcasM7B = (
+    await db.query(`select count(*)::int as n from public.attendance_marks where session_id = '${SES_M7B}'`)
+  ).rows[0].n;
+  check(
+    'lo que el resolutor da por bueno se marca de verdad (resolutor y RLS coinciden)',
+    marcasM7B === 1,
+    `filas: ${marcasM7B}`,
+  );
+
+  const yaMarcado = await resolverComo('authenticated', ALU_M7_OK, codigosM7B.vigente);
+  check(
+    'la segunda vez el veredicto es YA_MARCADO, con la sesión',
+    yaMarcado?.estado === 'YA_MARCADO' && yaMarcado?.sesionId === SES_M7B,
+    JSON.stringify(yaMarcado),
+  );
+
+  // 8. El resolutor no es un oráculo para `anon`, y tampoco lo es para un
+  //    usuario sin identidad: sin `auth.uid()` no hay nada que resolver.
+  const anonResuelve = await esperaError('anon no puede resolver códigos', () =>
+    como('anon', null, () =>
+      db.query(`select public.asistencia_resolver_codigo('${codigosM7B.vigente}')`),
+    ),
+  );
+  check(
+    'el rechazo de anon es de privilegios (42501)',
+    anonResuelve?.code === '42501',
+    `código ${anonResuelve?.code}`,
+  );
+
+  const sinIdentidad = await resolverComo('authenticated', null, codigosM7B.vigente);
+  check(
+    'sin auth.uid() el veredicto es SIN_SESION, no un OK por defecto',
+    sinIdentidad?.estado === 'SIN_SESION',
+    JSON.stringify(sinIdentidad),
+  );
+
   // ---------------------------------------------------------------- resumen
   console.log(
     `\n\x1b[1m${fallos.length === 0 ? '\x1b[32mTODO VERDE\x1b[0m' : '\x1b[31mHAY FALLOS\x1b[0m'}\x1b[0m ` +

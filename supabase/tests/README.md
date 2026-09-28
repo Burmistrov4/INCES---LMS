@@ -61,6 +61,15 @@ este README empieza a mentir — que es exactamente lo que le había pasado.
 | 20 | Módulo 6 | Aula Virtual: RLS, RPCs y el ciclo de calificación |
 | 21–22 | Planilla (M4) | Catálogo de inscripción y `datos_planilla`, y la guardia de escritura de la planilla |
 | 23 | HACER (M4) | Exportación: `v_exportacion_hacer` filtra por `ENROLLED`, aplana el catálogo y `anon` recibe `42501` |
+| 24 | Módulo 7 | Asistencia QR: el INSERT del alumno **ejercido de verdad** con un `authenticated` real (código vigente, caducado, no matriculado, en cola, sesión cerrada, doble marca), el UPDATE del docente que cierra la sesión, y los cinco veredictos del resolutor de código de D21 |
+
+> **La sección 24 es la que encontró dos fallos que llevaban desde el 2026-09-26.**
+> Hasta que se ejerció el camino **feliz** del INSERT del alumno, nadie había
+> ejecutado esa política: las 32 pruebas de M7 del backend usan repositorios
+> falsos, y las aserciones negativas de este mismo arnés daban verde **por el
+> motivo equivocado** —el `42501` de un permiso, no el de la política—, así que
+> no medían nada. Un verde que no mide es peor que un rojo, porque no se busca.
+> Ver `lecciones.md` y la migración `202609270001`.
 
 > **Nota sobre la numeración de las secciones.** Los títulos del script tienen
 > tres secciones numeradas **14** (`14. D12 cerrada…`, `14. Módulo 3…` y
