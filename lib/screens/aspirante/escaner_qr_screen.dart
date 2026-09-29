@@ -154,10 +154,12 @@ class AntirreboteDeLectura {
 /// `dart:io` rompería la compilación web, que es uno de los tres destinos.
 ///
 /// **En `flutter test` esto devuelve la plataforma anfitriona**, medido: el
-/// `flutter_test` de este proyecto no sobreescribe `debugDefaultTargetPlatformOverride`
+/// `flutter_test` de este proyecto no sobrescribe `debugDefaultTargetPlatformOverride`
 /// —sólo lo hace `TargetPlatformVariant`, que es opcional—, así que en el CI de
 /// Linux vale `TargetPlatform.linux` y el botón **no** aparece solo. Para
-/// ejercitarlo en una prueba hay que fijar el override a propósito.
+/// ejercitarlo en una prueba de widget se fija con
+/// `variant: TargetPlatformVariant.only(...)` y **no** con un `addTearDown`: el
+/// porqué medido está en `test/escaner_qr_test.dart`.
 bool get plataformaPuedeEscanearQr =>
     kIsWeb ||
     defaultTargetPlatform == TargetPlatform.android ||

@@ -30,7 +30,7 @@ import 'support/fake_asistencia_service.dart';
 ///    caso que parece válido y no lo es: un UUID suelto, sin los seis dígitos.
 ///
 /// **La trampa de plataforma, medida dos veces.** `flutter_test` **no**
-/// sobreescribe `debugDefaultTargetPlatformOverride` —sólo lo hace
+/// sobrescribe `debugDefaultTargetPlatformOverride` —sólo lo hace
 /// `TargetPlatformVariant`, que es opcional—, así que `defaultTargetPlatform`
 /// vale la plataforma anfitriona. En el CI de Linux eso es `TargetPlatform.linux`.
 ///
