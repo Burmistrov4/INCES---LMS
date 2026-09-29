@@ -43,9 +43,13 @@ dependencies:
   # y el canal WS actualiza el tablero sin polling.
   qr_flutter: ^4.1.0
   # Lector de QR: la segunda mitad de D21 (M7). Hasta ahora el alumno tecleaba los
-  # seis dígitos que ve en la pizarra; con esto puede apuntar y leerlos. El paquete
-  # soporta Android, iOS y Web —los tres destinos donde hay cámara—; en macOS,
-  # Windows y Linux el botón se oculta, porque no los cubre.
+  # seis dígitos que ve en la pizarra; con esto puede apuntar y leerlos.
+  #
+  # Plataformas, **medidas** en el `flutter.plugin.platforms` del propio paquete:
+  # `android`, `ios`, `macos` y `web`. O sea que Windows y Linux no están cubiertos
+  # (no existen ni sus carpetas), y **macOS sí lo está**. El botón se muestra sólo
+  # en Android, iOS y Web por **decisión de alcance**, no por falta de soporte: son
+  # los tres destinos institucionales. En macOS, Windows y Linux se oculta.
   #
   # **MLKit en su variante EMPAQUETADA, a propósito.** Es la que trae el modelo
   # dentro del APK (+3-10 MB) y funciona **sin red**; la ligera (~600 KB) lo

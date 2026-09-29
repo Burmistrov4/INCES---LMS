@@ -29,14 +29,26 @@ android {
         // versión**, así que confiar en él es confiar en que un día no baje.
         //
         // `maxOf` es **monótono**: garantiza >= 23 y **nunca baja** lo que diga
-        // Flutter. Si Flutter ya da 24, esto no hace nada; si diera 21, arregla el
-        // build. No hay caso en el que empeore nada, y por eso se escribe así en
+        // Flutter. No hay caso en el que empeore nada, y por eso se escribe así en
         // vez de elegir un número.
+        //
+        // **Medido, para que nadie lea esto como un arreglo de algo roto:** con
+        // Flutter 3.47.0 (el que fija el CI) `flutter.minSdkVersion` vale **24**
+        // —leído en `packages/flutter_tools/gradle/.../FlutterExtension.kt`—, así
+        // que hoy esta expresión **evalúa a 24 y no cambia nada**. Es una guardia
+        // para el día en que Flutter baje su suelo, no un fallo que estuviera
+        // rompiendo el build.
+        //
+        // Por el mismo archivo: `flutter.compileSdkVersion` vale **36**, que es
+        // exactamente el `compileSdk` que declara la librería del paquete (y sus
+        // `androidx.camera:1.6.1`). O sea que **tampoco hay que subir
+        // `compileSdk`**; queda dicho porque es lo primero que uno sospecha.
         //
         // **Importa más de lo que parece:** ningún flujo de CI compila Android
         // —`flutter_ci.yml` hace `pub get`, `analyze` y `test`; el de E2E compila
-        // *web*—, así que este fallo no saldría en verde ni en rojo: saldría la
-        // primera vez que alguien construya el APK a mano. Se deja atado aquí.
+        // *web*—, y en este equipo no hay JDK 17+ (el del PATH es un JRE 8), así
+        // que Gradle no puede correr: esto no saldría en verde ni en rojo, saldría
+        // la primera vez que alguien construya el APK a mano. Se deja atado aquí.
         minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
