@@ -258,6 +258,7 @@ y el chat siempre lee la ultima version.
 | `watch-context.ps1` | Opcion B: vigilante con debounce |
 | `install-git-hook.ps1` | Opcion A: instala/desinstala los hooks |
 | `hooks/post-commit` | Copia de referencia del hook |
+| `analizar-dart.mjs` | **Verificador de tipos de Dart** sin `dart.exe` (ver seccion 8) |
 | `out/` | Salida: contexto generado + `sync.log` + `watcher.log` |
 
 ## 7. Solucion de problemas
@@ -270,3 +271,56 @@ y el chat siempre lee la ultima version.
 | `sync.log` no aparece | El hook no se instalo; revisa que exista `.git/hooks/post-commit` |
 | Subidas muy frecuentes | Sube `-DebounceSeconds` en la Opcion B |
 | Archivo de contexto enorme | Reduce `$TextExtensions` o baja `$MaxFileSizeKB` |
+
+## 8. Verificador de tipos de Dart sin `dart.exe`
+
+`analizar-dart.mjs` **analiza el proyecto de verdad** (`lib/**` y `test/**`) y falla si hay
+errores o avisos, igual que `flutter analyze`. Existe porque en este equipo ese comando no
+arranca:
+
+```
+CreateFile failed 231 (Todas las instancias de canalizacion estan en uso)
+ProcessException: ... (at ../../runtime/bin/process_win.cc:744)
+Command: ...\dartaotruntime.exe ...\snapshots\analysis_server_aot.dart.snapshot
+```
+
+No es un fallo del analizador: **`dart.exe` no puede crear ningun proceso hijo** (construye la
+tuberia *nombrada* del hijo y el espacio de nombres de tuberias esta agotado). Medido: el mismo
+comando fuera del sandbox falla igual, asi que no es el sandbox ni se arregla limpiando
+`.dart_tool`.
+
+**La salida:** el servidor de analisis no necesita tuberia nombrada. Se lanza *directamente*
+con `dartaotruntime.exe` y se le habla su protocolo. Node si puede crear procesos aqui.
+
+```bash
+node devops/analizar-dart.mjs                 # todo lib/** y test/**
+node devops/analizar-dart.mjs . lib/algo.dart # solo unos archivos
+node devops/analizar-dart.mjs --help
+```
+
+Salida: una linea por diagnostico y un resumen. **Codigo 0 si esta limpio, 1 si hay errores o
+avisos** (el mismo liston que `flutter analyze`).
+
+Medido en este proyecto: **188 archivos en ~46 s**, sin errores ni avisos.
+
+**El SDK se descubre solo** (`FLUTTER_ROOT` → `where flutter` / `which flutter`). Si no lo
+encuentra: `--sdk <ruta>` o define `FLUTTER_ROOT`. Utilidades: `VERBOSO=1` para el stderr del
+servidor y `LOG_PROTOCOLO=<ruta>` para el trafico crudo de los dos sentidos.
+
+**Dos cosas que se midieron y no se adivinan** (estan en los comentarios del script):
+
+1. **El protocolo por defecto es `analyzer`, NO `lsp`.** Con LSP el servidor completa el
+   `initialize`, analiza 41 s y **no publica ni un diagnostico, ni vacio**, y el cliente se
+   cuelga para siempre.
+2. **`analyzer` es JSON delimitado por saltos de linea, SIN cabeceras `Content-Length`.**
+   Mandarlo con el formato de LSP hace que el servidor lea `Content-Length: 193` como si fuera
+   un mensaje y conteste `INVALID_REQUEST` con `id` vacio.
+
+**Ojo con el limite, que ya costo un CI rojo:** `dart format --output=none` comprueba
+**sintaxis, no tipos**. Un identificador inexistente lo atraviesa entero. Si el script no
+corre, no hay verificador de tipos en local — no lo sustituyas por el formateador creyendo que
+cubre lo mismo.
+
+**Si tocas el script, pruebale los dientes:** rompe algo a proposito (un identificador
+inexistente en un archivo temporal), comprueba que lo caza y sale con codigo 1, y borra el
+temporal. Un verificador que dice «limpio» a todo no vale nada.
