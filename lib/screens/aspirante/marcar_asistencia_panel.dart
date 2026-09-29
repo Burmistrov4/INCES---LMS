@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/result.dart';
 import '../../services/asistencia_service.dart';
 import '../../theme/inces_theme.dart';
+import 'escaner_qr_screen.dart';
 
 /// Marcaje de asistencia del estudiante (M7 · D21).
 ///
@@ -31,30 +32,61 @@ import '../../theme/inces_theme.dart';
 /// trae sólo seis dígitos, se manda sin sesión y la resuelve la base. Y si trae
 /// cualquier otra cosa, se dice qué se esperaba en vez de gastar una petición.
 ///
-/// **El hueco de la cámara ya está abierto.** `accionAdyacente` se pinta al lado
-/// del campo, dentro del mismo `Row`, con el campo en `Expanded`. Hoy es `null`
-/// —el campo ocupa el ancho entero— y el día que exista el botón «Escanear QR»
-/// no hay que tocar el layout: se pasa el botón y el campo cede el espacio. Es
-/// la diferencia entre dejar el sitio preparado y tener que rehacer la pantalla.
+/// **La cámara ya no es un hueco: está puesta, y con una sola regla de dónde.**
+/// `accionAdyacente` se pinta al lado del campo, dentro del mismo `Row`, con el
+/// campo en `Expanded`; si nadie lo pasa, el panel dibuja **su propio** botón
+/// cuando la plataforma tiene cámara (`plataformaPuedeEscanearQr`: Android, iOS y
+/// Web). En macOS, Windows y Linux no se dibuja nada y el campo recupera el ancho
+/// entero, que es exactamente como estaba antes de que existiera el escáner.
+/// `accionAdyacente` queda como **sustitución explícita** —la usan las pruebas
+/// para fijar el layout sin depender de la plataforma anfitriona—, no como el
+/// único camino.
+///
+/// **El escáner sólo rellena el campo; quien decide sigue siendo `_marcar()`.**
+/// Es lo que evita una segunda implementación del marcaje: el texto que devuelve
+/// la cámara entra por el mismo sitio que el que teclea el alumno, así que la vía
+/// del QR y la manual **no pueden divergir**. Esa costura ya estaba descrita y
+/// probada antes de que hubiera cámara —`asistencia_paneles_test.dart` inyecta el
+/// par con `enterText` «el mismo camino que usará la inyección del escáner»—, de
+/// modo que el cableado reutiliza un camino que ya estaba en verde.
 ///
 /// **La ventana de 15 segundos sigue siendo el único guardián serio** y por eso
 /// los mensajes de error empujan a mirar la pizarra otra vez en vez de invitar a
 /// reintentar lo mismo.
 class MarcarAsistenciaPanel extends StatefulWidget {
-  const MarcarAsistenciaPanel({super.key, this.servicio, this.accionAdyacente});
+  const MarcarAsistenciaPanel({
+    super.key,
+    this.servicio,
+    this.accionAdyacente,
+    this.abrirEscaner,
+  });
 
   /// Opcional, sólo para las pruebas: inyectar un servicio falso.
   final AsistenciaService? servicio;
 
-  /// El hueco del futuro botón «Escanear QR» (D21, segunda mitad).
+  /// Sustituye al botón «Escanear QR» que el panel dibuja por su cuenta.
   ///
-  /// `null` hoy. Va DENTRO del `Row` del campo, así que cuando llegue el lector
-  /// se pasa aquí y aparece a su derecha sin rehacer nada.
+  /// `null` por defecto, y entonces manda la plataforma. Se pasa cuando una
+  /// prueba quiere fijar el layout del `Row` con un widget conocido sin depender
+  /// de qué plataforma esté corriendo el test.
   final Widget? accionAdyacente;
+
+  /// Cómo se abre el escáner. `null` = la pantalla real ([EscanerQrScreen]).
+  ///
+  /// **Se inyecta porque una prueba de widgets no tiene cámara.** Abrir el
+  /// escáner de verdad dentro de una prueba montaría una vista previa que nunca
+  /// llega, y lo que hay que ejercitar no es la cámara —eso es del paquete y se
+  /// prueba en un dispositivo— sino **qué hace el panel con lo que lee**. Con
+  /// esta costura la prueba devuelve el mismo texto que devolvería la cámara y
+  /// recorre el camino completo: validar, partir en sesión y código, enviar.
+  final AbrirEscaner? abrirEscaner;
 
   @override
   State<MarcarAsistenciaPanel> createState() => _MarcarAsistenciaPanelState();
 }
+
+/// Abre el escáner y devuelve lo leído, o `null` si el alumno eligió escribir.
+typedef AbrirEscaner = Future<String?> Function(BuildContext context);
 
 /// El QR que el docente proyecta es `<uuid>:<6 dígitos>`. Esta parte aísla el
 /// par: sin UUID válido el cliente no tiene sesión; sin dígitos no tiene código.
@@ -169,6 +201,85 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
     });
   }
 
+  /// Lee un QR y lo trata **como si el alumno lo hubiera escrito**.
+  ///
+  /// No hay una segunda implementación del marcaje: el texto entra en el campo y
+  /// se llama a [_marcar], que es la función que ya elige entre las dos formas.
+  /// Así la vía de la cámara y la del teclado no pueden divergir.
+  ///
+  /// **Se escribe en el campo aunque el par del QR sea largo y feo de ver.**
+  /// Son 43 caracteres en un campo centrado y con `letterSpacing: 8`, así que se
+  /// ve mal durante el instante que tarda la petición. Se acepta a cambio de no
+  /// tener dos caminos de marcaje, y el caso feo de verdad —que la marca falle
+  /// porque el código caducó— no deja al alumno atrapado: lo que va a hacer es
+  /// volver a apuntar con la cámara, que sobrescribe el campo, no editarlo.
+  Future<void> _escanear() async {
+    final abrir = widget.abrirEscaner ?? _abrirEscanerPorDefecto;
+    final leido = await abrir(context);
+    if (!mounted || leido == null) return;
+
+    // El panel **no se fía de la costura.** Dentro del escáner el validador ya
+    // dijo que sí, pero `abrirEscaner` es inyectable —una prueba, o el día que
+    // haya otra implementación, pueden devolver cualquier cosa—, y mandar a la
+    // red algo que no es un par sería pedirle a la base un «no» lento por un
+    // fallo del cliente.
+    if (ParseQr.de(leido) == null) {
+      setState(() {
+        _error = 'Ese código no es un QR de asistencia del INCES.';
+      });
+      return;
+    }
+
+    _entrada.text = leido;
+    await _marcar();
+  }
+
+  /// Abre la pantalla del escáner y espera su veredicto.
+  ///
+  /// Se le pasa [_esCodigoDeAsistencia] como validador: la regla del panel sobre
+  /// qué es un código de asistencia, definida **una sola vez** y usada en los dos
+  /// sitios donde hace falta —aquí y en `_marcar`—. Si el escáner aceptara algo
+  /// que `_marcar` luego rechaza, el alumno leería un código y acto seguido un
+  /// error del panel.
+  Future<String?> _abrirEscanerPorDefecto(BuildContext context) {
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => EscanerQrScreen(validador: _esCodigoDeAsistencia),
+      ),
+    );
+  }
+
+  /// El par del QR y nada más.
+  ///
+  /// **No basta con «que tenga pinta de UUID»**: un UUID suelto, sin los seis
+  /// dígitos, no es un código de asistencia y el servidor no tendría código que
+  /// validar. La condición es la misma que abre la rama del QR en [_marcar], y
+  /// tiene que serlo — es la única forma de que el veredicto del escáner y el del
+  /// panel no se contradigan.
+  static bool _esCodigoDeAsistencia(String texto) => ParseQr.de(texto) != null;
+
+  /// El botón «Escanear QR» del panel, o `null` si aquí no hay cámara.
+  ///
+  /// **Sólo se dibuja en Android, iOS y Web** —la regla vive en
+  /// `plataformaPuedeEscanearQr`—. Fuera de ahí devuelve `null` y el campo
+  /// recupera el ancho entero: en macOS, Windows y Linux esta pantalla se ve
+  /// exactamente igual que antes de que existiera el escáner.
+  ///
+  /// **`IconButton` y no `FilledButton`, y no es estética.** El único
+  /// `FilledButton` de esta pantalla es el de «Marcar», y hay una prueba que lo
+  /// busca por tipo —`tester.widget<FilledButton>(find.byType(FilledButton))`,
+  /// `asistencia_paneles_test.dart:575`—: un segundo `FilledButton` la haría caer
+  /// por ambigüedad. Además es lo que el hueco pide: una acción secundaria pegada
+  /// al campo, que no compite con la principal.
+  Widget? _botonEscaner({required bool terminado}) {
+    if (!plataformaPuedeEscanearQr) return null;
+    return IconButton(
+      onPressed: _ocupado || terminado ? null : _escanear,
+      tooltip: 'Escanear el código QR de la pizarra',
+      icon: const Icon(Icons.qr_code_scanner),
+    );
+  }
+
   /// Un solo envío para las dos formas; la única diferencia es si va la sesión.
   Future<void> _enviar({String? sesionId, required String codigo}) async {
     setState(() {
@@ -220,6 +331,10 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
     final theme = Theme.of(context);
     final terminado = _marcada || _yaEstaba;
 
+    // La sustitución explícita manda; si nadie la pasó, decide la plataforma.
+    final accionAdyacente =
+        widget.accionAdyacente ?? _botonEscaner(terminado: terminado);
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -256,12 +371,12 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
               ),
               const SizedBox(height: 16),
 
-              // --- El campo, y el hueco del lector de QR ---------------------
-              //  `Expanded` en el campo y el hueco al lado: hoy el hueco es
-              //  `null` y el campo ocupa todo el ancho; el día que exista el
-              //  botón, aparece a la derecha y el campo cede el espacio solo.
-              //  Sin `Expanded` el `Row` reventaría al aparecer el botón, que es
-              //  la razón de dejarlo preparado en vez de añadirlo después.
+              // --- El campo, y el botón del escáner --------------------------
+              //  `Expanded` en el campo y la acción al lado. Sin `Expanded` el
+              //  `Row` reventaría en cuanto apareciera el botón, que es la razón
+              //  de haber dejado el hueco preparado antes de tener la cámara.
+              //  Hoy el botón aparece sólo en Android, iOS y Web; en el resto
+              //  `accionAdyacente` es `null` y el campo ocupa todo el ancho.
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -288,9 +403,9 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
                       onSubmitted: (_) => _marcar(),
                     ),
                   ),
-                  if (widget.accionAdyacente != null) ...[
+                  if (accionAdyacente != null) ...[
                     const SizedBox(width: 8),
-                    widget.accionAdyacente!,
+                    accionAdyacente,
                   ],
                 ],
               ),
