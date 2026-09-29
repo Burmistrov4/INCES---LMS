@@ -4,8 +4,9 @@
 > construido, lo que está verificado y lo que falta. Se actualiza al cerrar cada
 > fase. Si algo aquí contradice a otro archivo, manda este.
 >
-> **Última actualización:** 2026-09-28 · **El Módulo 7 no funcionaba, y se supo al
-> medirlo.** Auditar la deuda de M7 con la RLS **ejercida de verdad** —no leída—
+> **Última actualización:** 2026-09-28 · **El Módulo 7 no funcionaba, se supo al
+> medirlo, y ya está reparado, aplicado y comprobado en la nube.** Auditar la deuda
+> de M7 con la RLS **ejercida de verdad** —no leída—
 > encontró **tres defectos que llevaban desde el 2026-09-26 escondidos detrás de
 > verdes**:
 >
@@ -43,11 +44,17 @@
 > la pantalla muerta en D21; la prueba afirma que `maxLength` **es nulo**, para que el
 > recorte mudo no pueda volver por otra puerta.
 >
-> **⚠️ La migración `202609270001` NO está aplicada en la nube** — medido:
-> **31 aplicadas, 1 pendiente, 0 con deriva**. Hasta que se aplique, **marcar
-> asistencia sigue roto en producción** y el frontend nuevo apunta a un camino
-> muerto. Es un comando:
-> `SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs`
+> **✅ La migración `202609270001` YA ESTÁ APLICADA en la nube** — medido el
+> **2026-09-28**: **32 aplicadas, 0 pendientes, 0 con deriva**, y
+> `apply-migrations.mjs --check` no encontró nada que hacer. **Y no se dio por
+> buena por el «aplicada»:** se comprobó **ejerciendo la RLS** contra la nube real
+> con `supabase/probar-marca-nube.mjs` (**17 aserciones, 0 fallos**, dentro de una
+> transacción que termina en `rollback`, así que no dejó ni un dato). **Marcar
+> asistencia funciona en producción**: el INSERT del alumno inscrito con el código
+> vigente **entra** —el camino que llevaba muerto desde el 2026-09-26—, el
+> docente **cierra** su sesión afectando 1 fila (antes 0), el oráculo
+> `asistencia_codigo_vigente` **sigue denegando 42501** a `authenticated`, y los
+> cuatro veredictos del resolutor salen cada uno por su lado.
 >
 > **Y la suite E2E, que llevaba cinco corridas en rojo, quedó arreglada y en verde**
 > (`5e039ab`). Su causa no eran las etiquetas: **abría `/`, y `/` es la portada desde
@@ -113,9 +120,12 @@
 > **El repositorio y la nube estuvieron alineados hasta el 2026-09-27: 31
 > migraciones escritas, 31 aplicadas** (y **6 vistas escritas, 6 aplicadas**),
 > medido el **2026-09-26** con `apply-migrations.mjs --check` — **0 pendientes, 0
-> con deriva**. **Y ya no lo están: re-medido el 2026-09-28, hay 32 escritas y 31
-> aplicadas — `202609270001` está pendiente**, 0 con deriva. Es la reparación de
-> M7, y **sin ella marcar asistencia no funciona en la nube**. `202609250004` —la
+> con deriva**. **La divergencia duró un día y ya está cerrada: re-medido el
+> 2026-09-28, hay 32 escritas y 32 aplicadas — 0 pendientes, 0 con deriva.**
+> `202609270001`, la reparación de M7, **quedó aplicada el 2026-09-28** y con
+> ella **marcar asistencia funciona en la nube** (comprobado ejerciendo la RLS, no
+> leyendo el libro mayor: `supabase/probar-marca-nube.mjs`, 17/17).
+> `202609250004` —la
 > vista de exportación hacia HACER— quedó **aplicada el 2026-09-25**: el esquema se
 > reverificó contra la nube y una **sonda viva con JWT reales** (18/18) comprobó lo
 > que de verdad importaba —que un estudiante **no** pueda descargarse la nómina del
@@ -221,7 +231,8 @@
 | **Módulo 6 Aula Virtual (frontend)** | Aula del alumno + **Centro de Mando del Docente**: `crear_anuncio_panel`, `crear_tarea_panel`, `libro_calificaciones_panel` | ✅ **Construido y probado** (2026-09-22): **10 pruebas de widget** nuevas, con dobles estrictos. El bucle docente→alumno es demostrable: publicar → sembrar entregas → entregar → calificar → devolver |
 | **Módulo 6 Aula Virtual (bandera)** | `m6_aula_virtual` | ✅ **ENCENDIDO** por `202609220003` (2026-09-22), verificado por mutación. **Aplicado a la nube el 2026-09-22**; medido encendido el 2026-09-24 |
 | **Módulo 7 Asistencia QR (esquema)** | `attendance_sessions`, `attendance_marks`, la vista `v_attendance_sesiones`, 3 funciones y 5 políticas RLS | ✅ **Aplicado y verificado en la nube** (`202609260001`..`202609260004`, 2026-09-26). **Pero dos de esas políticas no funcionaban** — D27 y D28 —, y se supo el 2026-09-28 **ejerciendo la RLS**, no leyéndola |
-| **Módulo 7 Asistencia QR (reparación)** | `202609270001_asistencia_marca_y_cierre.sql`: `asistencia_puede_marcar()`, `asistencia_resolver_codigo()`, `alter policy` de la inserción del alumno y la política `UPDATE` que faltaba | ⚠️ **ESCRITA, PROBADA Y COMMITEADA — NO APLICADA EN LA NUBE.** Medido el 2026-09-28: **31 aplicadas, 1 pendiente, 0 con deriva**. Mientras no se aplique, **marcar asistencia sigue roto en producción**. Se aplica con `SUPABASE_ACCESS_TOKEN=sbp_xxx node supabase/apply-migrations.mjs` |
+| **Módulo 7 Asistencia QR (reparación)** | `202609270001_asistencia_marca_y_cierre.sql`: `asistencia_puede_marcar()`, `asistencia_resolver_codigo()`, `alter policy` de la inserción del alumno y la política `UPDATE` que faltaba | ✅ **APLICADA EN LA NUBE el 2026-09-28** (32 aplicadas, 0 pendientes, 0 con deriva) **y comprobada EJERCIENDO la RLS**, no leyendo el libro mayor: `supabase/probar-marca-nube.mjs` → **17 aserciones, 0 fallos**. El INSERT del alumno inscrito con el código vigente **entra**; el docente **cierra** su sesión afectando **1 fila** (antes 0); el oráculo `asistencia_codigo_vigente` **sigue dando 42501** a `authenticated`; los cuatro veredictos del resolutor salen cada uno por su lado. Todo dentro de una transacción que termina en `rollback`: **no dejó ni un dato** |
+| **Módulo 7 Asistencia QR (datos que dejó D28)** | `attendance_sessions` con `status = 'OPEN'` y más de 12 h | ⚠️ **7 sesiones siguen abiertas** del **2026-09-26**, y son la huella de D28: el botón «Cerrar» afectaba 0 filas, así que el docente pulsaba y no cerraba nada. **Medido el 2026-09-28.** **No hacen daño al alumno**: `asistencia_resolver_codigo` lleva una cota de 12 h y las ignora —comprobado sobre esas mismas 7 filas (`probar-marca-nube.mjs`: «el resolutor ignora 7 sesión(es) OPEN olvidada(s) de >12 h») —, y el alumno **no puede** calcular su código porque no tiene `SELECT` sobre `attendance_sessions`. **Queda una asimetría conocida:** `asistencia_puede_marcar` (la guardia de la política de INSERT) **no lleva la cota**, así que una sesión olvidada seguiría siendo marcable por quien pudiera computar su código —es decir, nadie sin el `qr_secret`—. Se deja escrito en vez de «arreglado por si acaso»: cerrarlas es un `update` de una línea y es una decisión sobre datos de producción, no un cambio de código |
 | **Módulo 7 Asistencia QR (backend)** | Las 4 rutas REST de `/api/v1/asistencia` y el canal WebSocket `GET /rt` | ✅ **Completo**. **Sin guardia de módulo a propósito**: ponérsela tal cual devolvería **403 al estudiante en `POST /marcar`**, que es quien marca — ver §3. **`POST /marcar` acepta dos formas desde D21**: el par `<uuid>:<6 dígitos>` (la cámara) y **sólo los seis dígitos**, que el servidor resuelve contra la sesión abierta. 9 pruebas nuevas; suite del backend **627/627** |
 | **Módulo 7 Asistencia QR (frontend)** | `asistencia_qr_panel` (tablero del docente, QR efímero y marcas en vivo) y `marcar_asistencia_panel` (el alumno marca), montados en sus dashboards | ✅ **Construido y con pruebas propias desde el 2026-09-27** (D18). `test/asistencia_paneles_test.dart` monta los dos paneles sobre un doble de `AsistenciaService` y ejerce los caminos que fallaban en silencio: abrir sesión, pintar el QR, ver llegar una marca por el canal, rehidratar las guardadas, cerrar, y los fallos. `test/asistencia_service_test.dart` fija la **paridad del código del QR** contra **13 vectores calculados por PostgreSQL** —comprobados uno a uno, idénticos— más `ParseQr` y los eventos del canal. **Verificado en CI:** `Flutter CI` #49 sobre `4eb123e`, `completed successfully`. **Y escribirlas encontró dos defectos reales** — **D21** y **D22** —, los dos resueltos el mismo día. **El 2026-09-28 se cerró D21 por la vía manual:** el alumno teclea **seis dígitos** y el servidor resuelve la sesión; el panel se reescribió para aceptar **las dos formas** (dígitos y par del QR) y **deja el hueco del lector de QR preparado** (`accionAdyacente`, dentro del mismo `Row`). **El campo perdió el `maxLength` a propósito** —un tope trunca en silencio, que es el mecanismo exacto que dejó la pantalla muerta— y una prueba afirma que sigue siendo `null` |
 | **Módulo 7 Asistencia QR (bandera)** | `m7_asistencia` | ✅ **ENCENDIDA** por `202609260002`, con `roles_permitidos = ['docente','admin']` |
@@ -233,8 +244,8 @@ verificadas el **2026-09-17**, las dos de M4 y `202609210001` el **2026-09-18**,
 las **cuatro últimas** (`202609210002`, `202609220001`, `202609220002`,
 `202609220003`) el **2026-09-22**. Entonces **no quedaba ninguna migración
 pendiente en la nube**: el libro mayor tenía las 20 del repositorio. (**Esa foto
-ya no vale**: el 2026-09-28 el libro mayor tiene **31 de las 32** del repositorio
-— ver la cabecera.)
+ya no vale**: el 2026-09-28 el libro mayor tiene **las 32 del repositorio** —no
+queda ninguna esperando— ver la cabecera.)
 
 > **Cómo se midieron estas cifras:** con `node supabase/tests/medir-conteos.mjs`
 > (migraciones, OpenAPI y módulos sembrados) y con los corredores
@@ -251,14 +262,14 @@ ya no vale**: el 2026-09-28 el libro mayor tiene **31 de las 32** del repositori
 | `npm run lint` (backend) | Sin errores |
 | `npm run build` (backend) | Compila sin errores |
 | Validador SQL contra PostgreSQL real (pglite) | **494 / 494** aserciones en verde — **medido el 2026-09-26**, y desde ese día **corre en CI** (`Supabase CI`). Estuvo **ROJO unas horas** ese mismo día: la autocomprobación de `202609260004` no era hermética y abortaba la migración entera en una base limpia. **La última medición verde anterior era 492 / 492 el 2026-09-25**, y las dos de más son las que se añadieron al arreglarlo — la lista blanca de `m5_archivos` y la de `m7_asistencia`. Ver **D20**. Aplica **todas** las migraciones del repositorio en orden, así que es el que ejerce las de M6, el catálogo de M4, D14, la regla de los campos condicionales **y `v_exportacion_hacer`**. **De 468 a 492 son +24**: §22 monta el escenario con el **camino real** (`solicitar_inscripcion` y el alta por `auth.users` → `handle_new_user`), comprueba que la vista filtra por `ENROLLED` —y que **el de la cola no entra en la nómina**—, que aplana los cinco tipos de campo del catálogo, que una clave ausente sale `NULL` y **no** la cadena `"null"`, que `planilla_texto()` es `IMMUTABLE` y **no** `security definer`, y la RLS: **un alumno ve exactamente su fila**, el de la cola ve **cero** y `anon` recibe **42501**. **De 463 a 468 fueron +5** (la trampa «obligatorio + condicional», con **control negativo**, para que «no exigir nunca» tampoco pase). Antes, de 466 a 463: §14 pasó de seis aserciones sobre la vista a una **inversa** y §7 ganó una, un neto de **−4** que **no cuadraba al aserción** con el cálculo; se anotó **lo medido**, que es lo reproducible |
-| **Migraciones en el repositorio** | **31** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609260005_m5_permisos_roles.sql` |
-| **Migraciones en la nube** | **31** registradas en `schema_migrations` — **recontadas el 2026-09-26, no arrastradas**. El 2026-09-25 el libro cerró en **26 versiones**; las **cuatro** de M7 (`202609260001`..`202609260004`, la asistencia QR) más **`202609260005`** —la corrección de permisos de M5— lo llevaron a **31**. `apply-migrations.mjs --check` del 2026-09-26: **0 pendientes, 0 con deriva**. **Repositorio y nube coinciden.** `202609260004` se **re-baselinó** ese mismo día con `--adoptar` —sólo cambió su bloque `do $$`, no su efecto— tras comprobar que había **0 pendientes**; ver **D20** |
+| **Migraciones en el repositorio** | **32** archivos en `supabase/migrations/`, de `202609100001_init.sql` a `202609270001_asistencia_marca_y_cierre.sql` |
+| **Migraciones en la nube** | **32** registradas en `schema_migrations` — **recontadas el 2026-09-28, no arrastradas**. El 2026-09-25 el libro cerró en **26 versiones**; las **cuatro** de M7 (`202609260001`..`202609260004`, la asistencia QR) más **`202609260005`** —la corrección de permisos de M5— lo llevaron a **31**, y **`202609270001`** —la reparación de M7— a **32**. `apply-migrations.mjs --check` del 2026-09-28: **0 pendientes, 0 con deriva**. **Repositorio y nube coinciden: 32 escritas, 32 aplicadas.** `202609260004` se **re-baselinó** el 2026-09-26 con `--adoptar` —sólo cambió su bloque `do $$`, no su efecto— tras comprobar que había **0 pendientes**; ver **D20** |
 | **Sonda en vivo de la retirada de `cursos`** | ✅ 2026-09-25: la vista **no existe** (ni tabla ni vista); un **NOMBRE** de curso se rechaza con **`23503`**; un uuid real **resuelve y coincide**. Antes de aplicar se comprobó que **nada dependía de la vista**: 0 dependencias en `pg_depend` y 0 funciones que la nombraran. Sondas en `C:/tmp/d14/` (fuera del repo) |
 | **Sonda en vivo de la trampa condicional** | ✅ 2026-09-25: con la trampa **armada a mano** (un campo condicional marcado obligatorio), la planilla **pasa** si la condición no se cumple y se **rechaza con `23514` nombrando ese campo** si se cumple. El catálogo quedó restaurado. `C:/tmp/d14/sonda-trampa.mjs` (fuera del repo) |
-| **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-26**, ya con el **bloque 10 (M7)**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4, la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) y, desde el 2026-09-26, las dos tablas de M7, sus cinco políticas, sus tres funciones y su vista. **Y esa misma ejecución encontró 3 fallos que eran del script, no de la base**: su lista de tablas esperadas, su total de módulos (**10**) y su lista de encendidos seguían congelados en M6, así que marcaba en rojo un esquema correcto. Corregido el script — y anotado, porque una red de seguridad desactualizada grita lobo y enseña a ignorarla |
-| **Libro mayor de migraciones (D10)** | **31** versiones aplicadas con checksum SHA-256 válido, **y 1 esperando**: `202609270001`, la reparación de M7 (D27/D28). Re-medido el **2026-09-28** con `apply-migrations.mjs --check` → **1 pendiente, 0 con deriva**. El «ya no queda ninguna esperando» que decía este renglón dejó de ser cierto el 2026-09-27, el día que se escribió la migración |
+| **Verificación independiente del esquema en la nube** | **Sin fallos** (`supabase/verificar-esquema.mjs`) — **re-ejecutado el 2026-09-28**, ya con el **bloque 11 (la reparación de M7)**. El script **ya no imprime un total a propósito** (el «17» del encabezado quedó obsoleto y se quitó): la cifra reproducible es «0 comprobaciones fallidas», no un cociente que nadie vuelve a contar. Cubre el catálogo de M4, la guardia de escritura de la planilla (`validar_planilla_guardada` + trigger `aspirantes_validar_planilla`) y, desde el 2026-09-26, las dos tablas de M7, sus políticas, sus funciones y su vista. **El bloque 10 daba verde con la política rota**: comprobaba que existía una política con el nombre correcto, y el nombre era correcto — lo que estaba roto era la **expresión**. El **bloque 11** mide ahora la expresión (`¿llama a `asistencia_puede_marcar`? ¿dejó de llamar a la revocada? ¿`student_id = auth.uid()`?`) y los `EXECUTE` reales (`asistencia_puede_marcar`: `authenticated` SÍ, `anon` NO; `asistencia_codigo_vigente`: **sigue revocada**), que es la pregunta que el nombre no responde. **Y una ejecución anterior encontró 3 fallos que eran del script, no de la base**: su lista de tablas esperadas, su total de módulos (**10**) y su lista de encendidos seguían congelados en M6, así que marcaba en rojo un esquema correcto. Corregido el script — y anotado, porque una red de seguridad desactualizada grita lobo y enseña a ignorarla |
+| **Libro mayor de migraciones (D10)** | **32** versiones aplicadas con checksum SHA-256 válido, **ninguna esperando**. Re-medido el **2026-09-28** con `apply-migrations.mjs --check` → **0 pendientes, 0 con deriva**. `202609270001` —la reparación de M7 (D27/D28)— quedó aplicada ese día; el repositorio y la nube **vuelven a coincidir**, 32 escritas y 32 aplicadas |
 | **Sonda viva de `v_exportacion_hacer`** | ✅ 2026-09-25: **18/18**. Sección y tres usuarios **temporales** (admin + dos estudiantes), **JWT reales** por *password grant*, y la vista leída **por PostgREST** —el camino del cliente Flutter, no la `service_role`, que saltaría la RLS y aprobaría cualquier cosa—. El admin ve **4** filas; el matriculado **1** (la suya); el ajeno **0**, también sin filtro; `anon` recibe **401 `42501`**. El `left join` a `aspirantes` conserva la fila sin ficha, y la planilla vacía sale `NULL` y **no** `"null"`. Purga verificada: **0 restos**. `C:/tmp/sonda-exportar/` (fuera del repo) |
-| **Migraciones de M2, M3, M4, M5, M6 y M7 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25; **las cuatro de M7 —asistencia QR— y la corrección de permisos de M5** el 2026-09-26) — **24 tablas** + **6 vistas** aplicadas, con RLS activo en las 24 (ver §3). **Falta una: `202609270001`**, la reparación de M7 (D27/D28), escrita el 2026-09-27 y **todavía sin aplicar en la nube** |
+| **Migraciones de M2, M3, M4, M5, M6 y M7 en la nube** | ✅ **Aplicadas todas** (M2/M3 el 2026-09-17; M4 y M5 el 2026-09-18; las cuatro de M5/M6 el 2026-09-22; el catálogo de M4 **y la guardia de escritura de la planilla** el 2026-09-24; **D14 (las dos fases), la regla de los campos condicionales y la vista de exportación hacia HACER** el 2026-09-25; **las cuatro de M7 —asistencia QR— y la corrección de permisos de M5** el 2026-09-26; **la reparación de M7 —D27/D28/D29—** el **2026-09-28**) — **24 tablas** + **6 vistas** aplicadas, con RLS activo en las 24 (ver §3). **No falta ninguna: 32 escritas, 32 aplicadas** |
 | **Migración de M4 en la nube** | ✅ **Aplicadas dos** el 2026-09-18 — `202609190001_mod4_inscripciones.sql` (esquema) y `202609200001_mod4_reglas_ajuste.sql` (reglas institucionales) |
 | **Migración de M5 en la nube** | ✅ **Las dos aplicadas.** `202609210001_mod5_archivos.sql` — `files_metadata` + 3 RPC `security definer` + 2 parámetros — y `202609210002_mod5_habilitar_modulo.sql`, que enciende la bandera. (Este renglón decía «pendiente de aplicar» de la segunda; el libro mayor de **31 versiones** lo desmiente: `verificar-esquema.mjs` da `m5_archivos` como habilitado.) |
 | **Frontera de escritura de M4, probada como rol real** | ✅ `INSERT`/`UPDATE`/`DELETE` directos sobre `enrollments` → **42501** (también para un admin); `anon` no escribe **ni lee**; el estudiante sí lee lo suyo |
@@ -359,26 +370,28 @@ ya no vale**: el 2026-09-28 el libro mayor tiene **31 de las 32** del repositori
 
 ### Lo que está desplegado
 
-**La base de datos ya está aplicada y verificada.** Las **treinta y una**
-migraciones que había el 2026-09-26 se aplicaron contra el proyecto real
+**La base de datos ya está aplicada y verificada.** Las **treinta y dos**
+migraciones que hay el 2026-09-28 se aplicaron contra el proyecto real
 `twdppwnxlnmxkiejbrei` y el resultado se
 comprobó después, consultando el catálogo de PostgreSQL por separado:
 **24 tablas** con RLS activo **en las 24**, **6 vistas** (las tres del Módulo 3,
 `v_ocupacion_secciones` de M4, `v_exportacion_hacer` y `v_attendance_sesiones` de
-M7), **56 funciones**, **29 triggers** y **51 políticas RLS**, más 11 módulos
+M7), **58 funciones**, **29 triggers** y **52 políticas RLS**, más 11 módulos
 sembrados, **11 parámetros**, 1 lapso (`SA26-2`) y los 5 cursos — que desde la
 migración de D12 viven dentro de `programs` como `CURSO_LIBRE`. **Recontado el
-2026-09-26** contra el catálogo de la nube, después de aplicar `202609260005`. El
-2026-09-25 el mismo recuento daba **26 · 22 · 5 · 53 · 29 · 46**, con
-`supabase/contar-catalogo.mjs`.
+2026-09-28** contra el catálogo de la nube, después de aplicar `202609270001`, con
+`supabase/contar-catalogo.mjs`. La cifra anterior era del 2026-09-26
+(**31 · 24 · 6 · 56 · 29 · 51**) y el 2026-09-25 el mismo recuento daba
+**26 · 22 · 5 · 53 · 29 · 46**.
 
-> **Ese recuento es el de la NUBE y sigue valiendo, pero el repositorio ya tiene
-> 32 archivos de migración.** `202609270001` no está aplicada, así que sus **+2
-> funciones** (`asistencia_puede_marcar` y `asistencia_resolver_codigo`) y **+1
-> política** (`attendance_sessions_docente_update`) **todavía no están en el
-> catálogo de la nube**: al aplicarla, las cifras suben a **58 funciones** y **52
-> políticas RLS**. Se dice aquí para que el recuento posterior no parezca una
-> deriva.
+> **El salto de 56 a 58 funciones y de 51 a 52 políticas es exactamente lo que
+> `202609270001` aporta** (+2 funciones: `asistencia_puede_marcar` y
+> `asistencia_resolver_codigo`; +1 política: `attendance_sessions_docente_update`)
+> y **la aritmética cierra**, así que no hay nada colado sin documentar. Se
+> deja escrito el pronóstico junto a la medición porque **la medición confirma el
+> pronóstico**: la vez anterior este documento decía «al aplicarla, las cifras
+> suben a 58 y 52» y eso es justo lo que se contó después.
+
 
 > **La aritmética de M7 también cierra al dígito.** Las cuatro migraciones de la
 > asistencia QR (`202609260001`..`202609260004`) añaden **+2 tablas**
@@ -390,6 +403,13 @@ migración de D12 viven dentro de `programs` como `CURSO_LIBRE`. **Recontado el
 > y `202609260004` sólo **sustituyen el cuerpo** de funciones que ya existían, y
 > `202609260005` no crea objetos. De ahí **26 · 22 · 5 · 53 · 29 · 46 → 31 · 24 · 6 ·
 > 56 · 29 · 51**, recontado contra el catálogo y **no restado**.
+>
+> **El tramo siguiente, medido el 2026-09-28:** `202609270001` aporta **+2
+> funciones** (`asistencia_puede_marcar`, `asistencia_resolver_codigo`) y **+1
+> política** (`attendance_sessions_docente_update`), y **ningún objeto nuevo**:
+> cambia la **expresión** de una política existente. De ahí
+> **31 · 24 · 6 · 56 · 29 · 51 → 32 · 24 · 6 · 58 · 29 · 52**. Se escribió aquí
+> como pronóstico antes de aplicar y la medición lo confirmó.
 
 > **`202609250004` quedó aplicada el 2026-09-25, y la predicción se cumplió al
 > dígito.** Antes de aplicarla se escribió aquí la aritmética esperada —**+1 vista y

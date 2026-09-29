@@ -923,10 +923,14 @@ comprobar(
   colsMarcas.join(', '),
 );
 
-// Las cinco políticas por su NOMBRE. La que importa es la del estudiante: es la
-// que llama a `asistencia_codigo_vigente`, o sea la barrera anti-trampas. Si
-// desapareciera, la tabla seguiría con RLS y el INSERT seguiría fallando por otra
-// razón —o, peor, pasando— y nada lo diría.
+// Las cinco políticas por su NOMBRE. **El nombre no basta, y eso se aprendió a
+// golpes (D27, 2026-09-28):** este bloque daba verde con la política del alumno
+// apuntando a una función que `authenticated` **no podía ejecutar**, porque el
+// nombre era correcto. Lo que decide está en la EXPRESIÓN de la política y en
+// los permisos del llamante, y eso lo comprueba el bloque 11.
+//
+// Se conserva tal cual —un nombre ausente sigue siendo un fallo— pero ya no es
+// la comprobación fuerte: es la barata.
 const politicasM7 = await consultar(
   'select tablename, policyname from pg_policies ' +
     "where schemaname = 'public' and tablename like 'attendance%' order by policyname;",
@@ -986,6 +990,103 @@ comprobar(
   vistaAsistencia
     ? `relkind = ${vistaAsistencia.relkind}, opciones = ${opcionesAsistencia || 'NINGUNA'}`
     : 'AUSENTE',
+);
+
+console.log('\n  11. M7: la reparación — la política alcanzable, el cierre y el resolutor\n');
+
+// Este bloque nace de D27 y D28 (2026-09-28). El bloque 10 daba verde con las
+// dos políticas **rotas**: comprobaba sus nombres, y los nombres eran correctos.
+//
+// La comprobación que importa es la de permisos. `authenticated` tiene que poder
+// EJECUTAR la función que la política llama: PostgreSQL comprueba el `EXECUTE`
+// contra el rol que CONSULTA también dentro de una expresión de política, así
+// que un `revoke` de más deja la política **inalcanzable** y el INSERT del alumno
+// muere con `42501` antes de decidir nada. Es exactamente lo que pasaba.
+const funcionesReparacion = await consultar(
+  'select p.proname, p.prosecdef, p.provolatile, ' +
+    "has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth_puede, " +
+    "has_function_privilege('anon', p.oid, 'EXECUTE') as anon_puede " +
+    'from pg_proc p join pg_namespace n on n.oid = p.pronamespace ' +
+    "where n.nspname = 'public' and p.proname in " +
+    "('asistencia_puede_marcar', 'asistencia_resolver_codigo', 'asistencia_codigo_vigente') " +
+    'order by p.proname;',
+);
+const rep = Object.fromEntries(funcionesReparacion.map((f) => [f.proname, f]));
+
+comprobar(
+  'asistencia_puede_marcar existe, es security DEFINER y stable',
+  rep.asistencia_puede_marcar?.prosecdef === true &&
+    rep.asistencia_puede_marcar?.provolatile === 's',
+  JSON.stringify(rep.asistencia_puede_marcar ?? 'AUSENTE'),
+);
+comprobar(
+  'asistencia_puede_marcar: authenticated SÍ la ejecuta, anon NO',
+  rep.asistencia_puede_marcar?.auth_puede === true &&
+    rep.asistencia_puede_marcar?.anon_puede === false,
+  JSON.stringify(rep.asistencia_puede_marcar ?? 'AUSENTE'),
+);
+comprobar(
+  'asistencia_resolver_codigo existe, es security DEFINER y stable',
+  rep.asistencia_resolver_codigo?.prosecdef === true &&
+    rep.asistencia_resolver_codigo?.provolatile === 's',
+  JSON.stringify(rep.asistencia_resolver_codigo ?? 'AUSENTE'),
+);
+comprobar(
+  'asistencia_resolver_codigo: authenticated SÍ la ejecuta, anon NO',
+  rep.asistencia_resolver_codigo?.auth_puede === true &&
+    rep.asistencia_resolver_codigo?.anon_puede === false,
+  JSON.stringify(rep.asistencia_resolver_codigo ?? 'AUSENTE'),
+);
+// Y el oráculo sigue cerrado. Si esta comprobación se pusiera verde al revés
+// —conceder `EXECUTE` a `authenticated` «para que la política funcione»—, el
+// código de seis dígitos quedaría adivinable por fuerza bruta. Es la tentación
+// exacta que la reparación evitó, así que se vigila.
+comprobar(
+  'asistencia_codigo_vigente SIGUE revocada para authenticated (es el oráculo)',
+  rep.asistencia_codigo_vigente?.auth_puede === false &&
+    rep.asistencia_codigo_vigente?.anon_puede === false,
+  JSON.stringify(rep.asistencia_codigo_vigente ?? 'AUSENTE'),
+);
+
+// La política, por su EXPRESIÓN. La primera es la que cierra D27: si volviera a
+// llamar a la función revocada, el nombre seguiría siendo el mismo y el INSERT
+// del alumno volvería a morir con 42501.
+const politicaAlumno = await consultar(
+  "select with_check from pg_policies where schemaname = 'public' " +
+    "and tablename = 'attendance_marks' " +
+    "and policyname = 'attendance_marks_estudiante_insert';",
+);
+const exprAlumno = politicaAlumno[0]?.with_check ?? '';
+comprobar(
+  'la política del alumno llama a asistencia_puede_marcar',
+  exprAlumno.includes('asistencia_puede_marcar'),
+  exprAlumno || 'AUSENTE',
+);
+comprobar(
+  'la política del alumno NO llama a la función revocada',
+  !exprAlumno.includes('asistencia_codigo_vigente('),
+  exprAlumno || 'AUSENTE',
+);
+comprobar(
+  'la política del alumno sigue exigiendo student_id = auth.uid()',
+  exprAlumno.includes('student_id = auth.uid()'),
+  exprAlumno || 'AUSENTE',
+);
+
+// D28: sin esta política el botón «Cerrar» del docente afectaba 0 filas, y el
+// síntoma —«0 filas»— era idéntico al de «no es tuya», así que el backend lo
+// traducía a un 403 de propiedad. Se exige el `with_check` porque sin él el
+// docente podría mudar su sesión a una sección que no dicta y desde ahí leer las
+// marcas de esa otra sección.
+const politicaCierre = await consultar(
+  "select cmd, with_check from pg_policies where schemaname = 'public' " +
+    "and tablename = 'attendance_sessions' " +
+    "and policyname = 'attendance_sessions_docente_update';",
+);
+comprobar(
+  'existe attendance_sessions_docente_update, es UPDATE y lleva with_check',
+  politicaCierre[0]?.cmd === 'UPDATE' && Boolean(politicaCierre[0]?.with_check),
+  JSON.stringify(politicaCierre[0] ?? 'AUSENTE'),
 );
 
 console.log(
