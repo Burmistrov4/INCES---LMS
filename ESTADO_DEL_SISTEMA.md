@@ -62,7 +62,13 @@
 > (`b624628`): hasta entonces su única anotación era `Process completed with exit code
 > 1`, y el diagnóstico que sí se leía —«no hay ningún campo con la etiqueta …»— era
 > **falso**. Medido en local contra los servicios reales: **1 failed antes, 10/10 en
-> verde después**.
+> verde después**. **Y la corrida programada del 2026-09-28 (`#35`, cron, sobre
+> `ff05ccb`) salió `Success`… con `1 flaky`**: `export_csv.spec.ts:83` falló una
+> vez y el **reintento** (`retries: CI ? 1 : 0`) la salvó. La causa está en el
+> **login**, no en la descarga: `escribirEn` afirma que el `<input>` refleja lo
+> tecleado y Flutter desmonta el campo al enfocar, así que se pierden pulsaciones.
+> **Un verde producido por un reintento mide el reintento, no el código** — queda
+> declarado con su evidencia, no celebrado. → `temas/e2e.md`.
 >
 > **Lo anterior, 2026-09-27:** **Módulo 7 (Asistencia QR en vivo)
 > construido y desplegado**, y **la bandera de módulo ya no es decorativa en M2, M3
