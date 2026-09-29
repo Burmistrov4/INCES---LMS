@@ -1,4 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Cámara (M7 · D21, segunda mitad): leer el QR de asistencia que el docente
+         proyecta en el aula. La pide el propio sistema al abrir el escáner, no al
+         arrancar la app: quien no escanee nunca no ve el diálogo. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- `required="false"` NO es un descuido: es lo que evita un autogol silencioso.
+         Declarar CAMERA hace que Android asuma `android.hardware.camera` como
+         REQUERIDO, y Google Play entonces **oculta la app** a todo dispositivo sin
+         cámara —Chromebooks y buena parte de las tablets—. Un LMS institucional no
+         puede excluir a nadie por eso: sin cámara se sigue marcando con los seis
+         dígitos, que es el camino que ya funciona y que el escáner no sustituye.
+         `autofocus` tampoco se exige: hay cámaras fijas que enfocan solas, y
+         exigirlo recortaría la lista de dispositivos otra vez. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
     <application
         android:label="inces_lms_app"
         android:name="${applicationName}"

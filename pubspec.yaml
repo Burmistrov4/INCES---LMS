@@ -42,6 +42,22 @@ dependencies:
   # Asistencia concurrente (M7). El docente proyecta un QR que caduca cada 15 s
   # y el canal WS actualiza el tablero sin polling.
   qr_flutter: ^4.1.0
+  # Lector de QR: la segunda mitad de D21 (M7). Hasta ahora el alumno tecleaba los
+  # seis dígitos que ve en la pizarra; con esto puede apuntar y leerlos. El paquete
+  # soporta Android, iOS y Web —los tres destinos donde hay cámara—; en macOS,
+  # Windows y Linux el botón se oculta, porque no los cubre.
+  #
+  # **MLKit en su variante EMPAQUETADA, a propósito.** Es la que trae el modelo
+  # dentro del APK (+3-10 MB) y funciona **sin red**; la ligera (~600 KB) lo
+  # descarga la primera vez desde Google Play Services. En el contexto del INCES
+  # —con conectividad irregular en el aula— que el escáner funcione sin conexión y
+  # sin latencia vale esos megas: la variante ligera fallaría justo el día que la
+  # red no va, que es cuando más hace falta.
+  #
+  # La decisión se **declara** en `android/gradle.properties`
+  # (`dev.steenbakker.mobile_scanner.useUnbundled=false`) en vez de confiar en el
+  # valor por defecto del paquete. Aquí sólo queda el registro de *por qué*.
+  mobile_scanner: ^7.4.2
   web_socket_channel: ^3.0.1
   crypto: ^3.0.3
   # API del navegador (DOM) para elegir archivos y abrir descargas — M5, Capa 7.

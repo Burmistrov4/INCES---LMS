@@ -19,7 +19,25 @@ android {
         applicationId = "com.inces.inces_lms_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // `maxOf(..., 23)` y no `23` a secas, ni `flutter.minSdkVersion` a secas.
+        //
+        // El paquete `mobile_scanner` declara `minSdk = 23` en su librería de
+        // Android (medido en su `android/build.gradle.kts`, no supuesto). Si la
+        // app declarara menos, el *manifest merger* aborta con
+        // «uses-sdk:minSdkVersion N cannot be smaller than version 23 declared in
+        // library». Y `flutter.minSdkVersion` lo fija Flutter y **cambia con la
+        // versión**, así que confiar en él es confiar en que un día no baje.
+        //
+        // `maxOf` es **monótono**: garantiza >= 23 y **nunca baja** lo que diga
+        // Flutter. Si Flutter ya da 24, esto no hace nada; si diera 21, arregla el
+        // build. No hay caso en el que empeore nada, y por eso se escribe así en
+        // vez de elegir un número.
+        //
+        // **Importa más de lo que parece:** ningún flujo de CI compila Android
+        // —`flutter_ci.yml` hace `pub get`, `analyze` y `test`; el de E2E compila
+        // *web*—, así que este fallo no saldría en verde ni en rojo: saldría la
+        // primera vez que alguien construya el APK a mano. Se deja atado aquí.
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
