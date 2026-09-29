@@ -297,6 +297,23 @@ void main() {
       expect(antirrebote.aceptar(), isFalse);
     });
 
+    test('dice si ya se resolvió, y sólo se marca por `aceptar`', () {
+      // Este `getter` existe por un fallo real: `_alFallar` preguntaba por un campo
+      // que ya no existía y el CI se puso rojo con `undefined_identifier`. La
+      // prueba fija las dos mitades del contrato —se puede consultar antes y
+      // después de aceptar, y el único camino para marcarlo es `aceptar`—, que es
+      // lo que hace que el aviso de error no pueda pintarse encima de una lectura
+      // que ya salió bien.
+      final antirrebote = AntirreboteDeLectura();
+
+      expect(antirrebote.resuelto, isFalse);
+      expect(antirrebote.aceptar(), isTrue);
+      expect(antirrebote.resuelto, isTrue);
+      // Ya resuelto, `aceptar` no vuelve a conceder.
+      expect(antirrebote.aceptar(), isFalse);
+      expect(antirrebote.resuelto, isTrue);
+    });
+
     test('dos antirrebotes distintos no se contaminan', () {
       // Cada pantalla que se abre tiene el suyo: si el estado fuera global, cerrar
       // el escáner y volver a abrirlo dejaría el segundo mudo, y el alumno vería

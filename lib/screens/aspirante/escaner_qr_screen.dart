@@ -124,6 +124,15 @@ String? textoDeLaCaptura(BarcodeCapture captura) {
 class AntirreboteDeLectura {
   bool _resuelto = false;
 
+  /// ¿Ya se aceptó una lectura?
+  ///
+  /// Es de sólo lectura y **a propósito**: quien pregunta «¿ya está resuelto?» no
+  /// puede marcarlo como resuelto de paso. Y existe en vez de un `bool` aparte en
+  /// el `State` porque dos banderas que dicen lo mismo acaban diciendo cosas
+  /// distintas —la de `_alFallar` se olvidaría de actualizarse y un error tardío
+  /// pintaría un aviso encima de una lectura que ya salió bien—.
+  bool get resuelto => _resuelto;
+
   /// Registra una lectura: `true` la primera vez, `false` en todas las demás.
   bool aceptar() {
     if (_resuelto) return false;
@@ -227,7 +236,9 @@ class _EscanerQrScreenState extends State<EscanerQrScreen> {
   }
 
   void _alFallar(Object error, StackTrace pila) {
-    if (_resuelto) return;
+    // Si ya se aceptó una lectura, la pantalla está de salida: un error que llegue
+    // en ese instante no puede pintar un aviso sobre una lectura que sí sirvió.
+    if (_antirrebote.resuelto) return;
     _avisar(_mensajeDe(error));
   }
 
