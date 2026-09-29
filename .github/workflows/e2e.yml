@@ -42,6 +42,16 @@ on:
       - 'lib/**'
       - 'backend/**'
       - '.github/workflows/e2e.yml'
+      # `pubspec.yaml` y `pubspec.lock` estaban FUERA, y era un agujero medido:
+      # este flujo es el ÚNICO que compila el frontend (`flutter build web`), y
+      # `flutter_ci.yml` sólo hace `pub get`, `analyze` y `test`. O sea que un
+      # cambio de dependencias que rompiera el build web —una versión que no
+      # compila para web, un plugin sin implementación web— no disparaba nada y
+      # se descubría tarde, cuando alguien tocara `lib/` por otro motivo.
+      # Añadir una dependencia ES un cambio que puede romper el build: se paga
+      # una corrida de más y se compra que el build web se mire siempre.
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
 
 concurrency:
   group: e2e-${{ github.ref }}
