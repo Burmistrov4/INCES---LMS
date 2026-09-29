@@ -144,6 +144,29 @@ jobs:
       - name: Compilar el frontend
         run: flutter build web --dart-define-from-file=.env.json
 
+      # Este flujo es el ÚNICO que compila el frontend, y hasta ahora el bundle
+      # moría con el runner. Eso dejaba sin salida al caso que más lo necesita:
+      # en el equipo de desarrollo `flutter build web` **no arranca**
+      # (`CreateFile failed 231`, el VM de Dart no puede crear la tubería de su
+      # hijo), así que el `build/web` local se queda congelado en la última vez
+      # que alguien pudo compilarlo — y una prueba de navegador contra un bundle
+      # viejo mide código que ya no existe. Publicarlo convierte a CI en la
+      # fuente de un bundle fresco.
+      #
+      # Se sube el MISMO directorio que consume la suite (`E2E_WEB_DIR:
+      # ../build/web`), así que lo que se descarga es exactamente lo que se
+      # acaba de probar, no una reconstrucción parecida.
+      #
+      # Sin `if: always()` a propósito: si la compilación falla, `build/web`
+      # puede quedar a medias y publicar un bundle incompleto es peor que no
+      # publicar nada — quien lo descargue creería que mide el código actual.
+      - name: Publicar el bundle web
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle
+          path: build/web/
+          retention-days: 7
+
       - name: Instalar Node 22
         uses: actions/setup-node@v4
         with:
