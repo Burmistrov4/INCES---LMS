@@ -29,13 +29,24 @@ import 'support/fake_asistencia_service.dart';
 /// 4. **Que una costura que devuelve basura no gaste una petición**, incluido el
 ///    caso que parece válido y no lo es: un UUID suelto, sin los seis dígitos.
 ///
-/// **La trampa de plataforma, medida:** `flutter_test` **no** sobreescribe
-/// `debugDefaultTargetPlatformOverride` —sólo lo hace `TargetPlatformVariant`,
-/// que es opcional—, así que `defaultTargetPlatform` vale la plataforma
-/// anfitriona. En el CI de Linux eso es `TargetPlatform.linux`, y por eso las
-/// pruebas que necesitan ver el botón **fijan el override a mano** y lo devuelven
-/// a `null` en `addTearDown`. Sin esa devolución, el propio `flutter_test` falla
-/// la prueba por dejar un override global vivo.
+/// **La trampa de plataforma, medida dos veces.** `flutter_test` **no**
+/// sobreescribe `debugDefaultTargetPlatformOverride` —sólo lo hace
+/// `TargetPlatformVariant`, que es opcional—, así que `defaultTargetPlatform`
+/// vale la plataforma anfitriona. En el CI de Linux eso es `TargetPlatform.linux`.
+///
+/// Y la forma de fijarla **no** es a mano con un `addTearDown`. Medido en el
+/// código de `flutter_test`: `TestWidgetsFlutterBinding._runTestBody` llama a
+/// `_verifyInvariants()` —que afirma que no quedó ninguna variable global de
+/// depuración puesta— **antes** de que corran los `addTearDown`, así que la
+/// limpieza llega tarde y la prueba falla con «The value of a foundation debug
+/// variable was changed by the test» **aunque el cuerpo haya hecho todo bien**.
+/// Eso costó un CI rojo con nueve pruebas en rojo y ninguna de ellas mala.
+///
+/// Para las pruebas de widget se usa `variant: TargetPlatformVariant.only(...)`,
+/// cuyo `tearDown` sí corre **dentro** de `binding.runTest` —medido en
+/// `widget_tester.dart`: el `setUp`/`tearDown` de la variante envuelve a la
+/// llamada del cuerpo—. El `addTearDown` se reserva para las pruebas que no
+/// montan árbol, donde nadie comprueba invariantes.
 void main() {
   late FakeAsistenciaService fake;
 
@@ -43,7 +54,13 @@ void main() {
     fake = FakeAsistenciaService();
   });
 
-  /// Fija la plataforma para una prueba y la deja limpia al terminar.
+  /// Fija la plataforma para una prueba **que no monta árbol** (`test`, no
+  /// `testWidgets`), y la deja limpia al terminar.
+  ///
+  /// **En una prueba de widget esto no vale, y falla.** El porqué está medido en
+  /// la cabecera del archivo: el `addTearDown` corre después de que `flutter_test`
+  /// compruebe que no quedan variables globales de depuración puestas. Para las de
+  /// widget se usa `variant: TargetPlatformVariant.only(...)`.
   ///
   /// `addTearDown` y no `tearDown` a propósito: así la limpieza viaja pegada a la
   /// prueba que ensucia, y no depende de que nadie se acuerde de un `tearDown`
@@ -82,8 +99,6 @@ void main() {
     testWidgets('en Android el panel dibuja el botón del escáner',
         (tester) async {
       // La rama que sí: es uno de los tres destinos institucionales.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester);
 
       expect(find.byIcon(Icons.qr_code_scanner), findsOneWidget);
@@ -91,21 +106,19 @@ void main() {
       // El `Row` aguanta con el botón dentro: si faltara el `Expanded` del campo,
       // el desborde saldría como excepción de la prueba.
       expect(tester.takeException(), isNull);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('en Linux el panel no dibuja nada: la pantalla queda como estaba',
         (tester) async {
       // La otra rama, y la que corre por defecto en el CI. Sin cámara no hay
       // botón, y el campo recupera el ancho entero. Es la garantía de que añadir
       // el escáner **no cambió** nada en macOS, Windows ni Linux.
-      conPlataforma(TargetPlatform.linux);
-
       await montarPanel(tester);
 
       expect(find.byIcon(Icons.qr_code_scanner), findsNothing);
       expect(find.byType(TextField), findsOneWidget);
       expect(tester.takeException(), isNull);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
 
     testWidgets('con el botón del escáner puesto sigue habiendo UN solo FilledButton',
         (tester) async {
@@ -115,12 +128,10 @@ void main() {
       // escáner es un `IconButton` justamente por eso, y aquí se deja escrito para
       // que el día que alguien lo «mejore» a `FilledButton` se entere aquí y no
       // allí.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester);
 
       expect(find.byType(FilledButton), findsOneWidget);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     test('la regla dice Android, iOS y Web; y no macOS, Windows ni Linux',
         () {
@@ -164,8 +175,6 @@ void main() {
       // igual y nadie notaría que se perdió la sesión que el QR lleva dentro. Por
       // eso se afirman las dos cosas: la sesión **y** el código, y además que la
       // vía manual no se tocó.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester, abrirEscaner: (_) async => parDelQr);
 
       await tester.tap(find.byIcon(Icons.qr_code_scanner));
@@ -185,7 +194,7 @@ void main() {
       expect(campo.controller?.text, parDelQr);
 
       expect(find.text('Listo. Ya cuentas.'), findsOneWidget);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('si el alumno prefiere escribir, no se manda nada',
         (tester) async {
@@ -193,8 +202,6 @@ void main() {
       // panel no manda ninguna petición ni pinta ningún error. Es la garantía de
       // que el plan B es de verdad un camino y no una salida que ensucia la
       // pantalla.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester, abrirEscaner: (_) async => null);
 
       await tester.tap(find.byIcon(Icons.qr_code_scanner));
@@ -209,7 +216,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(fake.ultimoCodigoSuelto, '471212');
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('un UUID suelto, sin los seis dígitos, se rechaza sin gastar petición',
         (tester) async {
@@ -219,8 +226,6 @@ void main() {
       // asistencia: el servidor no tendría seis dígitos que validar. Se rechaza
       // en el cliente, con un mensaje, en vez de gastar una petición para recibir
       // un «no» más lento.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester, abrirEscaner: (_) async => sesionDelQr);
 
       await tester.tap(find.byIcon(Icons.qr_code_scanner));
@@ -229,15 +234,13 @@ void main() {
 
       expect(find.text(mensajeNoEsQr), findsOneWidget);
       expect(fake.llamadas, isEmpty);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('una costura que devuelve basura tampoco gasta petición',
         (tester) async {
       // El panel **no se fía de la costura**: `abrirEscaner` es inyectable, así
       // que lo que devuelve se valida otra vez. El validador ya dijo que sí dentro
       // del escáner, pero eso es el camino real; esto es el contrato.
-      conPlataforma(TargetPlatform.android);
-
       await montarPanel(tester, abrirEscaner: (_) async => 'buenos días');
 
       await tester.tap(find.byIcon(Icons.qr_code_scanner));
@@ -246,14 +249,13 @@ void main() {
 
       expect(find.text(mensajeNoEsQr), findsOneWidget);
       expect(fake.llamadas, isEmpty);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
     testWidgets('si la marca falla, el error es el del servidor y se puede reintentar',
         (tester) async {
       // El caso real: el código caducó entre que el alumno apuntó y que la
       // petición llegó. La pantalla tiene que decir lo que dijo el servidor y
       // **no** darse por marcada, para que el alumno pueda volver a apuntar.
-      conPlataforma(TargetPlatform.android);
       // El mismo mensaje **real** que fija `asistencia_paneles_test.dart` para
       // este caso, y por el mismo motivo: es lo que el servidor manda hoy cuando
       // el código caduca (un 403 genérico, porque el `42501` de Postgres no
@@ -281,7 +283,7 @@ void main() {
         ),
       );
       expect(boton.onPressed, isNotNull);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   });
 
   group('el antirrebote', () {
@@ -351,8 +353,6 @@ void main() {
       // respaldo. Que esta prueba exista tiene dos lecturas: comprueba el mensaje
       // —el alumno nunca debe ver una pantalla negra— y comprueba que montar la
       // pantalla es seguro, que es la precondición de todo lo demás.
-      conPlataforma(TargetPlatform.linux);
-
       String? devuelto;
       await tester.pumpWidget(
         MaterialApp(
@@ -385,6 +385,6 @@ void main() {
 
       expect(devuelto, isNull);
       expect(find.text('abrir'), findsOneWidget);
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
   });
 }
