@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/gateways/aula_gateway.dart';
 import '../core/result.dart';
 import '../models/archivo.dart';
 import '../models/aspirante_model.dart';
 import '../models/inscripcion.dart';
+import '../providers/tema_provider.dart';
 import '../repositories/aspirante_repository.dart';
 import '../repositories/inscripcion_repository.dart';
 import '../repositories/modulo_repository.dart';
@@ -233,6 +235,10 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Nulable a propósito: en las pruebas este panel se monta sin proveedor de
+    // tema. Ver el comentario equivalente en `admin_dashboard.dart`.
+    final tema = context.watch<TemaProvider?>();
+
     return AndamiajeApp(
       // `menuConModulos` y no `_items`: el menú sale con el estado real de
       // `system_modules` aplicado encima, así que apagar `m6_aula_virtual` o
@@ -245,6 +251,8 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
       correoUsuario: _auth.emailActual,
       periodoActivo: 'SA26-2',
       onCerrarSesion: _cerrarSesion,
+      temaActual: tema?.modo,
+      onCambiarTema: tema?.cambiar,
       contenido: _contenido(),
     );
   }

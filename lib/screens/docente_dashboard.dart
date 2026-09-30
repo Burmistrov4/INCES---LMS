@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/gateways/aula_gateway.dart';
 import '../models/archivo.dart';
+import '../providers/tema_provider.dart';
 import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
 import '../services/aula_service.dart';
@@ -163,6 +165,12 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Nulable a propósito: `aula_produccion_test.dart` y
+    // `menu_gobernado_por_modulos_test.dart` montan este panel sin proveedor de
+    // tema, y el panel tiene que seguir montándose. Ver el comentario
+    // equivalente en `admin_dashboard.dart`.
+    final tema = context.watch<TemaProvider?>();
+
     return AndamiajeApp(
       // `menuConModulos` y no `_items`: el menú sale con el estado real de
       // `system_modules` aplicado encima, así que apagar `m6_aula_virtual` o
@@ -175,6 +183,8 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen>
       correoUsuario: _auth.emailActual,
       periodoActivo: _periodoActivo,
       onCerrarSesion: _cerrarSesion,
+      temaActual: tema?.modo,
+      onCambiarTema: tema?.cambiar,
       contenido: _contenido(),
     );
   }

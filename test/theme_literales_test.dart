@@ -41,7 +41,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// respeta las cadenas de texto —una URL con `//` no es un comentario— y conserva
 /// las líneas, para que el mensaje de fallo diga el número correcto.
 void main() {
-  // Se lee una sola vez: son 117 archivos y cada grupo los necesita.
+  // Se lee una sola vez: es un centenar largo de archivos y cada grupo los
+  // necesita. El número exacto **no se escribe a propósito**: envejece con cada
+  // archivo que se añade y convierte este comentario en una afirmación falsa que
+  // hay que venir a corregir. Decía «117» y eran 120. La guardia de abajo ya
+  // comprueba que se ven más de cien, que es lo que de verdad importa.
   final archivos = _archivosDart('lib');
 
   group('el escáner mira de verdad', () {

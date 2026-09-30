@@ -98,6 +98,8 @@ class AndamiajeApp extends StatefulWidget {
     this.periodoActivo,
     this.accionesEncabezado = const [],
     this.onCerrarSesion,
+    this.temaActual,
+    this.onCambiarTema,
   });
 
   final List<ItemNavegacion> items;
@@ -111,6 +113,24 @@ class AndamiajeApp extends StatefulWidget {
   final String? periodoActivo;
   final List<Widget> accionesEncabezado;
   final VoidCallback? onCerrarSesion;
+
+  /// Tema vigente, para marcar cuál está elegido en el selector del pie.
+  ///
+  /// Nulable por el mismo motivo que [onCambiarTema]: quien no ofrece el
+  /// selector no tiene por qué declarar un tema.
+  final ThemeMode? temaActual;
+
+  /// Cambia el tema de la aplicación.
+  ///
+  /// **`null` ⇒ el selector no se dibuja.** Es la convención que ya usa
+  /// [onCerrarSesion], y aquí no es un detalle de estilo: hay pruebas que montan
+  /// este andamiaje **sin ningún proveedor de tema** —`menu_alcanzable_test.dart`
+  /// lo monta con un `SizedBox` de contenido, y `aula_produccion_test.dart` y
+  /// `menu_gobernado_por_modulos_test.dart` montan el panel del docente, que lo
+  /// incluye—. Un selector incondicional obligaría a todas ellas a inventarse un
+  /// proveedor para poder montar el widget que están probando, y la prueba
+  /// mediría otra cosa.
+  final ValueChanged<ThemeMode>? onCambiarTema;
 
   @override
   State<AndamiajeApp> createState() => _AndamiajeAppState();
@@ -160,6 +180,8 @@ class _AndamiajeAppState extends State<AndamiajeApp> {
                 onCerrarSesion: widget.onCerrarSesion,
                 rolEtiqueta: widget.rolEtiqueta,
                 correoUsuario: widget.correoUsuario,
+                temaActual: widget.temaActual,
+                onCambiarTema: widget.onCambiarTema,
               ),
             )
           : null,
@@ -174,6 +196,8 @@ class _AndamiajeAppState extends State<AndamiajeApp> {
               onCerrarSesion: widget.onCerrarSesion,
               rolEtiqueta: widget.rolEtiqueta,
               correoUsuario: widget.correoUsuario,
+              temaActual: widget.temaActual,
+              onCambiarTema: widget.onCambiarTema,
               onAlternarReplegado: () =>
                   setState(() => _replegado = !_replegado),
             ),
@@ -210,6 +234,8 @@ class _MenuLateral extends StatelessWidget {
     this.correoUsuario,
     this.onCerrarSesion,
     this.onAlternarReplegado,
+    this.temaActual,
+    this.onCambiarTema,
   });
 
   final List<ItemNavegacion> items;
@@ -220,6 +246,8 @@ class _MenuLateral extends StatelessWidget {
   final String? correoUsuario;
   final VoidCallback? onCerrarSesion;
   final VoidCallback? onAlternarReplegado;
+  final ThemeMode? temaActual;
+  final ValueChanged<ThemeMode>? onCambiarTema;
 
   @override
   Widget build(BuildContext context) {
@@ -350,13 +378,27 @@ class _MenuLateral extends StatelessWidget {
               ),
             ),
 
-            // --- Pie: replegar (cuando no hay cabecera) y cerrar sesión --------
+            // --- Pie: tema, replegar (cuando no hay cabecera) y cerrar sesión --
             const Divider(height: 1),
             if (replegado && onAlternarReplegado != null)
               IconButton(
                 tooltip: 'Desplegar menú',
                 onPressed: onAlternarReplegado,
                 icon: const Icon(Icons.chevron_right_rounded, size: 18),
+              ),
+            // El tema va aquí, en el pie, y no en el encabezado: es una
+            // preferencia del usuario, no una acción del contexto de trabajo, y
+            // el encabezado ya lleva el período activo y las acciones de la
+            // sección. En el pie queda visible desde **todas** las pantallas,
+            // que es la condición que se pidió para poder ponerlo.
+            if (onCambiarTema != null)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: _SelectorDeTema(
+                  actual: temaActual ?? ThemeMode.system,
+                  onCambiar: onCambiarTema!,
+                  replegado: replegado,
+                ),
               ),
             if (onCerrarSesion != null)
               Padding(
@@ -494,6 +536,170 @@ class _ItemMenu extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(IncesTheme.radioControl),
       child: conTooltip,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+//  Selector de tema
+// -----------------------------------------------------------------------------
+
+/// Icono y etiqueta de cada modo de tema.
+///
+/// Es un `switch` **exhaustivo** y no un `Map`: si Flutter añade un
+/// `ThemeMode`, esto deja de compilar. Con un `Map` habría que acordarse de
+/// añadir la entrada, y olvidarlo daría un modo sin nombre ni icono —un
+/// desplegable con una fila en blanco— sin que nada avisara.
+({IconData icono, String etiqueta}) _describirTema(ThemeMode modo) {
+  switch (modo) {
+    case ThemeMode.system:
+      return (icono: Icons.brightness_auto_rounded, etiqueta: 'Sistema');
+    case ThemeMode.light:
+      return (icono: Icons.light_mode_rounded, etiqueta: 'Claro');
+    case ThemeMode.dark:
+      return (icono: Icons.dark_mode_rounded, etiqueta: 'Oscuro');
+  }
+}
+
+/// Selector del tema de la aplicación, para el pie de la barra lateral.
+///
+/// Un `PopupMenuButton` y no tres botones seguidos: el pie ya tiene el botón de
+/// replegar y el de cerrar sesión, y una fila de tres controles de tema ahí
+/// competiría con ellos. El menú enseña los tres modos de una vez y marca el
+/// vigente, que es lo que hace falta para saber en cuál se está.
+///
+/// **Sin un solo color literal.** Todos salen de `Theme.of(context)` o del tema
+/// heredado, que es la regla que dejó el Bloque B: un `Color(0x…)` escrito aquí
+/// se vería bien en un tema y mal en el otro, y
+/// `test/theme_literales_test.dart` lo delata.
+class _SelectorDeTema extends StatelessWidget {
+  const _SelectorDeTema({
+    required this.actual,
+    required this.onCambiar,
+    required this.replegado,
+  });
+
+  final ThemeMode actual;
+  final ValueChanged<ThemeMode> onCambiar;
+  final bool replegado;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final vigente = _describirTema(actual);
+
+    return PopupMenuButton<ThemeMode>(
+      // El tooltip nombra el modo vigente porque replegado sólo se ve el icono,
+      // y un icono suelto no dice en cuál se está. Usa la misma etiqueta que la
+      // vista desplegada para no crear dos vocabularios para lo mismo.
+      tooltip: 'Tema: ${vigente.etiqueta}',
+      onSelected: onCambiar,
+      // La posición por defecto (`over`) coloca el menú **encima** del botón.
+      // Para un elemento del pie es lo correcto: abriéndolo hacia abajo se
+      // saldría de la ventana en cuanto la barra llegara al borde inferior.
+      itemBuilder: (context) => [
+        for (final modo in ThemeMode.values)
+          PopupMenuItem<ThemeMode>(
+            value: modo,
+            child: _OpcionDeTema(
+              descripcion: _describirTema(modo),
+              seleccionado: modo == actual,
+            ),
+          ),
+      ],
+      // Se pasa `child` en vez de `icon` para poder cambiar la forma según el
+      // replegado: con `icon`, `PopupMenuButton` dibuja siempre un `IconButton`
+      // cuadrado y en la barra desplegada quedaría un icono suelto sin la
+      // etiqueta que sí tienen los ítems del menú.
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: replegado ? 0 : 12,
+          vertical: 10,
+        ),
+        child: replegado
+            ? Icon(
+                vigente.icono,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
+              )
+            : Row(
+                children: [
+                  Icon(
+                    vigente.icono,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Text(
+                      vigente.etiqueta,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.unfold_more_rounded,
+                    size: 15,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// Una fila del menú de temas: icono, etiqueta y marca del vigente.
+class _OpcionDeTema extends StatelessWidget {
+  const _OpcionDeTema({required this.descripcion, required this.seleccionado});
+
+  final ({IconData icono, String etiqueta}) descripcion;
+  final bool seleccionado;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Icon(
+          descripcion.icono,
+          size: 17,
+          // `onSurfaceVariant` y no `onSurface`: el menú lo pinta Flutter con su
+          // propio color de superficie, y este par es el que el esquema de
+          // Material garantiza legible sobre él en los dos temas.
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            descripcion.etiqueta,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: seleccionado ? FontWeight.w600 : FontWeight.w500,
+              // Sin color propio cuando no está seleccionado: así hereda el del
+              // menú, que es el que el tema define para su superficie. Fijarlo
+              // aquí obligaría a acertar con el color de fondo del menú, que no
+              // lo decide este archivo.
+              color: seleccionado ? theme.colorScheme.primary : null,
+            ),
+          ),
+        ),
+        // La marca del vigente. Sin ella habría que recordar cuál se eligió la
+        // última vez para saber cuál está activo, que es justo lo que un
+        // selector tiene que responder de un vistazo.
+        if (seleccionado)
+          Icon(
+            Icons.check_rounded,
+            size: 16,
+            color: theme.colorScheme.primary,
+          ),
+      ],
     );
   }
 }

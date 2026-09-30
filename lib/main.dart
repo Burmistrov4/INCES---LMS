@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config/app_config.dart';
+import 'core/gateways/preferencias_tema.dart';
 import 'core/navegacion.dart';
 import 'providers/role_provider.dart';
+import 'providers/tema_provider.dart';
 import 'repositories/aspirante_repository.dart';
 import 'screens/admin_dashboard.dart';
 import 'screens/aspirante_dashboard.dart';
@@ -17,6 +19,7 @@ import 'screens/login_screen.dart';
 import 'screens/restablecer_password_screen.dart';
 import 'screens/activar_cuenta_screen.dart';
 import 'services/auth_service.dart';
+import 'services/preferencias_tema_dispositivo.dart';
 import 'theme/inces_theme.dart';
 
 SupabaseClient get supabase => Supabase.instance.client;
@@ -73,7 +76,12 @@ Route<dynamic>? _generarRuta(RouteSettings ajustes) {
 }
 
 class IncesLmsApp extends StatelessWidget {
-  const IncesLmsApp({super.key, this.rutaInicial, this.landingRepository});
+  const IncesLmsApp({
+    super.key,
+    this.rutaInicial,
+    this.landingRepository,
+    this.preferenciasTema,
+  });
 
   /// Ruta con la que arranca la aplicación.
   ///
@@ -89,36 +97,74 @@ class IncesLmsApp extends StatelessWidget {
   /// portada resuelve su propio repositorio.
   final AspiranteRepository? landingRepository;
 
+  /// Almacén donde se recuerda el tema que eligió el usuario.
+  ///
+  /// Se expone sólo para las pruebas, por el mismo motivo que
+  /// [landingRepository]: sin él, montar la aplicación en un test crea el
+  /// proveedor de tema contra el almacenamiento real, que en la VM de
+  /// `flutter test` no tiene plugin detrás. En producción va `null` y se usa el
+  /// del dispositivo.
+  final PreferenciasTema? preferenciasTema;
+
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => RoleProvider(),
-      child: MaterialApp(
-        title: 'INCES LMS — Sistema de Gestión Académica',
-        debugShowCheckedModeBanner: false,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => RoleProvider()),
+        ChangeNotifierProvider(
+          // `..cargar()`: la lectura de la preferencia es asíncrona y nadie
+          // puede esperarla desde `create`. Mientras llega, el proveedor ya vale
+          // `ThemeMode.system`, así que la aplicación arranca con el tema de
+          // siempre y sólo cambia si había algo guardado.
+          create: (_) => TemaProvider(
+            preferencias: preferenciasTema ?? PreferenciasTemaDelDispositivo(),
+          )..cargar(),
+        ),
+      ],
+      // `builder` y no `child`: `themeMode` **depende** del valor del proveedor,
+      // así que no puede ser un hijo constante que se construye una vez.
+      // `MultiProvider` envuelve este `builder` en un `Builder` colocado **por
+      // dentro** de los proveedores —lo hace él mismo, ver su constructor—, que
+      // es justo el contexto que hace falta para poder mirarlos.
+      builder: (context, _) {
+        // Una sola lectura del proveedor de tema en este `build`, y no
+        // `read`+`watch` a la vez: `provider` exige un modo único por elemento y
+        // por build, y mezclarlos lanza.
+        //
+        // Aquí la lectura es **no nulable** porque este mismo widget acaba de
+        // crear el proveedor: está garantizado. En los paneles, en cambio, se
+        // lee como nulable, porque allí sí puede faltar (ver `andamiaje.dart`).
+        final tema = context.watch<TemaProvider>();
+        return MaterialApp(
+          title: 'INCES LMS — Sistema de Gestión Académica',
+          debugShowCheckedModeBanner: false,
 
-        // El tema se delega en `IncesTheme`. Tenerlo centralizado es lo que
-        // impide que cada pantalla vuelva a inventarse sus propios colores, que
-        // es exactamente lo que pasó antes: el login era `#0F172A` y los paneles
-        // también, pero con azules distintos, y la aplicación no se leía como un
-        // solo producto.
-        theme: IncesTheme.claro(),
-        darkTheme: IncesTheme.oscuro(),
-        themeMode: ThemeMode.system,
+          // El tema se delega en `IncesTheme`. Tenerlo centralizado es lo que
+          // impide que cada pantalla vuelva a inventarse sus propios colores, que
+          // es exactamente lo que pasó antes: el login era `#0F172A` y los paneles
+          // también, pero con azules distintos, y la aplicación no se leía como un
+          // solo producto.
+          theme: IncesTheme.claro(),
+          darkTheme: IncesTheme.oscuro(),
 
-        // `home` define la ruta raíz. Por eso NO se incluye '/' en `routes`:
-        // Flutter lanza una aserción si ambos existen y la app no arranca.
-        home: AuthGate(landingRepository: landingRepository),
-        initialRoute: rutaInicial,
+          // `system` por defecto, que es lo que hacía la aplicación antes de que
+          // el usuario pudiera elegir. El valor real llega del proveedor.
+          themeMode: tema.modo,
 
-        // Las rutas simples se resuelven por tabla exacta. El deep link del
-        // docente invitado (`/auth/activate?token=…`) pasa por `_generarRuta`,
-        // que sí sabe leer la consulta. Al abrirse por URL, esa pantalla queda
-        // encima del `AuthGate`: el docente todavía no tiene sesión, y el botón
-        // de volver tiene un destino sensato.
-        routes: _pantallas,
-        onGenerateRoute: _generarRuta,
-      ),
+          // `home` define la ruta raíz. Por eso NO se incluye '/' en `routes`:
+          // Flutter lanza una aserción si ambos existen y la app no arranca.
+          home: AuthGate(landingRepository: landingRepository),
+          initialRoute: rutaInicial,
+
+          // Las rutas simples se resuelven por tabla exacta. El deep link del
+          // docente invitado (`/auth/activate?token=…`) pasa por `_generarRuta`,
+          // que sí sabe leer la consulta. Al abrirse por URL, esa pantalla queda
+          // encima del `AuthGate`: el docente todavía no tiene sesión, y el botón
+          // de volver tiene un destino sensato.
+          routes: _pantallas,
+          onGenerateRoute: _generarRuta,
+        );
+      },
     );
   }
 }

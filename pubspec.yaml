@@ -70,6 +70,17 @@ dependencies:
   # `depend_on_referenced_packages`. Es la alternativa vigente a `dart:html`,
   # que está deprecado y activaría `avoid_web_libraries_in_flutter`.
   web: ^1.1.0
+  # Memoria de la preferencia de tema (Bloque D). Mismo caso que `web`: ya venía
+  # resuelta como transitiva (2.5.5 en pubspec.lock) y su versión ya está en el
+  # `package_config.json`, así que declararla no descarga nada nuevo.
+  #
+  # La declaración **no es cosmética**: sin ella, importarla da
+  # `depend_on_referenced_packages`, y ese aviso ya se había tapado tres veces
+  # con un `// ignore: depend_on_referenced_packages` en
+  # `test/deep_link_activacion_test.dart`, `test/phase1_onboarding_test.dart` y
+  # `test/widget_test.dart`. Al declararla, los tres `ignore` se retiran: dejaron
+  # de ser ciertos.
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

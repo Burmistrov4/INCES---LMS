@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../providers/tema_provider.dart';
 import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
 import '../theme/inces_theme.dart';
@@ -241,6 +243,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Nulable a propósito: el panel se monta en pruebas sin proveedor de tema
+    // —`aula_produccion_test.dart`, `menu_gobernado_por_modulos_test.dart`— y
+    // ahí no hay ninguno. `provider` encuentra el proveedor cuando existe y
+    // devuelve `null` cuando no, así que el mismo código sirve en la aplicación
+    // y en la prueba. Con el tipo no nulable, esas pruebas fallarían al montar.
+    final tema = context.watch<TemaProvider?>();
+
     return AndamiajeApp(
       // `menuConModulos` y no `_items`: el menú sale con el estado real de
       // `system_modules` aplicado encima. Apagar un módulo desde este mismo
@@ -252,6 +261,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       correoUsuario: _auth.emailActual,
       periodoActivo: _periodoActivo,
       onCerrarSesion: _cerrarSesion,
+      temaActual: tema?.modo,
+      onCambiarTema: tema?.cambiar,
       contenido: _contenido(),
     );
   }
