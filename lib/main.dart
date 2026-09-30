@@ -19,7 +19,6 @@ import 'screens/login_screen.dart';
 import 'screens/restablecer_password_screen.dart';
 import 'screens/activar_cuenta_screen.dart';
 import 'services/auth_service.dart';
-import 'services/preferencias_tema_dispositivo.dart';
 import 'theme/inces_theme.dart';
 
 SupabaseClient get supabase => Supabase.instance.client;
@@ -116,9 +115,11 @@ class IncesLmsApp extends StatelessWidget {
           // puede esperarla desde `create`. Mientras llega, el proveedor ya vale
           // `ThemeMode.system`, así que la aplicación arranca con el tema de
           // siempre y sólo cambia si había algo guardado.
-          create: (_) => TemaProvider(
-            preferencias: preferenciasTema ?? PreferenciasTemaDelDispositivo(),
-          )..cargar(),
+          //
+          // `preferenciasTema` se pasa tal cual, sin `??`: resolver el valor por
+          // defecto es del proveedor, que es el único que tiene que saber cuál es
+          // el almacén de producción. Aquí `null` significa «el de siempre».
+          create: (_) => TemaProvider(preferencias: preferenciasTema)..cargar(),
         ),
       ],
       // `builder` y no `child`: `themeMode` **depende** del valor del proveedor,

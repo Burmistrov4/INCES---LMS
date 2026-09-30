@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/gateways/preferencias_tema.dart';
+import '../services/preferencias_tema_dispositivo.dart';
 
 /// Traduce el valor guardado a un [ThemeMode].
 ///
@@ -39,8 +40,19 @@ ThemeMode modoDeTemaDesde(String? valor) {
 /// Y si la lectura falla, se queda aquí: el fallo y la ausencia de preferencia
 /// dan el mismo resultado, que resulta ser el correcto en los dos casos.
 class TemaProvider extends ChangeNotifier {
-  TemaProvider({required PreferenciasTema preferencias})
-      : _preferencias = preferencias;
+  /// Crea el proveedor.
+  ///
+  /// [preferencias] es inyectable y **su valor por defecto es el almacén del
+  /// dispositivo**. Ese `??` no es adorno: es el idioma que ya usan `AuthService`,
+  /// los repositorios y los gateways de este proyecto
+  /// (`_gateway = gateway ?? SupabaseService.instance`), y además es lo que evita
+  /// una incidencia de `flutter analyze`: una asignación directa
+  /// `_preferencias = preferencias` dispara `prefer_initializing_formals`, que
+  /// **tumba el CI** —medido el 2026-09-30—. Con el `??` el campo sigue siendo
+  /// privado, que es lo que se quiere, y el valor de producción vive aquí en vez
+  /// de en `main.dart`.
+  TemaProvider({PreferenciasTema? preferencias})
+      : _preferencias = preferencias ?? PreferenciasTemaDelDispositivo();
 
   final PreferenciasTema _preferencias;
 

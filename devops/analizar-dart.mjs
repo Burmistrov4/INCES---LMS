@@ -22,12 +22,26 @@
 // *directamente* con `dartaotruntime.exe` —sin `dart.exe` de por medio— y alguien le
 // habla su protocolo, funciona. Node si puede crear procesos aqui.
 //
-// Resultado medido en este proyecto: **188 archivos, sin errores ni avisos, en ~46 s**
-// (el mismo veredicto que el «No issues found!» de `flutter analyze`).
+// Resultado medido en este proyecto: **un par de minutos como mucho, y sin
+// diagnosticos de ningun nivel** (el mismo veredicto que el «No issues found!» de
+// `flutter analyze`).
 //
 // Es el unico verificador de TIPOS que hay en local. Ojo con la diferencia, que costo
 // un CI rojo: `dart format --output=none` comprueba **SINTAXIS, no tipos**, y un
 // identificador inexistente lo atraviesa entero.
+//
+// ---------------------------------------------------------------------------
+// LOS TRES NIVELES CUENTAN, Y ESTO COSTO UN CI ROJO
+// ---------------------------------------------------------------------------
+// `flutter analyze` **falla tambien por `info`**, no solo por errores y avisos. Este
+// script afirmaba lo contrario en un comentario —«las infos no lo tumban»— y filtraba
+// los `info` con un `if (nivel === 'INFO') continue;`. Resultado medido el 2026-09-30
+// sobre el commit `aca179d`: local «sin errores ni avisos», `Flutter CI` **rojo** por
+// dos lints `prefer_initializing_formals`. El comentario no era una imprecision: era
+// una afirmacion falsa que se citaba a si misma como prueba.
+//
+// Un verificador que da verde mientras el CI da rojo es peor que no tenerlo, porque su
+// verde se usa para decidir que ya se puede empujar. Ahora se cuentan los tres niveles.
 //
 // ---------------------------------------------------------------------------
 // EL PROTOCOLO: `analyzer`, NO LSP, Y SIN CABECERAS Content-Length
@@ -56,9 +70,9 @@
 //     node devops/analizar-dart.mjs [raizDelProyecto] [archivo.dart ...]
 //
 // Sin archivos analiza todo `lib/**` y `test/**` de la raiz (por defecto, el
-// directorio padre de este script). Codigo de salida 1 si hay errores o avisos, 0 si
-// esta limpio — igual que `flutter analyze`, que tambien falla por avisos y no por
-// infos.
+// directorio padre de este script). Codigo de salida 1 si hay diagnosticos de
+// **cualquier** nivel —error, aviso o info—, 0 si esta limpio: exactamente el mismo
+// liston que `flutter analyze`, que tambien falla por los tres.
 //
 // Opciones:
 //   --help          esto
@@ -313,6 +327,7 @@ async function principal() {
   const filas = [];
   let errores = 0;
   let avisos = 0;
+  let infos = 0;
   const orden = { ERROR: 'error', WARNING: 'aviso', INFO: 'info' };
 
   for (const a of archivos) {
@@ -325,9 +340,9 @@ async function principal() {
     }
     for (const d of res?.errors ?? []) {
       const nivel = d.severity;
-      // `flutter analyze` falla por errores y avisos; las infos no lo tumban, y el
-      // liston tiene que ser el mismo que el del CI.
-      if (nivel === 'INFO') continue;
+      // **Los tres niveles cuentan.** `flutter analyze` falla tambien por `info`, y
+      // aqui habia un `if (nivel === 'INFO') continue;` que los tiraba: el script
+      // decia «sin errores ni avisos» y el CI caia igual. Ver la cabecera.
       const loc = d.location ?? {};
       filas.push(
         `${orden[nivel] ?? nivel} ${relative(raiz, loc.file ?? a)}:` +
@@ -336,7 +351,8 @@ async function principal() {
           (d.code ? ` [${d.code}]` : ''),
       );
       if (nivel === 'ERROR') errores++;
-      else avisos++;
+      else if (nivel === 'WARNING') avisos++;
+      else infos++;
     }
   }
 
@@ -345,9 +361,9 @@ async function principal() {
   console.log('');
   console.log(
     `Archivos analizados: ${archivos.length} · ` +
-      (errores === 0 && avisos === 0
-        ? 'sin errores ni avisos. (equivalente a «No issues found!»)'
-        : `${errores} error(es), ${avisos} aviso(s).`),
+      (errores === 0 && avisos === 0 && infos === 0
+        ? 'sin errores, avisos ni infos. (equivalente a «No issues found!»)'
+        : `${errores} error(es), ${avisos} aviso(s), ${infos} info(s).`),
   );
 
   try {
@@ -356,7 +372,12 @@ async function principal() {
     /* ya cerrado */
   }
   servidor.kill();
-  process.exit(errores > 0 || avisos > 0 ? 1 : 0);
+  // **Los tres niveles**, y no `errores > 0 || avisos > 0`: con ese liston, un
+  // arbol con solo lints de nivel `info` salia por la puerta con codigo 0 mientras
+  // `flutter analyze` lo tumbaba. El codigo de salida es lo que lee la
+  // automatizacion, asi que dejarlo corto era justo el fallo que este archivo
+  // documenta arriba.
+  process.exit(errores > 0 || avisos > 0 || infos > 0 ? 1 : 0);
 }
 
 principal().catch((e) => {
