@@ -364,6 +364,35 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     return formatoOk;
   }
 
+  /// Lleva el formulario al paso [destino], validando lo que quede por delante.
+  ///
+  /// **Retroceder nunca se valida, y es deliberado.** El motivo de volver es
+  /// justo corregir un dato ya escrito, así que exigir que el paso esté correcto
+  /// para poder salir de él dejaría al aspirante encerrado con el error que
+  /// quiere arreglar.
+  ///
+  /// Avanzar sí se valida, y **todos los pasos intermedios**, no sólo el
+  /// destino: saltar de «Datos personales» a «Confirmación» sin rellenar el paso
+  /// de en medio dejaría el formulario incompleto y el error aparecería al
+  /// enviar, lejos de su causa. Se para en el primer paso que falle, así que el
+  /// mensaje que ve el aspirante es siempre el del paso que puede resolver ahora.
+  ///
+  /// El paso de confirmación no se valida al llegar a él: exige la contraseña, y
+  /// pedirla antes de mostrarlo sería pedirla a ciegas. Se valida al enviar, que
+  /// es donde importa.
+  void _irAlPaso(int destino) {
+    if (_enviando) return; // mientras se envía, no se navega
+    if (destino == _currentStep) return; // pulsar el paso actual no hace nada
+
+    if (destino > _currentStep) {
+      for (var paso = _currentStep; paso < destino; paso++) {
+        if (!_validarPaso(paso)) return;
+      }
+    }
+
+    setState(() => _currentStep = destino);
+  }
+
   // ---------------------------------------------------------------------------
   // Construcción del envío
   // ---------------------------------------------------------------------------
@@ -601,15 +630,26 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
-  /// El resumen del paso final, construido desde el catálogo.
+  /// El resumen del paso final, construido desde el catálogo y **agrupado por
+  /// paso**, con un acceso directo a cada grupo.
   ///
   /// Antes era una lista de once `MapEntry` escrita a mano que nombraba cada
   /// campo; con el catálogo eso sería una segunda lista que mantener en paralelo
   /// y que se desviaría en cuanto el CFS añadiera un campo. Aquí se recorre el
   /// catálogo en su orden y se muestra lo que tenga respuesta.
+  ///
+  /// **El agrupado y los botones «Editar» no son decoración.** Sin ellos,
+  /// corregir la fecha de nacimiento desde este paso obligaba a pulsar «Atrás»
+  /// una vez por cada paso intermedio, y el aspirante tenía que saberse de
+  /// memoria en qué paso estaba el campo que quería cambiar. El resumen ya sabía
+  /// qué campos había y en qué orden; lo que no decía era dónde vivían.
   Widget _construirResumen() {
     final catalogo = _catalogo;
-    final filas = <MapEntry<String, String>>[];
+
+    // Los campos que tienen respuesta, agrupados por el paso que los contiene.
+    // Un mapa de listas y no una lista de pares porque el orden de los pasos lo
+    // manda el catálogo, no el orden en que aparezcan los campos.
+    final porPaso = <int, List<MapEntry<String, String>>>{};
 
     if (catalogo != null) {
       final ordenados = [...catalogo.campos]
@@ -626,9 +666,21 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           opciones: campo.tieneFuenteExterna ? _opcionesDeFuente(campo) : null,
         );
         if (texto.isEmpty) continue;
-        filas.add(MapEntry(campo.etiqueta, texto));
+
+        // Un campo que el catálogo tiene y que no está en ningún grupo se
+        // **omite** en vez de inventarse un paso: `_pasoDeCampo` busca entre los
+        // grupos, así que devolver `null` significa que ese campo no se puede
+        // alcanzar desde el formulario, y mandar al aspirante a un paso que no
+        // lo contiene sería peor que no ofrecer el atajo.
+        final paso = _pasoDeCampo(campo.codigo);
+        if (paso == null) continue;
+
+        (porPaso[paso] ??= <MapEntry<String, String>>[])
+            .add(MapEntry(campo.etiqueta, texto));
       }
     }
+
+    final pasosConDatos = porPaso.keys.toList()..sort();
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -648,36 +700,65 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
               color: const Color(0xFF0F172A),
             ),
           ),
-          const SizedBox(height: 12),
-          for (final fila in filas)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 150,
-                    child: Text(
-                      fila.key,
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: const Color(0xFF64748B),
-                      ),
+          for (final paso in pasosConDatos) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _grupos[paso].nombre,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF0F172A),
                     ),
                   ),
-                  Expanded(
-                    child: Text(
-                      fila.value,
-                      style: GoogleFonts.inter(
-                        fontSize: 13,
-                        color: const Color(0xFF0F172A),
-                        fontWeight: FontWeight.w500,
-                      ),
+                ),
+                TextButton.icon(
+                  onPressed:
+                      _enviando ? null : () => setState(() => _currentStep = paso),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Editar'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
+            for (final fila in porPaso[paso]!)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 150,
+                      child: Text(
+                        fila.key,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        fila.value,
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -886,6 +967,11 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                 setState(() => _currentStep -= 1);
               }
             },
+            // Pulsar el título de un paso lleva a ese paso. Sin esto, corregir
+            // la fecha de nacimiento desde el final del formulario exigía pulsar
+            // «Atrás» una vez por cada paso intermedio — y ésa fue la queja que
+            // originó este cambio.
+            onStepTapped: _irAlPaso,
             controlsBuilder: (context, details) {
               final esUltimo = details.stepIndex == _pasoConfirmacion;
               return Padding(
