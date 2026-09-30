@@ -9,12 +9,32 @@
  * mostrar, sin pasar por la interfaz:
  *
  *   1 CARRERA  ──▶ 3 materias en el pensum
+ *   1 CURSO_LIBRE (la propuesta formativa que elige un aspirante)
  *   Lapso activo (se LEE de `system_settings`, no se inventa)
  *   2 aulas
  *   1 sección abierta en el lapso activo
  *   1 docente + 3 estudiantes (cuentas de Auth reales)
  *   3 matrículas ENROLLED
+ *   3 fichas de aspirante con su planilla de identidad llena
  *   Cuadrante: 2 clases del docente en esa sección
+ *
+ * POR QUÉ HAY FICHAS DE ASPIRANTE
+ * -------------------------------
+ * Hasta el 2026-09-30 el sembrado creaba a los estudiantes **sin ficha**, y eso
+ * dejaba un módulo entero sin poder ejercitarse: medido, `matriculas_con_ficha`
+ * era **0**, así que el PDF de la planilla no tenía nada que pintar para nadie
+ * —ni en la pantalla del aspirante ni en la del administrador—. La cadena
+ * estaba cableada y no se podía demostrar. Un sembrado que deja un módulo
+ * inerte no está a medias: parece roto.
+ *
+ * POR QUÉ HAY DOS PROGRAMAS Y NO UNO
+ * ----------------------------------
+ * La sección cuelga de una CARRERA porque sólo una carrera exige pensum, y el
+ * pensum es lo que M2 necesita probar. Pero la ficha de un aspirante **no puede
+ * apuntar a ella**: `curso_seleccionado` pasa por `resolver_programa_inscripcion()`,
+ * que sólo acepta un `CURSO_LIBRE` activo (medido en `pg_get_functiondef`). Son
+ * dos cosas distintas: la carrera es la estructura académica; la propuesta
+ * formativa es lo que la persona elige al inscribirse.
  *
  * POR QUÉ EL CUADRANTE NO ES OPCIONAL
  * -----------------------------------
@@ -171,12 +191,82 @@ const SEMILLA = {
     { day_of_week: 3, block: 2, aulaName: 'Aula Teórica 1 [SEMILLA]' },
   ],
 
+  // La PROPUESTA FORMATIVA que elige un aspirante. Es un programa aparte de
+  // `programa` y no un capricho: `curso_seleccionado` de la planilla pasa por
+  // `resolver_programa_inscripcion()`, que sólo acepta un `CURSO_LIBRE`
+  // activo —medido el 2026-09-30 en `pg_get_functiondef`—, así que una ficha
+  // NO puede apuntar a la carrera. Son dos cosas distintas: la carrera es la
+  // estructura académica (con pensum, Regla 1 de M2); la propuesta formativa
+  // es lo que la persona elige al inscribirse.
+  cursoLibre: {
+    code: `${PREFIJO}AS-CL`,
+    name: 'Soldadura Básica [SEMILLA]',
+    type: 'CURSO_LIBRE',
+    requires_internship: false,
+  },
+
   docente: { email: `docente${DOMINIO}`, nombres: 'Docente', apellidos: 'Semilla' },
 
+  // Domicilio común a los tres. Es el mismo centro y el mismo tipo de barrio;
+  // repetirlo tres veces sólo añade ruido. Lo que sí varía por persona vive en
+  // `estudiantes`, abajo.
+  domicilio: {
+    nacionalidad: 'V',
+    estado: 'CARABOBO',
+    municipio: 'Valencia',
+    parroquia: 'San José',
+    nivelEducativo: 'SECUNDARIO',
+  },
+
+  // Los tres estudiantes, con la identidad que necesita la planilla.
+  //
+  // **Por qué la identidad vive aquí y no se deriva del nombre.** La planilla
+  // pide las cuatro piezas por separado (`primer_nombre`, `segundo_nombre`,
+  // `primer_apellido`, `segundo_apellido`) mientras que `profiles` guarda el
+  // nombre compuesto. Derivar unas de otras partiría cadenas por el espacio, y
+  // un apellido compuesto («Uno Semilla») se partiría mal sin avisar. Se
+  // declaran las piezas, y el nombre compuesto se compone —en una sola
+  // dirección, que es la que no puede desincronizarse.
+  //
+  // **La cédula va marcada, no inventada.** `aspirantes.cedula` es `not null`
+  // y única, así que hay que poner algo; poner un número que *parezca* real
+  // sería fabricar un documento de identidad. `SEM-0001` no es una cédula
+  // venezolana y no puede confundirse con una: es la marca la que lo hace
+  // inofensivo, y es la misma que usa la limpieza para encontrarla.
+  //
+  // **`fechaNac` es de persona adulta a propósito.** El CHECK
+  // `aspirantes_requires_tutor_key` exige que `requires_legal_tutor` sea
+  // exactamente «tiene menos de 18 años». Con fechas adultas el valor por
+  // defecto (`false`) ya es el correcto y no hay que tocar esa columna; con
+  // menores habría que rellenar además los cinco campos del representante.
   estudiantes: [
-    { email: `estudiante1${DOMINIO}`, nombres: 'Estudiante', apellidos: 'Uno Semilla' },
-    { email: `estudiante2${DOMINIO}`, nombres: 'Estudiante', apellidos: 'Dos Semilla' },
-    { email: `estudiante3${DOMINIO}`, nombres: 'Estudiante', apellidos: 'Tres Semilla' },
+    {
+      email: `estudiante1${DOMINIO}`,
+      primerNombre: 'Estudiante', segundoNombre: 'Uno',
+      primerApellido: 'Semilla', segundoApellido: 'Alfa',
+      cedula: `${PREFIJO}0001`, fechaNac: '1996-04-12', sexo: 'M',
+      telefono: '0414-0000001',
+      direccion: 'Calle de la semilla, casa 1 [SEMILLA]',
+      numeroPreimpreso: `${PREFIJO}PL-0001`,
+    },
+    {
+      email: `estudiante2${DOMINIO}`,
+      primerNombre: 'Estudiante', segundoNombre: 'Dos',
+      primerApellido: 'Semilla', segundoApellido: 'Beta',
+      cedula: `${PREFIJO}0002`, fechaNac: '1994-09-30', sexo: 'F',
+      telefono: '0414-0000002',
+      direccion: 'Calle de la semilla, casa 2 [SEMILLA]',
+      numeroPreimpreso: `${PREFIJO}PL-0002`,
+    },
+    {
+      email: `estudiante3${DOMINIO}`,
+      primerNombre: 'Estudiante', segundoNombre: 'Tres',
+      primerApellido: 'Semilla', segundoApellido: 'Gamma',
+      cedula: `${PREFIJO}0003`, fechaNac: '1998-01-22', sexo: 'M',
+      telefono: '0414-0000003',
+      direccion: 'Calle de la semilla, casa 3 [SEMILLA]',
+      numeroPreimpreso: `${PREFIJO}PL-0003`,
+    },
   ],
 
   // Contenido mínimo de M6. La regla que decide el ESTADO de cada fila es:
@@ -269,9 +359,12 @@ async function asegurarCuenta({ email, nombres, apellidos }) {
       password: PASSWORD,
       email_confirm: true,
       // `handle_new_user()` lee `nombres`/`apellidos` de aquí y con ellos
-      // rellena `profiles`. No se manda la planilla de aspirante completa a
-      // propósito: así no se crea fila en `aspirantes` (que exige fecha de
-      // nacimiento, sexo y dirección, y cuyo CHECK de tutor legal reventaría).
+      // rellena `profiles`. Aquí **sólo** viaja el nombre a propósito: la
+      // planilla de aspirante se escribe aparte y explícitamente (ver el paso
+      // 6b de `sembrar`), no como efecto colateral del alta. El trigger sólo
+      // crearía la ficha si el alta trajera la planilla completa en los
+      // metadatos, y entonces la ficha dependería de la forma exacta de un
+      // `user_metadata` — un acoplamiento invisible desde este archivo.
       user_metadata: { nombres, apellidos },
     },
   });
@@ -288,6 +381,79 @@ async function asegurarCuenta({ email, nombres, apellidos }) {
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`crear ${email}: el trigger no dejó fila en profiles.`);
+}
+
+/**
+ * La ficha de `aspirantes` de un estudiante sembrado, con su planilla llena.
+ *
+ * **Por qué existe esto.** Hasta el 2026-09-30 el sembrado creaba a los tres
+ * estudiantes **sin ficha**, y eso dejaba la cadena de la planilla sin poder
+ * demostrarse: medido con `C:/tmp/medir-fichas-vs-matriculas.mjs`, había
+ * `matriculas_con_ficha = 0`. Consecuencia exacta: el PDF de la planilla no
+ * tenía nada que pintar para nadie, ni en la pantalla del aspirante ni en la
+ * del administrador. Un sembrado «completo» que deja un módulo entero sin
+ * poder ejercitarse no está completo.
+ *
+ * **La planilla lleva los trece campos obligatorios y no once.** El trigger
+ * `aspirantes_validar_planilla` llama a `validar_planilla()`, que exige todos
+ * los campos `activo and obligatorio` cuya condición se cumpla —y medido el
+ * 2026-09-30, ninguno de los trece tiene condición—. Si falta uno, el insert
+ * aborta con `23514` y **nombra el campo**: por eso el error se lee bien, pero
+ * por eso también conviene no dejar que ocurra.
+ *
+ * `curso_seleccionado` viaja como el **uuid** de la propuesta formativa: es el
+ * único vocabulario que acepta `resolver_programa_inscripcion()`. La
+ * tolerancia al nombre se retiró en `202609250002`.
+ */
+function fichaDe(estudiante, cursoLibreId) {
+  const { domicilio } = SEMILLA;
+
+  const nombres = [estudiante.primerNombre, estudiante.segundoNombre]
+    .filter(Boolean)
+    .join(' ');
+  const apellidos = [estudiante.primerApellido, estudiante.segundoApellido]
+    .filter(Boolean)
+    .join(' ');
+
+  // Las cuatro piezas van **sueltas** en `datos_planilla` porque es lo que el
+  // formulario guarda y lo que el PDF pinta campo a campo. Las columnas
+  // `nombres`/`apellidos` de la ficha guardan el compuesto: son otra cosa, y
+  // por eso se componen desde las piezas y no al revés.
+  const datosPlanilla = {
+    primer_nombre: estudiante.primerNombre,
+    segundo_nombre: estudiante.segundoNombre,
+    primer_apellido: estudiante.primerApellido,
+    segundo_apellido: estudiante.segundoApellido,
+    cedula: estudiante.cedula,
+    nacionalidad: domicilio.nacionalidad,
+    fecha_nac: estudiante.fechaNac,
+    sexo: estudiante.sexo,
+    estado_civil: 'SOLTERO',
+    estado: domicilio.estado,
+    municipio: domicilio.municipio,
+    parroquia: domicilio.parroquia,
+    direccion: estudiante.direccion,
+    telefono: estudiante.telefono,
+    email: estudiante.email,
+    nivel_educativo: domicilio.nivelEducativo,
+    nivel_avance: 'CULMINO',
+    curso_seleccionado: cursoLibreId,
+    numero_preimpreso: estudiante.numeroPreimpreso,
+  };
+
+  return {
+    cedula: estudiante.cedula,
+    nombres,
+    apellidos,
+    fecha_nac: estudiante.fechaNac,
+    sexo: estudiante.sexo,
+    telefono: estudiante.telefono,
+    email: estudiante.email,
+    direccion: estudiante.direccion,
+    nivel_educativo: domicilio.nivelEducativo,
+    program_id: cursoLibreId,
+    datos_planilla: datosPlanilla,
+  };
 }
 
 // ============================================================================
@@ -397,6 +563,22 @@ async function sembrar() {
   hecho.programa.is_active = true;
   console.log('  Programa publicado (is_active = true) tras cargarle el pensum');
 
+  // --- 4b. La propuesta formativa (CURSO_LIBRE) -----------------------------
+  //  Nace **activa**, al revés que la carrera, y no es una inconsistencia: la
+  //  Regla 1 de M2 —«una carrera activa no puede quedarse sin materias»— sólo
+  //  se aplica a los programas de tipo `CARRERA`. Un `CURSO_LIBRE` no tiene
+  //  pensum, así que no hay nada que cargarle antes de publicarlo.
+  //
+  //  Hace falta porque `curso_seleccionado` de la planilla sólo admite un
+  //  `CURSO_LIBRE` activo (ver `SEMILLA.cursoLibre`). Sin esta fila, la ficha
+  //  del paso 6b no se puede escribir.
+  const cursoLibre = uno(
+    await upsert('programs', [{ ...SEMILLA.cursoLibre, is_active: true }], 'code'),
+  );
+  if (!cursoLibre?.id) throw new Error('No se pudo crear/leer el CURSO_LIBRE.');
+  hecho.cursoLibre = cursoLibre;
+  console.log(`  Propuesta formativa: ${cursoLibre.code} — ${cursoLibre.name}`);
+
   // --- 5. Aulas -------------------------------------------------------------
   const aulas = await upsert('classrooms', SEMILLA.aulas, 'name');
   hecho.aulas = aulas;
@@ -416,10 +598,42 @@ async function sembrar() {
 
   const estudiantes = [];
   for (const e of SEMILLA.estudiantes) {
-    estudiantes.push({ ...(await asegurarCuenta(e)), email: e.email });
+    const apellidos = [e.primerApellido, e.segundoApellido].filter(Boolean).join(' ');
+    const cuenta = await asegurarCuenta({
+      email: e.email,
+      nombres: e.primerNombre,
+      apellidos,
+    });
+    estudiantes.push({ ...cuenta, email: e.email, declarado: e });
   }
   hecho.estudiantes = estudiantes;
   console.log(`  Estudiantes: ${estudiantes.map((e) => e.email).join(', ')}`);
+
+  // --- 6b. Fichas de aspirante, con su planilla -----------------------------
+  //  Se escriben **aquí y no en el alta de la cuenta**: ver el porqué en
+  //  `asegurarCuenta` (acoplamiento invisible) y en `fichaDe` (qué lleva).
+  //
+  //  Esto es lo que faltaba para que la cadena de la planilla se pudiera
+  //  ejercitar. Antes de este paso, medido: `matriculas_con_ficha = 0`, así que
+  //  ni el aspirante podía descargar su planilla ni el administrador la de
+  //  nadie — el diálogo «Ver inscritos» listaba tres personas y las tres
+  //  respondían `SIN_FICHA_DE_ASPIRANTE`.
+  //
+  //  `on_conflict=user_id` es la clave natural. `aspirantes` tiene UNIQUE en
+  //  `user_id`, `cedula` y `email`; de las tres, la que identifica a la persona
+  //  es su cuenta, y las otras dos son datos que la persona puede corregir. Un
+  //  sembrado anclado en la cédula se rompe el día que alguien corrige una
+  //  cédula, y encima deja la ficha anterior huérfana.
+  const fichas = estudiantes.map((e) => ({
+    user_id: e.id,
+    ...fichaDe(e.declarado, cursoLibre.id),
+  }));
+  const fichasGuardadas = await upsert('aspirantes', fichas, 'user_id');
+  hecho.fichas = fichasGuardadas;
+  console.log(
+    `  Fichas de aspirante: ${Array.isArray(fichasGuardadas) ? fichasGuardadas.length : 0} con planilla ` +
+      `(propuesta: ${cursoLibre.code})`,
+  );
 
   // --- 7. Sección -----------------------------------------------------------
   const materiaSeccion = porCodigo.get(SEMILLA.seccion.materiaCode);
@@ -688,6 +902,17 @@ async function limpiar() {
   //    (las clases de caracteres son cosa de SIMILAR TO, no de LIKE).
   await borrar('aulas', `/classrooms?name=like.*${encodeURIComponent('[SEMILLA]')}*`);
 
+  // 6b. Las fichas de aspirante, **antes** que las cuentas.
+  //
+  //     `aspirantes.user_id` es `on delete set null`, no `cascade`. Si se
+  //     borrara la cuenta primero, la ficha no desaparecería: se quedaría con
+  //     `user_id = null`, viva y sin dueño, ocupando su `cedula` única. La
+  //     siguiente corrida del sembrado la volvería a enlazar sin que nadie se
+  //     enterara, y una limpieza «completa» habría dejado basura. El marcador
+  //     es el prefijo de la cédula, que es lo que sobrevive a una caída —el
+  //     mismo criterio que el resto de esta limpieza—.
+  await borrar('fichas de aspirante', `/aspirantes?cedula=like.${PREFIJO}*`);
+
   // 7. Cuentas. Borrar el usuario de Auth arrastra su `profiles` por FK
   //    (`on delete cascade`), así que no hace falta borrar el perfil aparte.
   const perfiles = await rest(
@@ -739,8 +964,35 @@ async function verificar() {
     `/profiles?select=id&email=eq.${encodeURIComponent(SEMILLA.docente.email)}&rol=eq.docente`,
   );
 
+  // Las fichas y —lo que de verdad importa— **el cruce** con las matrículas.
+  //
+  // Se cuentan por separado a propósito. «Hay 3 fichas» y «hay 3 matrículas»
+  // pueden ser ciertas a la vez con CERO matrículas que tengan ficha detrás: es
+  // exactamente el estado en el que estaba el sembrado, medido el 2026-09-30.
+  // La aserción que lo habría cazado es la tercera, no las dos primeras.
+  const fichas = await cuenta(`/aspirantes?select=id&cedula=like.${PREFIJO}*`);
+  const fichasFilas = await rest(`/aspirantes?select=user_id&cedula=like.${PREFIJO}*`);
+  const idsConFicha = (fichasFilas ?? []).map((f) => f.user_id).filter(Boolean);
+  const matriculasConFicha =
+    s && idsConFicha.length > 0
+      ? await cuenta(
+          `/enrollments?select=student_id&section_id=eq.${s.id}&student_id=in.(${idsConFicha.join(',')})`,
+        )
+      : 0;
+
+  const curso = uno(
+    await rest(
+      `/programs?code=eq.${SEMILLA.cursoLibre.code}&select=id,is_active,type`,
+    ),
+  );
+
   const filas = [
     ['CARRERA activa', p?.is_active === true && p?.type === 'CARRERA', `${p?.type} / activo=${p?.is_active}`],
+    [
+      'propuesta formativa CURSO_LIBRE activa',
+      curso?.is_active === true && curso?.type === 'CURSO_LIBRE',
+      `${curso?.type} / activo=${curso?.is_active}`,
+    ],
     ['3 materias', materias === 3, `contadas=${materias}`],
     ['pensum de 3', pensum === 3, `contados=${pensum}`],
     ['2 aulas', aulas === 2, `contadas=${aulas}`],
@@ -751,6 +1003,16 @@ async function verificar() {
     ['cuadrante con 2 clases', slots === 2, `clases=${slots}`],
     ['1 anuncio PUBLICADO en M6', anunciosM6 === 1, `anuncios=${anunciosM6}`],
     ['1 tarea BORRADOR en M6', tareasM6 === 1, `tareas=${tareasM6}`],
+    ['3 fichas de aspirante', fichas === 3, `contadas=${fichas}`],
+    // La que de verdad cierra el agujero. Las dos anteriores pueden estar en
+    // verde con este número en cero —así estaba el 2026-09-30—, y un sembrado
+    // así deja la planilla sin poder imprimirse para nadie.
+    [
+      '3 matrículas CON ficha detrás',
+      matriculasConFicha === 3,
+      `con ficha=${matriculasConFicha} de ${matriculas.length} — sin esto la ` +
+        'planilla no se puede imprimir (SIN_FICHA_DE_ASPIRANTE)',
+    ],
   ];
 
   let fallos = 0;
@@ -791,8 +1053,10 @@ try {
       ? uno(await rest(`/academic_periods?code=eq.${encodeURIComponent(lapso)}&select=code`))
       : null;
     console.log(`\n  Lapso vigente: ${lapso ?? '(vacío)'} ${registrado ? '· registrado' : '· NO registrado'}`);
-    console.log('\n  Sembraría: 1 carrera, 3 materias, 1 pensum, 2 aulas,');
-    console.log('             1 sección, 1 docente, 3 estudiantes, 3 matrículas, 2 clases,');
+    console.log('\n  Sembraría: 1 carrera, 1 propuesta formativa CURSO_LIBRE, 3 materias,');
+    console.log('             1 pensum, 2 aulas, 1 sección, 1 docente, 3 estudiantes,');
+    console.log('             3 matrículas ENROLLED, 2 clases,');
+    console.log('             3 fichas de aspirante con su planilla llena,');
     console.log('             1 anuncio PUBLICADO y 1 tarea BORRADOR en el aula de M6.');
     console.log('\n  Simulación: no se escribió nada. Repite con --confirmar.\n');
     process.exit(0);

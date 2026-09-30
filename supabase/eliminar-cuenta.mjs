@@ -359,6 +359,22 @@ if (archivos.length > 0) {
   console.log('\n  Sin objetos de R2 que borrar.');
 }
 
+// La FICHA DE ASPIRANTE, antes que el usuario.
+//
+// `aspirantes.user_id` es `ON DELETE SET NULL`, no `CASCADE`: borrar el usuario
+// de Auth **no borra la ficha**, la deja con `user_id = null`. La auditoría de
+// arriba ya lo reportaba —«sobrevive, pierde el dueño»— pero reportarlo no es
+// arreglarlo, y la consecuencia no es cosmética: `aspirantes.cedula` y
+// `aspirantes.email` son **únicas**, así que la ficha huérfana se queda
+// ocupando el documento y el correo de una persona que ya no existe, y esa
+// persona **no puede volver a inscribirse**: el alta choca contra el 23505.
+//
+// Medido el 2026-09-30, justo así: se borró la cuenta de prueba y su ficha
+// sobrevivió con `user_id` nulo. `sembrar-datos.mjs` borra las suyas por el
+// marcador de la cédula y lo documenta en el paso 6b de su limpieza; esto es la
+// misma trampa por el otro camino, el de una cuenta real.
+await sql(`delete from public.aspirantes where user_id = '${cuenta.id}'`);
+
 // El perfil primero: si se borrara el usuario y fallara el perfil, quedaría un
 // `profiles` colgado. Al revés, lo peor que queda es un usuario sin perfil, que
 // el script puede reconstruir después.
@@ -369,11 +385,19 @@ const quedan = await sql(
   `select count(*)::int as n from auth.users where lower(email) = lower('${escapar(email)}')`,
 );
 
+// Y se comprueba la ficha, no sólo el usuario: «eliminada por completo» era una
+// afirmación sobre `auth.users` a secas, y con la ficha huérfana delante era
+// falsa. Lo que no se mide no se puede afirmar.
+const fichaRestante = await sql(
+  `select count(*)::int as n from public.aspirantes where user_id = '${cuenta.id}'`,
+);
+
 console.log('\n  Resultado:');
 console.log(`    perfiles restantes con ese id : ${(await sql(`select count(*)::int as n from public.profiles where id = '${cuenta.id}'`))[0].n}`);
 console.log(`    usuarios restantes con ese correo: ${quedan[0].n}`);
+console.log(`    fichas de aspirante restantes   : ${fichaRestante[0].n}`);
 console.log(
-  quedan[0].n === 0
+  quedan[0].n === 0 && fichaRestante[0].n === 0
     ? '\n  Cuenta eliminada por completo.\n'
     : '\n  ATENCIÓN: todavía queda algo. Revísalo antes de dar el borrado por bueno.\n',
 );
