@@ -3299,10 +3299,24 @@ class PlanillaSupabase implements PuertaPlanilla {
   }
 
   async generarPdf(usuarioId: string): Promise<Uint8Array> {
+    // `program_id` + su relación, **no** `curso_seleccionado`.
+    //
+    // D14 (`202609250001`) hizo `drop column curso_seleccionado` y añadió
+    // `program_id uuid` con clave foránea. Esta consulta se quedó con el nombre
+    // viejo y devolvía `42703 column aspirantes.curso_seleccionado does not
+    // exist` — un 500 en la ruta entera. No lo cazó nada: `Fila` es
+    // `Record<string, unknown>`, así que el tipo de una columna dentro de una
+    // cadena de `select` no existe para el compilador, y la prueba de
+    // `planilla-pdf.test.ts` ejercita el **renderizador** con una entrada hecha
+    // a mano, nunca esta consulta. Se midió con una ficha real el 2026-09-30.
+    //
+    // Se pide la relación para poder imprimir el **nombre** de la propuesta
+    // formativa y no su uuid: `identidad` es el respaldo que usa `valorPlano`
+    // cuando la planilla no trae el valor.
     const respuesta = await this.cliente
       .from(TABLA_ASPIRANTES)
       .select(
-        'datos_planilla, cedula, nombres, apellidos, email, fecha_nac, sexo, telefono, direccion, nivel_educativo, curso_seleccionado',
+        'datos_planilla, cedula, nombres, apellidos, email, fecha_nac, sexo, telefono, direccion, nivel_educativo, program_id, programs(name)',
       )
       .eq('user_id', usuarioId)
       .single();
@@ -3330,6 +3344,12 @@ class PlanillaSupabase implements PuertaPlanilla {
     // El catálogo activo ordenado: la fuente de verdad de qué grupos y campos pintar.
     const campos = await this.campos();
 
+    // La relación incrustada llega como objeto (`programs: { name }`) o `null`;
+    // `objetoOpcional` la normaliza sin asumir la forma. Si la relación no
+    // llegara, se cae al uuid antes que dejar el campo en blanco: en una planilla
+    // impresa un identificador se nota y se puede corregir; un hueco, no.
+    const programa = objetoOpcional(fila.programs);
+
     // Respaldo con las columnas de identidad de `aspirantes` para los campos del
     // catálogo que el formulario pudo no haber escrito con la misma clave.
     const identidad: Record<string, string | null> = {
@@ -3340,7 +3360,11 @@ class PlanillaSupabase implements PuertaPlanilla {
       sexo: texto(fila.sexo),
       direccion: texto(fila.direccion),
       nivel_educativo: texto(fila.nivel_educativo),
-      curso_seleccionado: texto(fila.curso_seleccionado),
+      // La CLAVE sigue siendo `curso_seleccionado` —es el código del campo en el
+      // catálogo y `valorPlano` busca por código—; lo que cambió es de dónde sale
+      // el valor: del nombre del programa relacionado, no de una columna que D14
+      // se llevó.
+      curso_seleccionado: texto(programa?.name) ?? texto(fila.program_id),
       primer_nombre: texto(fila.nombres)?.split(/\s+/)[0] ?? null,
       primer_apellido: texto(fila.apellidos)?.split(/\s+/)[0] ?? null,
     };
