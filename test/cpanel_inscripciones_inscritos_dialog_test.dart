@@ -96,9 +96,13 @@ void main() {
       expect(find.text('Inscritos — Soldadura por Arco'), findsOneWidget);
       expect(find.text('Ana Pérez'), findsOneWidget);
       expect(find.text('Beto López'), findsOneWidget);
-      // El estado se lee en español, no como el valor del backend.
-      expect(find.textContaining('Matriculado'), findsOneWidget);
-      expect(find.textContaining('En cola'), findsOneWidget);
+      // El estado se lee en español, no como el valor del backend. La aserción
+      // es **exacta** y no `textContaining`, y eso se aprendió de un rojo real:
+      // el subtítulo del propio diálogo —«Matriculados, en cola y con oferta
+      // viva…»— contiene «Matriculado», así que una búsqueda por subcadena
+      // encontraba **dos** widgets y la prueba caía por su propia descripción.
+      expect(find.text('Matriculado · ana@inces.gob.ve'), findsOneWidget);
+      expect(find.text('En cola · beto@inces.gob.ve'), findsOneWidget);
       // Un botón por persona: es lo que hace que la planilla sea de alguien.
       expect(find.byKey(const Key('descargar-planilla-est-A')), findsOneWidget);
       expect(find.byKey(const Key('descargar-planilla-est-B')), findsOneWidget);
