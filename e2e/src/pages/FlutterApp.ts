@@ -65,6 +65,16 @@ function paraRegExp(texto: string): RegExp {
   return new RegExp('^' + texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
 }
 
+/**
+ * Cuántas veces se reintenta un tecleo completo antes de darse por vencido.
+ *
+ * **Tres y no dos**: el fallo medido en CI ganó dos veces seguidas —el intento
+ * original y el reintento del propio runner—, así que dos no bastaban. Y no más,
+ * porque un tecleo que no llega en tres intentos ya no es una carrera: es que el
+ * campo no es el que se cree, y eso hay que verlo en el diagnóstico.
+ */
+const INTENTOS_DE_TECLEO = 3;
+
 export class FlutterApp {
   readonly page: Page;
 
@@ -206,6 +216,33 @@ export class FlutterApp {
    *      sobre el wrapper medido: no llega.
    *   3. Se lee el `input.value` y se rompe si no llegó — el error lleva el
    *      volcado del árbol para que se vea de qué se dispone.
+   *
+   * **Medido el 2026-09-29: el tecleo se reintenta, y no era opcional.** La
+   * medición de arriba ya decía que Flutter **reconstruye el input al mover el
+   * foco**; lo que faltaba era qué pasa cuando el primer evento cae en el input
+   * que acaba de morir. En el runner de CI —más lento y en frío— se perdía el
+   * **primer carácter del segundo campo**: el login escribía en «Contraseña»
+   * `Codenamelms33$` y el input quedaba en `odenamelms33$`, que es exactamente
+   * el secreto menos su `C` inicial. Dos corridas de CI fallaron así, con dos
+   * intentos cada una (`#36566067843`, la nocturna, y `#36653741728`, de un
+   * `push`), y **en local no se reproduce: 30 de 30 pruebas en verde** (3
+   * repeticiones de `export_csv`). O sea que la comprobación hacía su trabajo
+   * —detectaba el tecleo perdido y lo publicaba— pero no lo recuperaba, y el
+   * rojo dependía de la velocidad de la máquina. Un rojo que depende de la
+   * máquina es peor que un rojo: enseña a desconfiar de la suite.
+   *
+   * Por eso ahora el tecleo completo se reintenta hasta [INTENTOS_DE_TECLEO]
+   * veces: se vacía el campo y se vuelve a escribir, y sólo se da por bueno
+   * cuando el `input.value` **es** el texto. Es insensible al mecanismo —sirve
+   * para cualquier causa de un tecleo perdido— y no puede dar un falso verde: la
+   * aserción sigue siendo la igualdad exacta, y si no llega se rompe con el
+   * mismo diagnóstico de siempre, ahora con el valor final a la vista.
+   *
+   * **Y el arreglo no se puede dar por bueno desde aquí.** En local no hay
+   * carrera que perder: 22 de 22 en verde con el arreglo puesto (2 repeticiones
+   * de la suite entera). El único sitio donde esto se reproduce es el runner de
+   * CI, así que **es CI quien decide si el arreglo sirve** — y mientras no
+   * corra allí, esto es una hipótesis con buena pinta, no un hecho.
    */
   async escribirEn(campo: string, texto: string): Promise<void> {
     const entrada = this.campo(campo).first();
@@ -219,19 +256,35 @@ export class FlutterApp {
       );
     }
 
-    await entrada.click();
-    await entrada.pressSequentially(texto, { delay: 12 });
+    let ultimo: string | null = null;
 
-    // El valor real del widget es el del input que lo respalda.
-    await expect
-      .poll(async () => await entrada.inputValue(), {
-        message:
-          `Se tecleó en «${campo}» pero el input no refleja el texto — ` +
-          'el tecleo no llegó al widget. Diagnóstico:\n' +
-          (await this.diagnostico()),
-        timeout: 10_000,
-      })
-      .toBe(texto);
+    for (let intento = 1; intento <= INTENTOS_DE_TECLEO; intento++) {
+      await entrada.click();
+      await entrada.pressSequentially(texto, { delay: 12 });
+
+      // El valor real del widget es el del input que lo respalda.
+      try {
+        await expect
+          .poll(async () => await entrada.inputValue(), { timeout: 6_000 })
+          .toBe(texto);
+        return; // Llegó entero: no hay nada que reintentar.
+      } catch {
+        ultimo = await entrada.inputValue().catch(() => null);
+      }
+
+      // Se vacía antes del siguiente intento: `pressSequentially` **añade**, así
+      // que sin esto el reintento dejaría delante el texto del intento fallido y
+      // el resultado sería todavía más difícil de leer.
+      await entrada.press('ControlOrMeta+a').catch(() => {});
+      await entrada.press('Delete').catch(() => {});
+    }
+
+    throw new Error(
+      `Se tecleó en «${campo}» ${INTENTOS_DE_TECLEO} veces y el input nunca ` +
+        'reflejó el texto — el tecleo no llega al widget. Lo último que quedó: ' +
+        `«${ultimo ?? '(vacío)'}», cuando se esperaba «${texto}». Diagnóstico:\n` +
+        (await this.diagnostico()),
+    );
   }
 
   /** Devuelve el `<input>` real de un campo, localizado por su etiqueta. */
