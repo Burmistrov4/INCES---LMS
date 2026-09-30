@@ -70,19 +70,25 @@ class IncesTheme {
   static const Color error = Color(0xFFDC2626);
   static const Color info = Color(0xFF2563EB);
 
-  /// El rojo de una **superficie** de error, no el de un texto ni el de un borde.
+  /// Lo que va **encima de un rojo de error**: el texto y el icono de un aviso
+  /// flotante.
   ///
-  /// [error] sirve para pintar texto o un borde sobre fondo claro, pero no para
-  /// rellenar un bloque que lleva texto blanco encima: blanco sobre `#DC2626` da
-  /// **4.41:1**, por debajo del 4.5:1 que WCAG AA pide para texto normal. Este
-  /// tono da **6.47:1** y sigue leyéndose como rojo de error. Medido el
-  /// 2026-09-30.
-  static const Color superficieError = Color(0xFFB91C1C);
-
-  /// Lo que va encima de [superficieError]: el texto y los iconos de un aviso
-  /// rojo. Se declara aunque hoy coincida con blanco puro para que el par quede
-  /// escrito: un aviso rojo con el texto del tema encima es exactamente el fallo
-  /// que este rol evita —en modo oscuro el tema pone texto oscuro ahí—.
+  /// Existe porque el fallo real no estaba en el fondo sino en quién elegía el
+  /// texto. El aviso llevaba `backgroundColor` rojo y **ningún** color de texto,
+  /// así que lo ponía Material con `onInverseSurface` — claro en tema claro y
+  /// **oscuro en tema oscuro—: en modo oscuro el aviso se leía casi negro sobre
+  /// rojo. Con este rol, el par queda escrito.
+  ///
+  /// Blanco sobre [error] (#DC2626) da **4.83:1**, que sí pasa AA.
+  ///
+  /// Por eso **no** hay un `superficieError` más oscuro. Lo hubo, y se fue con el
+  /// fallo que decía arreglar: se añadió creyendo que el par daba 4.41:1 —por
+  /// debajo de 4.5—, y esa cifra era una cuenta **a mano** mal hecha. La medición
+  /// real dice 4.83:1. Lo detectó CI, que es donde corre la prueba de contraste:
+  /// aquí `flutter test` no arranca. La lección queda escrita porque costó una
+  /// corrida: **una cifra de contraste no entra en un comentario si no sale del
+  /// medidor**, y una prueba no puede afirmar que algo falla sin haberlo medido
+  /// con el mismo instrumento que usa para afirmar que pasa.
   static const Color sobreError = Color(0xFFFFFFFF);
 
   /// El fondo de un bloque de advertencia.

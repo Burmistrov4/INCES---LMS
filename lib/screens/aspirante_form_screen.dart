@@ -572,7 +572,10 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           // color lo ponía Material con `onInverseSurface` — claro en tema claro
           // y **oscuro en tema oscuro**. Sobre este rojo fijo, el aviso se leía
           // blanco en un tema y casi negro en el otro. Medido el 2026-09-30.
-          backgroundColor: IncesTheme.superficieError,
+          //
+          // El fondo **no** hace falta oscurecerlo: blanco sobre #DC2626 da
+          // 4.83:1, que pasa AA. Lo que faltaba era decir quién pinta el texto.
+          backgroundColor: IncesTheme.error,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 6),
           shape: RoundedRectangleBorder(

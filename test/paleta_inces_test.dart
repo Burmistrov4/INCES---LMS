@@ -118,12 +118,18 @@ void main() {
     // No dependen del brillo: son superficies saturadas con su propio
     // contenido encima. Si esto se rompe, el aviso rojo o el ámbar dejan de
     // leerse en un tema.
+    //
+    // El aviso flotante de error es el par que de verdad se pinta: fondo
+    // `IncesTheme.error` y encima `sobreError`. Se mide porque el fallo original
+    // **no** estaba en el fondo sino en que nadie declaraba el color del texto:
+    // lo ponía Material con `onInverseSurface`, que en modo oscuro es oscuro, o
+    // sea un aviso rojo con texto casi negro.
     _exigeContraste(
-      'sobreError sobre superficieError',
+      'sobreError sobre error (el aviso flotante)',
       IncesTheme.sobreError,
-      IncesTheme.superficieError,
+      IncesTheme.error,
       minimo: _textoAA,
-      porque: 'es el texto del aviso flotante de error',
+      porque: 'es el texto y el icono del aviso de error, sobre el rojo del tema',
     );
     _exigeContraste(
       'textoAdvertencia sobre superficieAdvertencia',
@@ -140,18 +146,18 @@ void main() {
       porque: 'es el icono dentro del bloque ámbar',
     );
 
-    test('blanco sobre error NO se usa: por eso existe superficieError', () {
-      // Se afirma el fallo en vez de esconderlo. `IncesTheme.error` (#DC2626)
-      // sirve para texto y para bordes, pero no como relleno con texto blanco
-      // encima, y por eso el aviso flotante usa `superficieError`. Si alguien
-      // "simplificara" usando `error` de fondo, esto explica por qué no.
-      final blancoSobreError =
-          _contraste(Colors.white, IncesTheme.error);
+    test('blanco sobre error pasa AA, y por eso no hay un rojo más oscuro', () {
+      // Aquí hubo una prueba que afirmaba lo contrario —que este par fallaba— y
+      // se equivocaba. La cifra se había calculado **a mano** y salió 4.41:1;
+      // medida con el mismo instrumento que usa el resto del archivo, es 4.83:1.
+      // CI la cazó: aquí `flutter test` no arranca. Se deja escrita la medición
+      // para que nadie vuelva a añadir un rol que arregle un fallo inexistente.
+      final blancoSobreError = _contraste(Colors.white, IncesTheme.error);
       expect(
         blancoSobreError,
-        lessThan(_textoAA),
-        reason: 'si blanco sobre #DC2626 pasara 4.5:1, `superficieError` '
-            'sobraría y habría que revisar por qué está',
+        greaterThanOrEqualTo(_textoAA),
+        reason: 'si algún día bajara de 4.5:1, sí haría falta oscurecer el fondo '
+            'del aviso, y entonces habría que añadir el rol que hoy sobra',
       );
     });
 
