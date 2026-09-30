@@ -21,12 +21,18 @@ import '../widgets/comunes.dart';
 /// estado que exige una acción **con fecha límite** tiene que gritar; uno que
 /// sólo informa tiene que callar. Por eso:
 ///
-///   · `PENDING_BID` → **ámbar** ([IncesTheme.advertencia]). Es el único estado
+///   · `PENDING_BID` → **ámbar** (`PaletaInces.advertencia`). Es el único estado
 ///     que caduca: si el alumno no lo ve, pierde el cupo y vuelve a la cola.
-///   · `ENROLLED` → **verde** ([IncesTheme.exito]). Resuelto, nada que hacer.
-///   · `WAITLISTED` → **azul** ([IncesTheme.info]). Espera informativa: hay una
+///   · `ENROLLED` → **verde** (`PaletaInces.exito`). Resuelto, nada que hacer.
+///   · `WAITLISTED` → **azul** (`PaletaInces.info`). Espera informativa: hay una
 ///     posición, pero no hay nada que pulsar salvo renunciar.
-///   · `DROPPED` → **gris** ([ColorScheme.onSurfaceVariant]). Historial apagado.
+///   · `DROPPED` → **gris** (`ColorScheme.onSurfaceVariant`). Historial apagado.
+///
+/// Los tres acentos de estado son los de `PaletaInces` y **no** los de
+/// `IncesTheme` porque el chip los pinta como letra sobre su propio tinte, y ahí
+/// los colores de relleno no llegan a AA en ninguno de los dos brillos. Medido el
+/// 2026-09-30: verde 2.65:1 en claro, ámbar 1.81:1 en claro, azul 2.54:1 en
+/// oscuro.
 ///
 /// **Por qué los colores estaban al revés, y qué costaba.** La versión anterior
 /// pintaba `WAITLISTED` en ámbar y `PENDING_BID` en azul: el estado pasivo
@@ -410,17 +416,24 @@ class _InsigniaEstado extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Los tres acentos de estado salen de la paleta, que sí distingue el brillo.
+    // Los de `IncesTheme` son de relleno: como letra sobre su propio tinte, el
+    // verde da 2.65:1 en claro, el ámbar 1.81:1 y el azul 2.54:1 en oscuro.
+    // Medido el 2026-09-30. El gris se queda como estaba: `onSurfaceVariant` pasa
+    // 4.62:1 en el peor de los casos —es, de hecho, el mismo valor que el rol
+    // `neutro` de la paleta—, así que no hacía falta moverlo.
+    final paleta = PaletaInces.de(context);
     final (color, texto, icono) = switch (estado) {
       EstadoInscripcion.enrolled =>
-        (IncesTheme.exito, 'Matriculado', Icons.check_circle_outline),
+        (paleta.exito, 'Matriculado', Icons.check_circle_outline),
       // Ámbar y no el azul primario: es el estado que exige acción. Antes iba en
       // azul y el aviso de urgencia se perdía entre los azules de la interfaz.
       EstadoInscripcion.pendingBid =>
-        (IncesTheme.advertencia, 'Oferta en el aire', Icons.local_offer_outlined),
+        (paleta.advertencia, 'Oferta en el aire', Icons.local_offer_outlined),
       // Azul informativo y no ámbar: en la cola no hay nada que hacer salvo
       // esperar (o renunciar), así que la fila no debe reclamar atención.
       EstadoInscripcion.waitlisted =>
-        (IncesTheme.info, 'En cola', Icons.people_outline),
+        (paleta.info, 'En cola', Icons.people_outline),
       EstadoInscripcion.dropped => (
         theme.colorScheme.onSurfaceVariant,
         'Renunciado',

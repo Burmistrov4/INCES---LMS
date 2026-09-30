@@ -330,6 +330,11 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final terminado = _marcada || _yaEstaba;
+    // El icono de 48 px cae sobre la superficie de la tarjeta. Los dos acentos
+    // fallaban en modo oscuro: `#16A34A` daba 2.90:1 —por debajo del 3:1 que WCAG
+    // pide a un gráfico con significado— y el azul primario, 2.14:1. Medido el
+    // 2026-09-30.
+    final paleta = PaletaInces.de(context);
 
     // La sustitución explícita manda; si nadie la pasó, decide la plataforma.
     final accionAdyacente =
@@ -347,7 +352,7 @@ class _MarcarAsistenciaPanelState extends State<MarcarAsistenciaPanel> {
               Icon(
                 terminado ? Icons.check_circle : Icons.pin_outlined,
                 size: 48,
-                color: terminado ? IncesTheme.exito : theme.colorScheme.primary,
+                color: terminado ? paleta.exito : paleta.info,
               ),
               const SizedBox(height: 8),
               Text(

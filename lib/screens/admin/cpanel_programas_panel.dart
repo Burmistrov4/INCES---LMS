@@ -464,9 +464,12 @@ class _TarjetaPrograma extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // El gris de «En borrador» es un rol de texto apagado: en claro coincide con
-    // el #64748B de antes y en oscuro sube al tono legible sobre la tarjeta.
+    // Los dos tintes de esta tarjeta salen de la paleta y no del `ColorScheme`.
+    // El azul primario servía en claro (8.29:1) pero **no en oscuro**: ahí el
+    // primario es `#0059B3` y sobre un tinte de sí mismo da 1.99:1. Medido el
+    // 2026-09-30.
     final paleta = PaletaInces.de(context);
+    final parIcono = paleta.etiquetaDe(TonoEstado.info);
     final vacio = programa.estaVacio;
 
     return Card(
@@ -480,7 +483,7 @@ class _TarjetaPrograma extends StatelessWidget {
               height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                color: parIcono.fondo,
                 borderRadius: BorderRadius.circular(IncesTheme.radioControl),
               ),
               child: Icon(
@@ -488,7 +491,7 @@ class _TarjetaPrograma extends StatelessWidget {
                     ? Icons.school_outlined
                     : Icons.auto_stories_outlined,
                 size: 20,
-                color: theme.colorScheme.primary,
+                color: parIcono.texto,
               ),
             ),
             const SizedBox(width: 14),
@@ -508,7 +511,7 @@ class _TarjetaPrograma extends StatelessWidget {
                       const SizedBox(width: 8),
                       _Etiqueta(
                         texto: programa.codigo,
-                        color: theme.colorScheme.onSurfaceVariant,
+                        tono: TonoEstado.neutro,
                       ),
                     ],
                   ),
@@ -520,18 +523,18 @@ class _TarjetaPrograma extends StatelessWidget {
                     children: [
                       _Etiqueta(
                         texto: programa.tipo.etiqueta,
-                        color: theme.colorScheme.primary,
+                        tono: TonoEstado.info,
                       ),
                       _Etiqueta(
                         texto: programa.activo ? 'Publicado' : 'En borrador',
-                        color: programa.activo
-                            ? IncesTheme.exito
-                            : paleta.textoApagado,
+                        tono: programa.activo
+                            ? TonoEstado.exito
+                            : TonoEstado.neutro,
                       ),
                       if (programa.requierePasantia)
                         const _Etiqueta(
                           texto: 'Con pasantía',
-                          color: IncesTheme.info,
+                          tono: TonoEstado.info,
                         ),
                       Text(
                         '${programa.totalMaterias} '
@@ -596,18 +599,28 @@ class _TarjetaPrograma extends StatelessWidget {
   }
 }
 
+/// Etiqueta de estado de un programa: una palabra sobre un tinte.
+///
+/// Recibe un **tono**, no un color. Antes recibía un `Color` y por ahí entraban
+/// tanto los acentos de relleno de `IncesTheme` como el `colorScheme.primary` del
+/// tema: el ámbar daba 1.81:1 sobre su propio tinte en claro y el primario de
+/// oscuro, 1.99:1. Con un tono el color no se puede elegir mal — lo resuelve
+/// `PaletaInces` con el brillo montado, y el 12 % del tinte se decide en un solo
+/// sitio. Medido el 2026-09-30.
 class _Etiqueta extends StatelessWidget {
-  const _Etiqueta({required this.texto, required this.color});
+  const _Etiqueta({required this.texto, required this.tono});
 
   final String texto;
-  final Color color;
+  final TonoEstado tono;
 
   @override
   Widget build(BuildContext context) {
+    final par = PaletaInces.de(context).etiquetaDe(tono);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: par.fondo,
         borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
@@ -615,7 +628,7 @@ class _Etiqueta extends StatelessWidget {
         style: GoogleFonts.inter(
           fontSize: 10.5,
           fontWeight: FontWeight.w700,
-          color: color,
+          color: par.texto,
         ),
       ),
     );
@@ -651,7 +664,7 @@ class _DialogoDetallePrograma extends StatelessWidget {
           const SizedBox(width: 8),
           _Etiqueta(
             texto: detalle.programa.codigo,
-            color: theme.colorScheme.primary,
+            tono: TonoEstado.neutro,
           ),
         ],
       ),

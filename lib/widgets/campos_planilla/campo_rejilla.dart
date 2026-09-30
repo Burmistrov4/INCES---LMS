@@ -183,7 +183,7 @@ class CampoRejilla extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             error!,
-            style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
+            style: GoogleFonts.inter(fontSize: 12, color: paleta.error),
           ),
         ],
       ],

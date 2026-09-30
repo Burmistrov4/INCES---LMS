@@ -83,6 +83,10 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // El aviso rojo de más abajo escribe sobre un tinte de su propio color, y ahí
+    // el rojo de relleno no llega: `#DC2626` da 4.28:1 en claro y 2.92:1 en
+    // oscuro. Medido el 2026-09-30.
+    final parError = PaletaInces.de(context).etiquetaDe(TonoEstado.error);
 
     // Raíz desplazable, igual que los paneles de módulos y parámetros:
     // `ContenidoSeccion` entrega una altura acotada y este panel crece con su
@@ -214,22 +218,20 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: IncesTheme.error.withValues(alpha: 0.08),
+              color: parError.fondo,
               borderRadius: BorderRadius.circular(IncesTheme.radioControl),
-              border: Border.all(
-                color: IncesTheme.error.withValues(alpha: 0.3),
-              ),
+              border: Border.all(color: parError.texto.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
-                Icon(Icons.error_outline, color: IncesTheme.error, size: 18),
+                Icon(Icons.error_outline, color: parError.texto, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     _error!,
                     style: GoogleFonts.inter(
                       fontSize: 13,
-                      color: IncesTheme.error,
+                      color: parError.texto,
                     ),
                   ),
                 ),
@@ -252,6 +254,10 @@ class _EnlaceActivacion extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final entregado = invitacion.correoEnviado;
+    // El chip cae sobre un tinte de su propio color: el verde de relleno daba
+    // 2.65:1 en claro y el ámbar, 1.81:1. Medido el 2026-09-30.
+    final parEstado = PaletaInces.de(context)
+        .etiquetaDe(entregado ? TonoEstado.exito : TonoEstado.advertencia);
 
     return Padding(
       padding: const EdgeInsets.only(top: 24),
@@ -272,9 +278,7 @@ class _EnlaceActivacion extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: entregado
-                          ? IncesTheme.exito.withValues(alpha: 0.12)
-                          : IncesTheme.advertencia.withValues(alpha: 0.12),
+                      color: parEstado.fondo,
                       borderRadius: BorderRadius.circular(5),
                     ),
                     child: Text(
@@ -282,9 +286,7 @@ class _EnlaceActivacion extends StatelessWidget {
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: entregado
-                            ? IncesTheme.exito
-                            : IncesTheme.advertencia,
+                        color: parEstado.texto,
                       ),
                     ),
                   ),

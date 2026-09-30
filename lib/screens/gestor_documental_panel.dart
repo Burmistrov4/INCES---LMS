@@ -682,17 +682,23 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
   }
 
   Widget _cajaDeError(ThemeData theme) {
+    // El texto va sobre un tinte de su propio color, y ahí el rojo de relleno no
+    // llega: `#DC2626` da 4.28:1 en claro y 2.92:1 en oscuro, las dos por debajo
+    // de AA. Medido el 2026-09-30. El rol de la paleta sí (5.66:1 y 6.58:1).
+    final par =
+        PaletaInces.deBrillo(theme.brightness).etiquetaDe(TonoEstado.error);
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: IncesTheme.error.withValues(alpha: 0.08),
+        color: par.fondo,
         borderRadius: BorderRadius.circular(IncesTheme.radioControl),
-        border: Border.all(color: IncesTheme.error.withValues(alpha: 0.3)),
+        border: Border.all(color: par.texto.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.error_outline, color: IncesTheme.error, size: 18),
+          Icon(Icons.error_outline, color: par.texto, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -702,7 +708,7 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
                   _error!,
                   style: GoogleFonts.inter(
                     fontSize: 13,
-                    color: IncesTheme.error,
+                    color: par.texto,
                   ),
                 ),
                 if (_sugerencia != null) ...[
@@ -840,10 +846,13 @@ class _GestorDocumentalPanelState extends State<GestorDocumentalPanel> {
               ),
               IconButton(
                 onPressed: () => _borrar(archivo),
+                // El rojo de relleno no vale sobre la tarjeta oscura: `#DC2626`
+                // da 2.85:1, por debajo del 3:1 que WCAG pide a un gráfico con
+                // significado. Medido el 2026-09-30.
                 icon: Icon(
                   Icons.delete_outline,
                   size: 20,
-                  color: IncesTheme.error,
+                  color: PaletaInces.deBrillo(theme.brightness).error,
                 ),
                 tooltip: 'Borrar',
               ),

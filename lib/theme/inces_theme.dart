@@ -63,11 +63,37 @@ class IncesTheme {
   static const Color superficieOscura = Color(0xFF1E293B);
   static const Color bordeOscuro = Color(0xFF334155);
 
-  // --- Colores de estado -------------------------------------------------------
+  // --- Colores de estado, para RELLENO -----------------------------------------
+  //
+  // Estos cuatro son el acento **como relleno**: el fondo de un bloque sólido,
+  // el color de un tinte translúcido o el trazo de un borde decorativo. Son
+  // `const` porque un bloque sólido es sólido en los dos temas y el blanco que
+  // lleva encima no cambia con el brillo.
+  //
+  // **No son el color de una letra ni de un icono.** Para eso está
+  // `PaletaInces`, que sí cambia con el brillo y está medido contra las
+  // superficies. Usarlos como primer plano fue el fallo: de diez combinaciones
+  // acento-sobre-superficie se salvaban dos.
 
-  static const Color exito = Color(0xFF16A34A);
+  /// El verde institucional **de relleno**.
+  ///
+  /// Vale `#15803D` y no `#16A34A` por una razón medida: el blanco sobre
+  /// `#16A34A` da **3.30:1**, por debajo del 4.5:1 que WCAG pide al texto — y
+  /// este verde sólo se usa detrás de texto blanco (los avisos flotantes de
+  /// éxito). Sobre `#15803D` el blanco da **5.01:1** y pasa. Medido el
+  /// 2026-09-30, junto con los cinco acentos de `PaletaInces`.
+  static const Color exito = Color(0xFF15803D);
+
+  /// El ámbar de relleno. Como letra no pasa AA en claro (1.81:1): ver
+  /// `PaletaInces.advertencia`.
   static const Color advertencia = Color(0xFFF59E0B);
+
+  /// El rojo de relleno. El blanco encima da 4.83:1, así que sí sirve detrás de
+  /// texto; como letra sobre su propio tinte da 3.67:1 y no.
   static const Color error = Color(0xFFDC2626);
+
+  /// El azul informativo de relleno. El blanco encima da 5.17:1. Como letra
+  /// sobre blanco da 4.01:1: se queda corto y por eso existe el rol de la paleta.
   static const Color info = Color(0xFF2563EB);
 
   /// Lo que va **encima de un rojo de error**: el texto y el icono de un aviso
@@ -500,6 +526,56 @@ class IncesTheme {
   );
 }
 
+/// Los tonos semánticos de una etiqueta de estado.
+///
+/// Es un enumerado y **no un `Color`** porque el color de una etiqueta depende
+/// del brillo y el estado del dato no. `EstadoModulo` es `const` y tiene que
+/// seguir siéndolo: su trabajo es decir «este módulo está activo», no de qué
+/// color pintarlo. Separando el tono —semántica, sin brillo— del par de colores
+/// —pintura, con brillo— los dos caben sin que ninguno mienta.
+enum TonoEstado { info, exito, advertencia, error, neutro }
+
+/// El par de colores de una etiqueta de estado: su fondo y su texto.
+///
+/// ## Por qué es un par y no dos colores sueltos
+///
+/// Los dos van juntos y se **miden como par**: el color del texto sólo tiene
+/// sentido contra ese fondo concreto. Dos `Color` sueltos invitarían a pintar el
+/// texto de una etiqueta sobre el fondo de otra, y el par medido dejaría de ser
+/// cierto sin que nada avisara.
+///
+/// ## Por qué sólo hay dos colores y no tres
+///
+/// El borde de algunas etiquetas se deriva del texto, pero **no vive aquí**: es
+/// decorativo, WCAG no le exige nada, y meterlo en el par daría a entender que
+/// también está medido. Los dos que sí están son los que tienen una relación que
+/// se puede incumplir.
+@immutable
+class ParDeEtiqueta {
+  const ParDeEtiqueta({required this.fondo, required this.texto});
+
+  /// El fondo: **el propio color de [texto] al 12 %**, translúcido.
+  ///
+  /// Que sea translúcido importa para la medición: el color real del chip es la
+  /// mezcla con la tarjeta que tenga debajo, así que el par se mide contra las
+  /// **dos** superficies donde se ha visto un chip, no contra una sola. Medir
+  /// sólo contra la tarjeta dejaría pasar un color que falla en el bloque hundido
+  /// — que es exactamente el error que costó una corrección en el Bloque B.
+  ///
+  /// Que salga de [texto] y no del acento «de marca» es lo que se midió: el
+  /// medidor compone la mezcla con el color de la letra. Pintar el fondo con otro
+  /// tono dejaría la cifra sin respaldo.
+  final Color fondo;
+
+  /// El color del texto **y del icono**, medido contra [fondo].
+  ///
+  /// El mismo valor sirve para los dos porque el listón del texto (4.5:1) es más
+  /// exigente que el de un gráfico con significado (3:1): si pasa como texto, pasa
+  /// como icono. Al revés no, y ése fue el fallo: los acentos estaban elegidos
+  /// para un icono y se usaron como texto.
+  final Color texto;
+}
+
 /// Los colores de la aplicación **por su papel**, resueltos para un brillo.
 ///
 /// ## Por qué existe
@@ -561,6 +637,11 @@ class PaletaInces {
     required this.borde,
     required this.rellenoDeCampo,
     required this.bordeDeCampo,
+    required this.info,
+    required this.exito,
+    required this.advertencia,
+    required this.error,
+    required this.neutro,
   });
 
   /// La paleta del tema que hay montado ahora mismo.
@@ -625,6 +706,55 @@ class PaletaInces {
       // claro 3.22:1 y 3.37:1.
       bordeDeCampo:
           esOscuro ? const Color(0xFF64748B) : const Color(0xFF7E8DA3),
+      // --- Los cinco acentos de estado, como PRIMER PLANO --------------------
+      //
+      // Un acento de estado tiene **dos contratos** y `IncesTheme` sólo declaraba
+      // uno. `IncesTheme.exito` (#15803D) es un **relleno**: el fondo de un bloque
+      // sólido, donde el texto va en blanco. Como **texto o icono** el mismo tono
+      // no vale — y ahí estaba el fallo: se usaba el color del relleno como color
+      // de la letra, en diez sitios y con cinco copias distintas del mismo widget.
+      //
+      // Medido el 2026-09-30, contra las **dos** superficies donde cae un chip
+      // (`superficie` y `superficieSutil`, porque el tinte es translúcido y su
+      // color real es la mezcla con la tarjeta de debajo):
+      //
+      //   acento                claro              oscuro
+      //   info                  4.01:1  ✗          2.54:1  ✗
+      //   exito                 2.65:1  ✗          3.78:1  ✗
+      //   advertencia           1.81:1  ✗          5.54:1  ✓
+      //   error                 4.83:1  ✓          2.85:1  ✗
+      //   rojoInces             3.80:1  ✗          2.74:1  ✗
+      //   neutro (#64748B)      3.78:1  ✗          2.72:1  ✗
+      //
+      // De diez combinaciones se salvaban dos. No es que se leyeran mal: es que no
+      // se leían. Y el mismo medidor comprobó que el listón del **icono** (3:1)
+      // tampoco se cumplía — seis de doce —, así que no bastaba con subir el texto.
+      //
+      // Los valores de abajo son los que **sí** pasan, buscados como el paso de la
+      // misma familia más fiel a la marca que aún llega a 4.5:1 en el peor de los
+      // dos fondos, con margen hasta 4.6:1 para que un retoque no lo tumbe:
+      //
+      //   acento        claro                     oscuro
+      //   info          #1D4ED8   5.11:1          #60A5FA   4.67:1
+      //   exito         #166534   5.46:1          #22C55E   5.20:1
+      //   advertencia   #92400E   5.39:1          #F59E0B   5.54:1
+      //   error         #B91C1C   4.83:1          #FCA5A5   6.04:1
+      //   neutro        #475569   5.82:1          #94A3B8   4.62:1
+      //
+      // Un mismo valor sirve para texto **y** para icono: 4.5:1 es más exigente
+      // que el 3:1 de un gráfico con significado, así que si pasa como letra pasa
+      // como icono. Al revés no — y ése fue exactamente el error que se está
+      // corrigiendo. El par (texto, su propio tinte al 12 %) se mide entero en
+      // `test/paleta_inces_test.dart`.
+      //
+      // Que `advertencia` en oscuro coincida con `IncesTheme.advertencia` es
+      // casualidad, no dependencia: el ámbar ya pasaba en oscuro y no pasaba en
+      // claro, que es justo lo que un valor único no puede resolver.
+      info: esOscuro ? const Color(0xFF60A5FA) : const Color(0xFF1D4ED8),
+      exito: esOscuro ? const Color(0xFF22C55E) : const Color(0xFF166534),
+      advertencia: esOscuro ? const Color(0xFFF59E0B) : const Color(0xFF92400E),
+      error: esOscuro ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C),
+      neutro: esOscuro ? const Color(0xFF94A3B8) : const Color(0xFF475569),
     );
   }
 
@@ -668,36 +798,127 @@ class PaletaInces {
 
   /// El borde de un campo de formulario.
   final Color bordeDeCampo;
+
+  // --- Acentos de estado, como PRIMER PLANO ---------------------------------
+
+  /// El alfa del tinte de una etiqueta de estado.
+  ///
+  /// Es el único sitio donde se decide. Está aquí y no en cada pantalla porque la
+  /// medición de [PaletaInces.deBrillo] se hizo **a este alfa**: si una etiqueta
+  /// lo cambiara a ojo, el par medido dejaría de ser cierto sin que nada avisara.
+  static const double _alfaDelTinte = 0.12;
+
+  /// El acento de un estado pintado **como texto o como icono**.
+  ///
+  /// ## Por qué esto no puede ser un `static const` de `IncesTheme`
+  ///
+  /// Un color de estado tiene **dos contratos**, y piden valores distintos:
+  ///
+  /// | contrato | qué se pinta | qué tiene que contrastar |
+  /// |---|---|---|
+  /// | relleno | el fondo de un bloque sólido | el blanco que va encima, 4.5:1 |
+  /// | primer plano | la letra y el icono de una etiqueta | el acento contra su fondo, 4.5:1 |
+  ///
+  /// El primer contrato **no** depende del brillo —un bloque sólido es sólido en
+  /// los dos temas— y por eso vive en `IncesTheme`, que es `const`. Éste sí: el
+  /// mismo verde tiene que ser oscuro sobre una tarjeta blanca y claro sobre una
+  /// tarjeta oscura. Un valor único sólo puede acertar en un tema, y así estaban
+  /// las diez etiquetas del proyecto.
+  final Color info;
+
+  /// El acento de éxito como primer plano. Ver [info].
+  final Color exito;
+
+  /// El acento de advertencia como primer plano. Ver [info].
+  final Color advertencia;
+
+  /// El acento de error como primer plano. Ver [info].
+  final Color error;
+
+  /// El acento neutro —lo apagado, lo que no exige nada— como primer plano.
+  ///
+  /// Tiene tono propio y no reutiliza [textoApagado]: el chip necesita un par
+  /// medido contra **su propio tinte**, y [textoApagado] está medido contra las
+  /// superficies limpias. Son dos fondos distintos y por eso son dos roles.
+  final Color neutro;
+
+  /// El acento de un tono semántico, para texto o icono.
+  ///
+  /// El `switch` es exhaustivo a propósito: añadir un tono nuevo **no compila**
+  /// hasta darle color. Es la única forma de que un estado no acabe pintado con
+  /// el acento de otro, que es el tipo de error que este archivo no puede cazar
+  /// midiendo.
+  Color acentoDe(TonoEstado tono) => switch (tono) {
+        TonoEstado.info => info,
+        TonoEstado.exito => exito,
+        TonoEstado.advertencia => advertencia,
+        TonoEstado.error => error,
+        TonoEstado.neutro => neutro,
+      };
+
+  /// El par (fondo, texto) de una etiqueta de estado.
+  ///
+  /// El fondo es **el propio acento al 12 %**, que es el patrón que ya usaban las
+  /// diez etiquetas del proyecto (`color.withValues(alpha: 0.12)` con la letra
+  /// del mismo color). Se conserva por dos razones: el chip se lee como una
+  /// pastilla teñida de su propio color, y así el par se mide contra su propio
+  /// fondo y no contra el de otro estado.
+  ///
+  /// Devuelve el par y no los dos colores por separado porque los dos se miden
+  /// **juntos**: el acento de éxito no tiene un contraste «en abstracto», lo tiene
+  /// contra este fondo. Separarlos invitaría a pintar el texto de una etiqueta
+  /// sobre el fondo de otra, y la medición dejaría de ser cierta en silencio.
+  ParDeEtiqueta etiquetaDe(TonoEstado tono) {
+    final acento = acentoDe(tono);
+    return ParDeEtiqueta(
+      fondo: acento.withValues(alpha: _alfaDelTinte),
+      texto: acento,
+    );
+  }
 }
 
-/// Paleta semántica de un módulo según su estado.
+/// El estado de un módulo del sistema, con su **tono** semántico.
 ///
 /// Vive fuera del tema porque depende del **estado del dato** (`habilitado`,
 /// roles asignados), no de la preferencia de claro/oscuro, y porque el estado
 /// tiene que ser reconocible tanto por color como por texto: hay usuarios con
 /// daltonismo, y un badge que sólo se distingue por verde o gris no comunica.
+///
+/// ## Por qué lleva un [TonoEstado] y no un `Color`
+///
+/// Llevaba un `Color` y era el mismo error que el resto de este bloque: un color
+/// no puede depender del brillo y a la vez vivir en un `const`. El tono es
+/// **semántica** —«esto está bien», «esto exige cuidado»— y no cambia con el
+/// tema; el color es **pintura** y sí. Separados, este objeto sigue siendo
+/// `const` y el color lo resuelve `PaletaInces.acentoDe` con el brillo montado.
+///
+/// El rojo institucional (`#D32F2F`) se cambió por el tono de error por una razón
+/// medida: como letra da **3.80:1** en claro y **2.74:1** en oscuro, o sea que no
+/// pasa AA en ninguno de los dos temas. El tono de error sí (4.83:1 y 6.04:1). El
+/// rojo de marca no se pierde: sigue en la franja superior de la tarjeta, que es
+/// un relleno y ahí no se le pide contraste.
 class EstadoModulo {
-  const EstadoModulo._(this.etiqueta, this.color, this.icono);
+  const EstadoModulo._(this.etiqueta, this.tono, this.icono);
 
   final String etiqueta;
-  final Color color;
+  final TonoEstado tono;
   final IconData icono;
 
   static const activo = EstadoModulo._(
     'Activo',
-    IncesTheme.exito,
+    TonoEstado.exito,
     Icons.check_circle_outline,
   );
 
   static const inactivo = EstadoModulo._(
     'Inactivo',
-    Color(0xFF64748B),
+    TonoEstado.neutro,
     Icons.pause_circle_outline,
   );
 
   static const critico = EstadoModulo._(
     'Crítico',
-    IncesTheme.rojoInces,
+    TonoEstado.error,
     Icons.gpp_maybe_outlined,
   );
 

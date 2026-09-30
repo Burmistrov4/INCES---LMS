@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/gateways/aula_gateway.dart';
 import '../core/result.dart';
+import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import 'aula_virtual_dashboard.dart';
@@ -188,18 +189,18 @@ class _PanelMisAulasState extends State<PanelMisAulas> {
   Widget _tarjeta(AulaResumen aula) {
     final theme = Theme.of(context);
     final abrible = widget.aulaGateway != null;
+    // El icono cae sobre un tinte de su propio color. `colorScheme.primary`
+    // servía en claro (8.29:1) pero **no en oscuro**: ahí el primario es
+    // `#0059B3` y sobre su propio tinte da 1.99:1. Medido el 2026-09-30.
+    final par = PaletaInces.de(context).etiquetaDe(TonoEstado.info);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
-          child: Icon(
-            Icons.class_outlined,
-            size: 20,
-            color: theme.colorScheme.primary,
-          ),
+          backgroundColor: par.fondo,
+          child: Icon(Icons.class_outlined, size: 20, color: par.texto),
         ),
         title: Text(aula.etiqueta, style: theme.textTheme.titleSmall),
         trailing:

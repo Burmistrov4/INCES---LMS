@@ -285,8 +285,13 @@ class _CpanelAuditoriaAccesosPanelState
 
   Widget _fila(BuildContext context, EntradaAcceso entrada) {
     final theme = Theme.of(context);
+    // El avatar y los dos iconos caen sobre un tinte del propio color, así que el
+    // acento tiene que ser de primer plano. Los de `IncesTheme` son de relleno:
+    // `#16A34A` daba 2.65:1 en claro y el rojo de marca, 2.74:1 en oscuro.
+    // Medido el 2026-09-30.
+    final paleta = PaletaInces.de(context);
     final exito = entrada.fueExitoso;
-    final color = exito ? IncesTheme.exito : IncesTheme.rojoInces;
+    final color = exito ? paleta.exito : paleta.error;
 
     return ListTile(
       dense: true,

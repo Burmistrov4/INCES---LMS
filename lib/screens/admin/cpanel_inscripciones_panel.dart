@@ -297,8 +297,6 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
       );
     }
 
-    final theme = Theme.of(context);
-
     return LayoutBuilder(
       builder: (context, restricciones) {
         // Dos tarjetas por fila en móvil, cuatro en escritorio. Con los 220 px
@@ -334,7 +332,11 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                       etiqueta: 'Con oferta en el aire',
                       valor: '$_conOfertaVigente',
                       icono: Icons.local_offer_outlined,
-                      color: theme.colorScheme.primary,
+                      // Ámbar y no azul: es `PENDING_BID`, el estado con fecha
+                      // límite, y el proyecto ya documentó que el ámbar se
+                      // reserva para él. Estaba en el azul primario, que además
+                      // no se lee sobre su propio tinte en modo oscuro.
+                      tono: TonoEstado.advertencia,
                     ),
                   ),
                   SizedBox(
@@ -343,7 +345,7 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                       etiqueta: 'Cupos disponibles',
                       valor: '$_cuposDisponibles',
                       icono: Icons.event_seat_outlined,
-                      color: IncesTheme.exito,
+                      tono: TonoEstado.exito,
                     ),
                   ),
                   SizedBox(

@@ -710,7 +710,7 @@ class _AsistenteCurriculoScreenState extends State<AsistenteCurriculoScreen> {
                     ),
                     _Insignia(
                       texto: _tipo.etiqueta,
-                      color: theme.colorScheme.primary,
+                      tono: TonoEstado.info,
                     ),
                   ],
                 ),
@@ -859,9 +859,13 @@ class _Paso extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // El color del número, del icono y del borde del paso. Los dos primeros
+    // fallaban en modo oscuro sobre el tinte del propio color: `#16A34A` daba
+    // 2.90:1 y el azul primario, 1.99:1. Medido el 2026-09-30.
+    final paleta = PaletaInces.de(context);
     final color = switch (estado) {
-      _EstadoPaso.actual => theme.colorScheme.primary,
-      _EstadoPaso.hecho => IncesTheme.exito,
+      _EstadoPaso.actual => paleta.info,
+      _EstadoPaso.hecho => paleta.exito,
       _EstadoPaso.pendiente => theme.colorScheme.onSurfaceVariant,
     };
 
@@ -1079,11 +1083,15 @@ class _BancoMaterias extends StatelessWidget {
                           fontWeight: FontWeight.w400,
                         ),
                       ),
+                      // El icono cae sobre la superficie de la tarjeta y es un
+                      // gráfico con significado —dice «ya está en el pensum»—,
+                      // así que necesita 3:1. Con el verde de relleno se quedaba
+                      // en 2.90:1 en modo oscuro. Medido el 2026-09-30.
                       trailing: yaEsta
                           ? Icon(
                               Icons.check_circle_outline,
                               size: 19,
-                              color: IncesTheme.exito,
+                              color: PaletaInces.deBrillo(theme.brightness).exito,
                             )
                           : IconButton(
                               tooltip: 'Añadir al pensum',
@@ -1277,6 +1285,10 @@ class _CabeceraPeriodo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // El chip «Período N» escribe sobre un tinte de su propio color, y ahí el azul
+    // primario no vale en oscuro: `#0059B3` sobre su tinte da 1.99:1. Medido el
+    // 2026-09-30.
+    final par = PaletaInces.de(context).etiquetaDe(TonoEstado.info);
 
     var horas = 0;
     for (final entrada in grupo.materias) {
@@ -1290,7 +1302,7 @@ class _CabeceraPeriodo extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.12),
+              color: par.fondo,
               borderRadius: BorderRadius.circular(5),
             ),
             child: Text(
@@ -1499,18 +1511,26 @@ class _DatoResumen extends StatelessWidget {
   }
 }
 
+/// Insignia de estado del asistente: una palabra sobre un tinte.
+///
+/// Recibe un **tono**, no un color, por la misma razón medida que `_Etiqueta` de
+/// `cpanel_programas_panel`: el único sitio que la usa le pasaba
+/// `colorScheme.primary`, que sobre su propio tinte da 8.29:1 en claro pero
+/// **1.99:1 en oscuro**. Medido el 2026-09-30.
 class _Insignia extends StatelessWidget {
-  const _Insignia({required this.texto, required this.color});
+  const _Insignia({required this.texto, required this.tono});
 
   final String texto;
-  final Color color;
+  final TonoEstado tono;
 
   @override
   Widget build(BuildContext context) {
+    final par = PaletaInces.de(context).etiquetaDe(tono);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: par.fondo,
         borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
@@ -1518,7 +1538,7 @@ class _Insignia extends StatelessWidget {
         style: GoogleFonts.inter(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: color,
+          color: par.texto,
         ),
       ),
     );
@@ -1642,6 +1662,11 @@ class _DialogoNuevaMateriaState extends State<_DialogoNuevaMateria> {
 
   @override
   Widget build(BuildContext context) {
+    // El aviso rojo de abajo escribe sobre un tinte de su propio color, y ahí el
+    // rojo de relleno no llega: `#DC2626` da 4.28:1 en claro y 2.92:1 en oscuro.
+    // Medido el 2026-09-30.
+    final parError = PaletaInces.de(context).etiquetaDe(TonoEstado.error);
+
     return AlertDialog(
       title: const Text('Registrar materia'),
       content: SizedBox(
@@ -1711,18 +1736,18 @@ class _DialogoNuevaMateriaState extends State<_DialogoNuevaMateria> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: IncesTheme.error.withValues(alpha: 0.08),
+                    color: parError.fondo,
                     borderRadius:
                         BorderRadius.circular(IncesTheme.radioControl),
                     border: Border.all(
-                      color: IncesTheme.error.withValues(alpha: 0.3),
+                      color: parError.texto.withValues(alpha: 0.3),
                     ),
                   ),
                   child: Text(
                     _error!,
                     style: GoogleFonts.inter(
                       fontSize: 13,
-                      color: IncesTheme.error,
+                      color: parError.texto,
                     ),
                   ),
                 ),

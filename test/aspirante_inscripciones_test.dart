@@ -310,14 +310,20 @@ void main() {
         ),
       );
 
+      // El color esperado sale de `PaletaInces` y no de `IncesTheme`: el chip
+      // pinta la letra y el icono sobre un tinte de su propio color, y ahí los
+      // acentos de relleno no llegan a AA (medido el 2026-09-30). El brillo es el
+      // del tema con el que monta `montarPanel`, que es el claro.
+      final paleta = PaletaInces.deBrillo(Brightness.light);
+
       expect(
         colorDeIcono(tester, Icons.local_offer_outlined),
-        IncesTheme.advertencia,
+        paleta.advertencia,
         reason: 'la oferta por aceptar es el estado urgente: va en ámbar',
       );
       expect(
         colorDeIcono(tester, Icons.people_outline),
-        IncesTheme.info,
+        paleta.info,
         reason: 'estar en la cola no exige acción: va en azul, no en ámbar',
       );
       expect(

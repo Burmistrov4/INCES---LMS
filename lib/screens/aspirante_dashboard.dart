@@ -442,6 +442,10 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
 
   Widget _panelFicha(AspiranteModel aspirante) {
     final theme = Theme.of(context);
+    // El chip de «En revisión» cae sobre un tinte de su propio color, así que el
+    // ámbar de relleno de `IncesTheme` no vale: da 1.81:1 en modo claro. Medido
+    // el 2026-09-30.
+    final par = PaletaInces.de(context).etiquetaDe(TonoEstado.advertencia);
 
     // D14: el nombre del programa ya no vive en la ficha —la columna se eliminó
     // y quedó `program_id` con clave foránea—, así que llega resuelto por JOIN
@@ -504,14 +508,13 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: IncesTheme.advertencia
-                                  .withValues(alpha: 0.14),
+                              color: par.fondo,
                               borderRadius: BorderRadius.circular(5),
                             ),
                             child: Text(
                               'En revisión',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: IncesTheme.advertencia,
+                                color: par.texto,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),

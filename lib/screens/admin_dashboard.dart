@@ -448,11 +448,6 @@ class MetricasModulos extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // El gris de «Apagados» es un rol de texto apagado, no un literal fijo: en
-    // claro coincide con el #64748B de antes y en oscuro sube al tono legible
-    // sobre la superficie oscura.
-    final paleta = PaletaInces.de(context);
-
     return RejillaTarjetas(
       anchoMinimo: 200,
       children: [
@@ -465,19 +460,22 @@ class MetricasModulos extends StatelessWidget {
           etiqueta: 'Activos',
           valor: '$activos',
           icono: Icons.toggle_on_outlined,
-          color: IncesTheme.exito,
+          tono: TonoEstado.exito,
         ),
+        // «Apagados» usaba `paleta.textoApagado` y ahora usa el tono neutro: son
+        // el mismo valor en los dos brillos, y un tono no puede equivocarse de
+        // contrato —el gris apagado es un rol de texto, no de chip—.
         TarjetaMetrica(
           etiqueta: 'Apagados',
           valor: '${total - activos}',
           icono: Icons.toggle_off_outlined,
-          color: paleta.textoApagado,
+          tono: TonoEstado.neutro,
         ),
         TarjetaMetrica(
           etiqueta: 'Auditoría hoy',
           valor: '$cambiosRecientes',
           icono: Icons.history_outlined,
-          color: IncesTheme.rojoInces,
+          tono: TonoEstado.error,
         ),
       ],
     );

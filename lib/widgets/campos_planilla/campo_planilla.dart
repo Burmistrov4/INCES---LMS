@@ -505,7 +505,7 @@ class _Booleano extends StatelessWidget {
             padding: const EdgeInsets.only(left: 12, top: 4),
             child: Text(
               error!,
-              style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
+              style: GoogleFonts.inter(fontSize: 12, color: paleta.error),
             ),
           ),
       ],
@@ -641,7 +641,7 @@ class _Multiseleccion extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             error!,
-            style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
+            style: GoogleFonts.inter(fontSize: 12, color: paleta.error),
           ),
         ],
       ],

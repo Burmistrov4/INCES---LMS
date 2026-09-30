@@ -247,20 +247,29 @@ class _RegistroExitosoScreenState extends State<RegistroExitosoScreen> {
 
   Widget _buildIcono(ThemeData theme) {
     final confirmando = requiereConfirmacionEmail && !sesionIniciada;
+    // El icono cae sobre un tinte de su propio color, así que el acento sale de
+    // la paleta: `#16A34A` daba 2.65:1 en modo claro, por debajo del 3:1 que WCAG
+    // pide a un gráfico con significado. Medido el 2026-09-30.
+    //
+    // La paleta se resuelve con el brillo del `theme` que ya llega como
+    // parámetro, para no cambiar la firma de un método que no recibe `context`.
+    final par =
+        PaletaInces.deBrillo(theme.brightness).etiquetaDe(TonoEstado.exito);
+
     return Container(
       width: 72,
       height: 72,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: IncesTheme.exito.withValues(alpha: 0.12),
+        color: par.fondo,
         borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta + 4),
-        border: Border.all(color: IncesTheme.exito.withValues(alpha: 0.4)),
+        border: Border.all(color: par.texto.withValues(alpha: 0.4)),
       ),
       child: Icon(
         confirmando
             ? Icons.mark_email_read_outlined
             : Icons.check_circle_outline,
-        color: IncesTheme.exito,
+        color: par.texto,
         size: 36,
       ),
     );

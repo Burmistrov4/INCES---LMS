@@ -103,6 +103,12 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
     // es el fondo de pantalla (el mismo gris que antes era `fondo`) y
     // `superficie` la tarjeta; en claro coinciden con los literales de antes.
     final paleta = PaletaInces.de(context);
+    // Los dos avisos de más abajo escriben sobre un tinte de su propio color, así
+    // que necesitan acentos de **primer plano**. Los de `IncesTheme` son de
+    // relleno: `#16A34A` daba 2.65:1 en claro y `#DC2626`, 2.92:1 en oscuro.
+    // Medido el 2026-09-30.
+    final parExito = paleta.etiquetaDe(TonoEstado.exito);
+    final parError = paleta.etiquetaDe(TonoEstado.error);
 
     return Scaffold(
       backgroundColor: paleta.superficieSutil,
@@ -125,11 +131,13 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Azul informativo institucional, no un rol de brillo: el
-                      // mismo azul de marca en claro y en oscuro.
-                      const Icon(
+                      // El icono cae sobre la superficie de la tarjeta. El azul de
+                      // marca no vale aquí: sobre `#1E293B` da 2.54:1, por debajo
+                      // del 3:1 que WCAG pide a un gráfico con significado. El rol
+                      // de la paleta sí. Medido el 2026-09-30.
+                      Icon(
                         Icons.person_add_alt_1_outlined,
-                        color: IncesTheme.info,
+                        color: paleta.info,
                         size: 48,
                       ),
                       const SizedBox(height: 16),
@@ -161,24 +169,24 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: IncesTheme.exito.withValues(alpha: 0.1),
+                            color: parExito.fondo,
                             borderRadius:
                                 BorderRadius.circular(IncesTheme.radioControl),
                             border: Border.all(
-                              color: IncesTheme.exito.withValues(alpha: 0.3),
+                              color: parExito.texto.withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
                             children: [
                               Icon(Icons.check_circle_outline,
-                                  color: IncesTheme.exito, size: 18),
+                                  color: parExito.texto, size: 18),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   _emailActivado ?? '',
                                   style: GoogleFonts.inter(
                                     fontSize: 13,
-                                    color: IncesTheme.exito,
+                                    color: parExito.texto,
                                   ),
                                 ),
                               ),
@@ -260,18 +268,18 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: IncesTheme.error.withValues(alpha: 0.1),
+                              color: parError.fondo,
                               borderRadius:
                                   BorderRadius.circular(IncesTheme.radioControl),
                               border: Border.all(
-                                color: IncesTheme.error.withValues(alpha: 0.3),
+                                color: parError.texto.withValues(alpha: 0.3),
                               ),
                             ),
                             child: Text(
                               _error!,
                               style: GoogleFonts.inter(
                                 fontSize: 13,
-                                color: IncesTheme.error,
+                                color: parError.texto,
                               ),
                             ),
                           ),

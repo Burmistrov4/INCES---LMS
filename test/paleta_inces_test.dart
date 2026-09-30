@@ -114,6 +114,108 @@ void main() {
     }
   });
 
+  group('las etiquetas de estado pasan AA en los dos brillos', () {
+    // Un chip de estado es **tinte + letra del mismo color**, así que su par se
+    // mide compuesto: el fondo real es el acento al 12 % sobre la tarjeta, y su
+    // color es la mezcla. Medir contra el acento puro daría una cifra que ningún
+    // píxel de la pantalla tiene.
+    //
+    // Y se mide contra las **dos** superficies donde se ha visto un chip, porque
+    // el tinte es translúcido: `superficie` y `superficieSutil` dan fondos
+    // distintos, y un color que pasa en el peor pasa en los dos. Medir sólo
+    // contra la tarjeta fue el error que ya costó una corrección en el Bloque B.
+    //
+    // Antes de esta prueba los diez chips del proyecto usaban el acento de
+    // **relleno** de `IncesTheme`: de diez combinaciones, dos pasaban.
+    for (final brillo in Brightness.values) {
+      final paleta = PaletaInces.deBrillo(brillo);
+      final nombre = brillo == Brightness.light ? 'claro' : 'oscuro';
+
+      final superficies = <String, Color>{
+        'superficie': paleta.superficie,
+        'superficieSutil': paleta.superficieSutil,
+      };
+
+      for (final tono in TonoEstado.values) {
+        final par = paleta.etiquetaDe(tono);
+
+        test('$nombre · ${tono.name}: la letra sobre su propio tinte', () {
+          superficies.forEach((nombreFondo, superficie) {
+            final fondoReal = _componer(par.fondo, superficie);
+            final medido = _contraste(par.texto, fondoReal);
+
+            expect(
+              medido,
+              greaterThanOrEqualTo(_textoAA),
+              reason: '${_hex(par.texto)} sobre el tinte compuesto '
+                  '${_hex(fondoReal)} —${_hex(par.fondo)} al 12 % sobre '
+                  '$nombreFondo— da ${medido.toStringAsFixed(2)}:1 y el mínimo '
+                  'es 4.5:1 porque es texto. El listón del icono (3:1) queda '
+                  'cubierto por el mismo valor, que es la razón de usar uno solo.',
+            );
+          });
+        });
+      }
+    }
+
+    test('el par de una etiqueta sale del acento y del 12 %, no de otro sitio', () {
+      // Guarda la afirmación «el 12 % se decide en un solo sitio». Si alguien
+      // cambiara el alfa en `PaletaInces`, las cifras de arriba dejarían de
+      // describir lo que se pinta y esta prueba lo diría con su nombre.
+      for (final brillo in Brightness.values) {
+        final paleta = PaletaInces.deBrillo(brillo);
+
+        for (final tono in TonoEstado.values) {
+          final par = paleta.etiquetaDe(tono);
+          expect(par.texto, paleta.acentoDe(tono));
+          expect(
+            par.fondo.a,
+            closeTo(0.12, 0.001),
+            reason: 'el tinte de la etiqueta dejó de ser el 12 %: las cifras '
+                'medidas se calcularon a ese alfa',
+          );
+        }
+      }
+    });
+
+    test('«· Vencida» se lee sobre el tinte ámbar del chip', () {
+      // No es un acento sobre su propio tinte: la marca «Vencida» del aula cae
+      // sobre el chip de `advertencia` —el de una entrega pendiente—, así que el
+      // par real es el rojo de error sobre el tinte ámbar. Se mide, no se supone.
+      for (final brillo in Brightness.values) {
+        final paleta = PaletaInces.deBrillo(brillo);
+        final tinteAmbar = paleta.etiquetaDe(TonoEstado.advertencia).fondo;
+
+        for (final superficie in [paleta.superficie, paleta.superficieSutil]) {
+          final fondoReal = _componer(tinteAmbar, superficie);
+          final medido = _contraste(paleta.error, fondoReal);
+
+          expect(
+            medido,
+            greaterThanOrEqualTo(_textoAA),
+            reason: '${_hex(paleta.error)} sobre el tinte ámbar compuesto '
+                '${_hex(fondoReal)} da ${medido.toStringAsFixed(2)}:1',
+          );
+        }
+      }
+    });
+
+    test('el blanco sobre el verde de relleno pasa AA', () {
+      // El aviso flotante de éxito pone texto blanco sobre `IncesTheme.exito`, y
+      // ahí el verde viejo no llegaba: `#16A34A` daba 3.30:1. El actual, 5.02:1.
+      // Se comprueba porque ese verde **sólo** se usa detrás de texto blanco: si
+      // bajara de 4.5:1, el aviso dejaría de leerse y nadie lo notaría.
+      final medido = _contraste(Colors.white, IncesTheme.exito);
+
+      expect(
+        medido,
+        greaterThanOrEqualTo(_textoAA),
+        reason: 'blanco sobre ${_hex(IncesTheme.exito)} da '
+            '${medido.toStringAsFixed(2)}:1',
+      );
+    });
+  });
+
   group('pares fijos del tema', () {
     // No dependen del brillo: son superficies saturadas con su propio
     // contenido encima. Si esto se rompe, el aviso rojo o el ámbar dejan de
@@ -202,6 +304,14 @@ void main() {
       'borde': [claro.borde, oscuro.borde],
       'rellenoDeCampo': [claro.rellenoDeCampo, oscuro.rellenoDeCampo],
       'bordeDeCampo': [claro.bordeDeCampo, oscuro.bordeDeCampo],
+      // Los cinco acentos de estado, que es el bloque que más justifica esta
+      // prueba: el error de origen fue exactamente un color de estado sin
+      // condición de brillo sirviendo a los dos temas a la vez.
+      'info': [claro.info, oscuro.info],
+      'exito': [claro.exito, oscuro.exito],
+      'advertencia': [claro.advertencia, oscuro.advertencia],
+      'error': [claro.error, oscuro.error],
+      'neutro': [claro.neutro, oscuro.neutro],
     };
 
     roles.forEach((rol, valores) {
@@ -242,6 +352,21 @@ double _luminancia(Color color) {
   return 0.2126 * canal(color.r) +
       0.7152 * canal(color.g) +
       0.0722 * canal(color.b);
+}
+
+/// Compone un color translúcido sobre un fondo opaco, canal a canal.
+///
+/// Es lo que hace el motor de pintado al dibujar un tinte, y sin esto la medición
+/// mediría un color que no existe en pantalla: un acento al 12 % no es un color
+/// que nadie ve —lo que se ve es su mezcla con la tarjeta de debajo—.
+Color _componer(Color frente, Color fondo) {
+  final alfa = frente.a;
+  return Color.from(
+    alpha: 1,
+    red: frente.r * alfa + fondo.r * (1 - alfa),
+    green: frente.g * alfa + fondo.g * (1 - alfa),
+    blue: frente.b * alfa + fondo.b * (1 - alfa),
+  );
 }
 
 /// La razón de contraste entre dos colores: entre 1:1 y 21:1.

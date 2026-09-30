@@ -606,14 +606,18 @@ class _AulaVirtualDashboardScreenState
         tarea.fechaLimite != null &&
         DateTime.now().isAfter(DateTime.tryParse(tarea.fechaLimite!) ?? DateTime.now());
 
+    // El color sale de la paleta, y no de `IncesTheme` ni del `ColorScheme`. Los
+    // acentos de `IncesTheme` son de **relleno**: como letra sobre su propio
+    // tinte, el ámbar da 1.81:1 en claro. Y `colorScheme.primary` —el azul de
+    // marca— da 8.29:1 en claro pero **1.99:1 en oscuro**, porque en oscuro el
+    // primario es `#0059B3` y sobre un tinte oscuro no se lee. Medido el
+    // 2026-09-30.
+    final paleta = PaletaInces.de(context);
     final (color, texto) = switch (entrega.estado) {
-      EstadoEntrega.asignada => (IncesTheme.advertencia, 'Pendiente'),
-      EstadoEntrega.entregada => (IncesTheme.exito, 'Entregada'),
-      EstadoEntrega.devuelta => (Theme.of(context).colorScheme.primary, 'Devuelta'),
-      EstadoEntrega.reclamada => (
-          Theme.of(context).colorScheme.onSurfaceVariant,
-          'Reclamada',
-        ),
+      EstadoEntrega.asignada => (paleta.advertencia, 'Pendiente'),
+      EstadoEntrega.entregada => (paleta.exito, 'Entregada'),
+      EstadoEntrega.devuelta => (paleta.info, 'Devuelta'),
+      EstadoEntrega.reclamada => (paleta.neutro, 'Reclamada'),
     };
 
     final etiquetaNota = entrega.estado == EstadoEntrega.devuelta &&
@@ -648,10 +652,13 @@ class _AulaVirtualDashboardScreenState
             const SizedBox(width: 6),
             Text(
               '· Vencida',
+              // Cae sobre el tinte **ámbar** del chip —no sobre el suyo—, así que
+              // se mide contra ése: 4.92:1 en el peor de los dos fondos. Medido
+              // el 2026-09-30. El rojo de marca daba 2.74:1 en oscuro.
               style: GoogleFonts.inter(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: IncesTheme.rojoInces,
+                color: paleta.error,
               ),
             ),
           ],

@@ -357,6 +357,12 @@ class TarjetaModulo extends StatelessWidget {
     final theme = Theme.of(context);
     final bloqueado = candadoRazon != null;
 
+    // El color del icono **no** sale de `IncesTheme`. El mismo verde tiene que ser
+    // oscuro sobre la tarjeta blanca y claro sobre la oscura, y un `const` sólo
+    // puede acertar en un tema: es el fallo que tenían las diez etiquetas. El
+    // tono lo pone el estado —que no sabe de brillos— y el color, la paleta.
+    final par = PaletaInces.de(context).etiquetaDe(estado.tono);
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -390,11 +396,11 @@ class TarjetaModulo extends StatelessWidget {
                       height: 38,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: estado.color.withValues(alpha: 0.12),
+                        color: par.fondo,
                         borderRadius:
                             BorderRadius.circular(IncesTheme.radioControl),
                       ),
-                      child: Icon(icono, size: 20, color: estado.color),
+                      child: Icon(icono, size: 20, color: par.texto),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -478,6 +484,18 @@ class TarjetaModulo extends StatelessWidget {
   }
 }
 
+/// La etiqueta de estado de un módulo: un icono y una palabra sobre un tinte.
+///
+/// Es la **implementación canónica** del chip de estado del proyecto, y por eso
+/// se lleva el comentario largo: las otras cuatro copias que había repartidas por
+/// las pantallas repetían exactamente este patrón —tinte al 12 %, letra e icono
+/// del mismo color— y las cinco estaban mal por la misma razón. El color salía de
+/// `IncesTheme`, que es el acento **de relleno**: de diez combinaciones
+/// acento-sobre-superficie, dos pasaban AA.
+///
+/// Ahora el par sale de `PaletaInces.etiquetaDe`, que sí distingue el brillo, y el
+/// chip **no elige colores**: recibe el tono y pide el par. Medido en
+/// `test/paleta_inces_test.dart` contra las dos superficies donde puede caer.
 class _BadgeEstado extends StatelessWidget {
   const _BadgeEstado({required this.estado});
 
@@ -485,23 +503,25 @@ class _BadgeEstado extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final par = PaletaInces.de(context).etiquetaDe(estado.tono);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: estado.color.withValues(alpha: 0.12),
+        color: par.fondo,
         borderRadius: BorderRadius.circular(5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(estado.icono, size: 11, color: estado.color),
+          Icon(estado.icono, size: 11, color: par.texto),
           const SizedBox(width: 4),
           Text(
             estado.etiqueta,
             style: GoogleFonts.inter(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: estado.color,
+              color: par.texto,
               letterSpacing: 0.2,
             ),
           ),
@@ -574,18 +594,30 @@ class TarjetaMetrica extends StatelessWidget {
     required this.etiqueta,
     required this.valor,
     required this.icono,
-    this.color,
+    this.tono = TonoEstado.info,
   });
 
   final String etiqueta;
   final String valor;
   final IconData icono;
-  final Color? color;
+
+  /// El **tono** del icono, no su color.
+  ///
+  /// Era un `Color?` y por ahí entraban los acentos de relleno de `IncesTheme`:
+  /// `#16A34A` daba 2.65:1 sobre su propio tinte en modo claro, por debajo del 3:1
+  /// que WCAG pide a un gráfico con significado. Con un tono el color no se puede
+  /// elegir mal.
+  ///
+  /// Por defecto [TonoEstado.info] y no `colorScheme.primary` por la misma razón
+  /// medida: el primario de modo oscuro (`#0059B3`) da **1.99:1** sobre su propio
+  /// tinte, así que el valor por defecto era justo el que peor se veía. Medido el
+  /// 2026-09-30.
+  final TonoEstado tono;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final acento = color ?? theme.colorScheme.primary;
+    final par = PaletaInces.de(context).etiquetaDe(tono);
 
     return Card(
       child: Padding(
@@ -597,10 +629,10 @@ class TarjetaMetrica extends StatelessWidget {
               height: 38,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: acento.withValues(alpha: 0.12),
+                color: par.fondo,
                 borderRadius: BorderRadius.circular(IncesTheme.radioControl),
               ),
-              child: Icon(icono, size: 19, color: acento),
+              child: Icon(icono, size: 19, color: par.texto),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -658,11 +690,16 @@ class AvisoEnLinea extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // El icono cae sobre un tinte de su propio color, así que necesita un acento
+    // de **primer plano**: los de `IncesTheme` son de relleno. Medido el
+    // 2026-09-30, como letra sobre su propio tinte: el ámbar daba 1.81:1 en modo
+    // claro y el azul primario, 2.42:1 en oscuro. Ninguno de los dos se lee.
+    final paleta = PaletaInces.de(context);
     final color = switch (tono) {
-      TonoAviso.info => theme.colorScheme.primary,
-      TonoAviso.exito => IncesTheme.exito,
-      TonoAviso.advertencia => IncesTheme.advertencia,
-      TonoAviso.peligro => IncesTheme.rojoInces,
+      TonoAviso.info => paleta.info,
+      TonoAviso.exito => paleta.exito,
+      TonoAviso.advertencia => paleta.advertencia,
+      TonoAviso.peligro => paleta.error,
     };
 
     return Container(
