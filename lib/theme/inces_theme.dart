@@ -70,6 +70,41 @@ class IncesTheme {
   static const Color error = Color(0xFFDC2626);
   static const Color info = Color(0xFF2563EB);
 
+  /// El rojo de una **superficie** de error, no el de un texto ni el de un borde.
+  ///
+  /// [error] sirve para pintar texto o un borde sobre fondo claro, pero no para
+  /// rellenar un bloque que lleva texto blanco encima: blanco sobre `#DC2626` da
+  /// **4.41:1**, por debajo del 4.5:1 que WCAG AA pide para texto normal. Este
+  /// tono da **6.47:1** y sigue leyéndose como rojo de error. Medido el
+  /// 2026-09-30.
+  static const Color superficieError = Color(0xFFB91C1C);
+
+  /// Lo que va encima de [superficieError]: el texto y los iconos de un aviso
+  /// rojo. Se declara aunque hoy coincida con blanco puro para que el par quede
+  /// escrito: un aviso rojo con el texto del tema encima es exactamente el fallo
+  /// que este rol evita —en modo oscuro el tema pone texto oscuro ahí—.
+  static const Color sobreError = Color(0xFFFFFFFF);
+
+  /// El fondo de un bloque de advertencia.
+  ///
+  /// Se queda **claro en los dos temas** a propósito. Es un aviso que se lee una
+  /// vez, y el par con [textoAdvertencia] da 8.15:1 sobre este fondo sea cual sea
+  /// el tema: un bloque claro dentro de una página oscura llama la atención sin
+  /// perder ni un punto de contraste. Inventarle una variante oscura sería
+  /// diseñar un segundo aviso que nadie ha pedido, y el riesgo de dejar el texto
+  /// sin par es mayor que el de que desentone.
+  static const Color superficieAdvertencia = Color(0xFFFEF3C7);
+
+  /// El texto de [superficieAdvertencia]. 8.15:1 sobre ella.
+  static const Color textoAdvertencia = Color(0xFF78350F);
+
+  /// El icono de [superficieAdvertencia]: 4.51:1 sobre ese fondo.
+  ///
+  /// **No sirve sobre la superficie de una tarjeta** en modo oscuro: ahí da
+  /// 2.91:1, por debajo del 3:1 que WCAG pide para un gráfico con significado.
+  /// Para ese caso está `PaletaInces.aviso`, que sí cambia con el brillo.
+  static const Color advertenciaFuerte = Color(0xFFB45309);
+
   /// Texto secundario en modo oscuro. El blanco al 60 % no da el contraste
   /// suficiente sobre `#1E293B`; este tono sí y sigue leyéndose como apagado.
   static const Color textoApagadoOscuro = Color(0xFF94A3B8);
@@ -211,6 +246,12 @@ class IncesTheme {
     final scheme = _colorScheme(brillo);
     final esOscuro = brillo == Brightness.dark;
 
+    // La paleta por roles del mismo brillo. Se resuelve aquí para que el tema y
+    // los widgets lean los MISMOS colores: cuando cada uno los tomaba por su
+    // cuenta, el tema acertaba el modo oscuro y `estilos_campo.dart` lo
+    // sobrescribía con literales claros.
+    final paleta = PaletaInces.deBrillo(brillo);
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -312,16 +353,21 @@ class IncesTheme {
 
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: esOscuro ? fondoOscuro : const Color(0xFFF8FAFC),
+        // Los MISMOS roles que usan los widgets de campo. El tema y
+        // `estilos_campo.dart` tenían cada uno su idea del relleno: el tema
+        // acertaba el modo oscuro y el widget lo pisaba con `#F8FAFC` —casi
+        // blanco— mientras el texto lo seguía poniendo el `ColorScheme` oscuro
+        // en `#E2E8F0`. De ahí el 1.18:1 que hacía ilegible lo que se escribía.
+        fillColor: paleta.rellenoDeCampo,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radioControl),
-          borderSide: BorderSide(color: scheme.outline),
+          borderSide: BorderSide(color: paleta.bordeDeCampo),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radioControl),
-          borderSide: BorderSide(color: scheme.outline),
+          borderSide: BorderSide(color: paleta.bordeDeCampo),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radioControl),
@@ -337,7 +383,11 @@ class IncesTheme {
           borderRadius: BorderRadius.circular(radioControl),
           borderSide: BorderSide(color: scheme.error, width: 1.5),
         ),
-        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+        labelStyle: TextStyle(color: paleta.textoApagado),
+        // Faltaba, y su ausencia se notaba: el texto de ayuda heredaba el
+        // `bodySmall` del `textTheme`, que no tiene por qué contrastar con el
+        // relleno del campo en ninguno de los dos brillos.
+        helperStyle: TextStyle(color: paleta.textoApagado),
         errorStyle: TextStyle(color: scheme.error),
       ),
 
@@ -442,6 +492,176 @@ class IncesTheme {
     end: Alignment.bottomRight,
     colors: [azulPrimario, azulSecundario],
   );
+}
+
+/// Los colores de la aplicación **por su papel**, resueltos para un brillo.
+///
+/// ## Por qué existe
+///
+/// `IncesTheme` declaraba las superficies de marca y los colores de estado, pero
+/// **no los roles de texto ni los del campo de formulario**. Esa ausencia se
+/// llenó a mano, archivo por archivo, con literales de modo claro — y el modo
+/// oscuro que salió de ahí nadie lo había escrito. Medido el 2026-09-30:
+///
+/// | dónde | qué | contraste |
+/// |---|---|---|
+/// | `estilos_campo.dart:30` + `onSurface` oscuro | texto `#E2E8F0` sobre relleno `#F8FAFC` | **1.18:1** |
+/// | `estilos_campo.dart:24` | etiqueta `#94A3B8` sobre relleno `#F8FAFC` | **2.45:1** |
+/// | `campo_rejilla.dart:73` | etiqueta `#0F172A` sobre tarjeta `#1E293B` | **1.22:1** |
+///
+/// WCAG AA exige 4.5:1 para texto. Los tres están a la altura de una mancha: no
+/// es que se lean mal, es que **no se leen**. Y los dos primeros son
+/// claro-sobre-claro mientras el tercero es oscuro-sobre-oscuro: el mismo error
+/// cometido en las dos direcciones.
+///
+/// Al migrar los literales aparecieron **dos fallos más**, los dos ya en los
+/// valores de esta paleta y los dos medidos antes de tocar nada:
+///
+/// | qué | contraste | por qué importa |
+/// |---|---|---|
+/// | `textoApagado` `#64748B` sobre `superficieSutil` `#F1F5F9` | **4.34:1** | es donde caen las etiquetas del resumen del paso final |
+/// | `bordeDeCampo` `#CBD5E1` sobre relleno `#F8FAFC` | **1.42:1** | es el **único** borde que delimita cada campo del formulario |
+///
+/// El primero se queda corto por poco y el segundo no es que se quede corto: es
+/// que el campo no tenía límite visible. Y el borde tenía además un comentario
+/// que afirmaba 3.75:1 en oscuro cuando el valor real era **2.36:1** — una
+/// cobertura que sólo existía en el comentario.
+///
+/// ## Cómo se usa
+///
+/// ```dart
+/// final paleta = PaletaInces.de(context);
+/// ```
+///
+/// Se resuelve **una vez por brillo** y se lee de aquí. Un widget que necesite un
+/// color **no vuelve a escribir un hexadecimal**: si le falta un rol, se añade
+/// aquí, que pasa a ser el único sitio del proyecto donde un color se decide.
+///
+/// Los contrastes están **medidos y verificados** en `test/paleta_inces_test.dart`
+/// para los dos brillos, y `test/theme_literales_test.dart` impide que vuelva a
+/// aparecer un hexadecimal fuera de este archivo. Un rol nuevo que no pase AA
+/// pone el primero en rojo, que es la única forma de que esto no se repita.
+@immutable
+class PaletaInces {
+  const PaletaInces._({
+    required this.brillo,
+    required this.textoPrincipal,
+    required this.textoSecundario,
+    required this.textoApagado,
+    required this.enlace,
+    required this.aviso,
+    required this.superficie,
+    required this.superficieSutil,
+    required this.borde,
+    required this.rellenoDeCampo,
+    required this.bordeDeCampo,
+  });
+
+  /// La paleta del tema que hay montado ahora mismo.
+  factory PaletaInces.de(BuildContext context) =>
+      PaletaInces.deBrillo(Theme.of(context).brightness);
+
+  /// La paleta de un brillo concreto, sin `BuildContext`.
+  ///
+  /// Existe aparte para que `IncesTheme._construir` pueda usar los mismos roles
+  /// al armar el `inputDecorationTheme`: si el tema y los widgets tomaran los
+  /// colores por caminos distintos, volverían a desincronizarse, que es
+  /// exactamente el fallo que este archivo está arreglando.
+  factory PaletaInces.deBrillo(Brightness brillo) {
+    final esOscuro = brillo == Brightness.dark;
+
+    return PaletaInces._(
+      brillo: brillo,
+      textoPrincipal:
+          esOscuro ? const Color(0xFFE2E8F0) : const Color(0xFF0F172A),
+      textoSecundario:
+          esOscuro ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
+      // `#64748B` —el gris que usaba todo el proyecto— sobre el bloque hundido
+      // del resumen (`superficieSutil`, #F1F5F9) da **4.34:1**: se queda corto, y
+      // el resumen del paso final es justo donde caen esas etiquetas. Este tono
+      // da 4.75:1 ahí, 4.97:1 sobre el relleno del campo y 5.20:1 sobre blanco.
+      // Medido el 2026-09-30.
+      textoApagado:
+          esOscuro ? IncesTheme.textoApagadoOscuro : const Color(0xFF5F6E82),
+      // El azul de enlace **no** puede ser `IncesTheme.info` en los dos brillos:
+      // `#2563EB` da 5.2:1 sobre blanco pero sólo 2.8:1 sobre el fondo oscuro, o
+      // sea que no pasa AA donde más falta hace. Medido el 2026-09-30 al
+      // sustituir un `#60A5FA` suelto: ese literal era el azul de enlace de modo
+      // oscuro aplicado sin condición, bueno en oscuro (7:1) y malo en claro
+      // (2.5:1). Un rol propio resuelve los dos.
+      enlace: esOscuro ? const Color(0xFF60A5FA) : IncesTheme.azulSecundario,
+      // El acento de un aviso **sí** cambia con el brillo, y por una razón
+      // medida: el mismo tono no puede leerse a la vez sobre el bloque ámbar
+      // claro y sobre la tarjeta oscura. `#B45309` da 4.51:1 sobre el ámbar y
+      // 5.02:1 sobre blanco, pero sólo 2.91:1 sobre `#1E293B` — por debajo del
+      // 3:1 que WCAG pide para un gráfico con significado. En oscuro se usa
+      // `#FBBF24`, que da 8.77:1. Medido el 2026-09-30.
+      aviso: esOscuro ? const Color(0xFFFBBF24) : IncesTheme.advertenciaFuerte,
+      superficie:
+          esOscuro ? IncesTheme.superficieOscura : IncesTheme.superficieClara,
+      superficieSutil:
+          esOscuro ? IncesTheme.fondoOscuro : const Color(0xFFF1F5F9),
+      borde: esOscuro ? IncesTheme.bordeOscuro : IncesTheme.bordeClaro,
+      rellenoDeCampo:
+          esOscuro ? IncesTheme.fondoOscuro : const Color(0xFFF8FAFC),
+      // El borde de un campo es el **límite de un control**, así que WCAG 1.4.11
+      // le pide 3:1 contra lo que lo rodea. No es el caso del borde de una
+      // tarjeta —ése es decorativo y no se le exige—, y por eso `borde` y
+      // `bordeDeCampo` son dos roles y no uno.
+      //
+      // Aquí hubo dos afirmaciones falsas, medidas el 2026-09-30. El comentario
+      // anterior decía que `#475569` daba 3.75:1 en oscuro: da **2.36:1** contra
+      // el relleno y **1.93:1** contra la tarjeta, o sea que no pasaba ninguna de
+      // las dos. Y en claro `#CBD5E1` daba **1.42:1** contra su propio relleno
+      // —casi blanco sobre casi blanco—, así que el único borde que delimita el
+      // campo era prácticamente invisible. Los valores actuales pasan los cuatro
+      // pares: en oscuro 3.75:1 contra el relleno y 3.07:1 contra la tarjeta; en
+      // claro 3.22:1 y 3.37:1.
+      bordeDeCampo:
+          esOscuro ? const Color(0xFF64748B) : const Color(0xFF7E8DA3),
+    );
+  }
+
+  /// El brillo del que salen estos valores.
+  final Brightness brillo;
+
+  /// Títulos, valores y **el texto que el usuario escribe**.
+  final Color textoPrincipal;
+
+  /// Texto de apoyo con presencia: subtítulos y descripciones.
+  final Color textoSecundario;
+
+  /// Etiquetas de campo, textos de ayuda e iconos secundarios.
+  final Color textoApagado;
+
+  /// Un enlace o un texto accionable. Tiene rol propio porque el azul de marca
+  /// **no** puede ser el mismo en los dos brillos: `azulSecundario` (#0059B3) da
+  /// 7.0:1 sobre blanco pero 1.9:1 sobre `#0F172A`, y el `#60A5FA` que lo
+  /// sustituía daba lo contrario. Un literal sin condición sólo puede acertar en
+  /// uno de los dos temas.
+  final Color enlace;
+
+  /// El acento de un aviso —el icono de «no se pudo cargar», por ejemplo—.
+  ///
+  /// Distinto de [IncesTheme.advertenciaFuerte], que es el icono **dentro** del
+  /// bloque ámbar y por tanto no cambia con el tema. Éste sí, porque el mismo
+  /// icono cae sobre superficies de brillo opuesto según el tema.
+  final Color aviso;
+
+  /// La superficie de una tarjeta.
+  final Color superficie;
+
+  /// Un bloque hundido dentro de una superficie, para agrupar sin elevarlo.
+  final Color superficieSutil;
+
+  /// El borde de una tarjeta o un separador.
+  final Color borde;
+
+  /// El relleno de un campo de formulario.
+  final Color rellenoDeCampo;
+
+  /// El borde de un campo de formulario.
+  final Color bordeDeCampo;
 }
 
 /// Paleta semántica de un módulo según su estado.

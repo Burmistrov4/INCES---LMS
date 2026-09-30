@@ -349,6 +349,10 @@ class _EscanerQrScreenState extends State<EscanerQrScreen> {
                   // `onDetectError` para que no existan dos frases para lo mismo.
                   errorBuilder: (context, error) =>
                       _camaraNoDisponible(theme, _mensajeDe(error)),
+                  // El negro del visor es fijo y no un rol de tema: la vista
+                  // previa de la cámara es negra en claro y en oscuro. Un rol de
+                  // superficie la dejaría blanca en claro y el marco de puntería
+                  // —blanco— desaparecería.
                   placeholderBuilder: (context) => const ColoredBox(
                     color: Colors.black,
                     child: Center(child: CircularProgressIndicator()),
@@ -394,6 +398,8 @@ class _EscanerQrScreenState extends State<EscanerQrScreen> {
 
   Widget _franjaDeAviso(ThemeData theme, String mensaje) {
     return Material(
+      // Blanco sobre el rojo de error: correcto en los dos brillos y no una
+      // superficie del tema, así que no se sustituye por un rol.
       color: IncesTheme.error,
       borderRadius: BorderRadius.circular(IncesTheme.radioControl),
       child: Padding(
@@ -417,6 +423,9 @@ class _EscanerQrScreenState extends State<EscanerQrScreen> {
 
   /// Lo que se ve cuando la cámara no abre: el mensaje y el plan B.
   Widget _camaraNoDisponible(ThemeData theme, String mensaje) {
+    // Mismo negro fijo que el visor: este estado ocupa su lugar, y el texto
+    // blanco de encima está pensado sobre negro. Un rol de superficie lo dejaría
+    // blanco sobre blanco en modo claro.
     return ColoredBox(
       color: Colors.black,
       child: Center(
@@ -532,6 +541,9 @@ class _PintorDeGuia extends CustomPainter {
       Path()..addRect(Offset.zero & size),
       Path()..addRRect(marco),
     );
+    // El velo y el marco se pintan sobre la imagen viva de la cámara, no sobre
+    // una superficie del tema: negro translúcido y blanco funcionan en los dos
+    // brillos y son los que dejan ver el código que hay debajo.
     canvas.drawPath(fuera, Paint()..color = const Color(0x99000000));
     canvas.drawRRect(
       marco,

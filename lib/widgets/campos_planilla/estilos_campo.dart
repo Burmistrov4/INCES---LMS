@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../theme/inces_theme.dart';
+
 /// La decoración de un campo de la planilla, en **fuente única**.
 ///
 /// Estaba dentro de `aspirante_form_screen.dart` como método privado. Al pasar a
@@ -8,8 +10,22 @@ import 'package:google_fonts/google_fonts.dart';
 /// si cada uno llevara su propia copia de los bordes el formulario se vería
 /// distinto según el tipo de la fila del catálogo —que es justo lo que el
 /// catálogo no debe poder provocar—.
+///
+/// ## Los colores salen de [PaletaInces], no de literales
+///
+/// Aquí vivía el peor de los contrastes del proyecto. Tenía los suyos, **todos de
+/// modo claro**: relleno `#F8FAFC`, etiqueta `#94A3B8`, ayuda e iconos `#64748B`.
+/// En modo claro se leían. En oscuro, el relleno seguía siendo casi blanco
+/// mientras el texto que se escribe lo ponía el `ColorScheme` oscuro en
+/// `#E2E8F0`: **1.18:1**, o sea que lo tecleado desaparecía dentro del campo. La
+/// etiqueta quedaba en 2.45:1. Medido el 2026-09-30.
+///
+/// [paleta] se pide en vez de resolverse aquí dentro para que un formulario con
+/// cuarenta campos la resuelva **una vez** y no una por campo, y para que la
+/// función siga siendo pura y comprobable sin montar un árbol de widgets.
 InputDecoration decoracionDeCampo({
   required String etiqueta,
+  required PaletaInces paleta,
   IconData? icono,
   String? ayuda,
   Widget? sufijo,
@@ -21,30 +37,35 @@ InputDecoration decoracionDeCampo({
     helperMaxLines: 2,
     errorText: error,
     errorMaxLines: 2,
-    labelStyle: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
-    helperStyle: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
-    prefixIcon:
-        icono == null ? null : Icon(icono, color: const Color(0xFF64748B), size: 20),
+    labelStyle: GoogleFonts.inter(color: paleta.textoApagado),
+    helperStyle: GoogleFonts.inter(fontSize: 11, color: paleta.textoApagado),
+    prefixIcon: icono == null
+        ? null
+        : Icon(icono, color: paleta.textoApagado, size: 20),
     suffixIcon: sufijo,
     filled: true,
-    fillColor: const Color(0xFFF8FAFC),
+    fillColor: paleta.rellenoDeCampo,
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+      borderRadius: BorderRadius.circular(IncesTheme.radioControl),
+      borderSide: BorderSide(color: paleta.bordeDeCampo),
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+      borderRadius: BorderRadius.circular(IncesTheme.radioControl),
+      borderSide: const BorderSide(color: IncesTheme.info, width: 1.5),
     ),
     errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFDC2626)),
+      borderRadius: BorderRadius.circular(IncesTheme.radioControl),
+      borderSide: const BorderSide(color: IncesTheme.error),
     ),
     focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
-      borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+      borderRadius: BorderRadius.circular(IncesTheme.radioControl),
+      borderSide: const BorderSide(color: IncesTheme.error, width: 1.5),
     ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    // 14/16, que es lo que pone el `inputDecorationTheme`. Antes eran 12 en
+    // vertical: dos valores distintos para el mismo campo según quién lo pintara,
+    // que es el mismo desajuste que había en los colores y se arregla igual —con
+    // un solo sitio donde se decide—.
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
   );
 }
 

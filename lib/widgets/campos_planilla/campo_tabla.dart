@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../models/inscripcion_campo.dart';
+import '../../theme/inces_theme.dart';
 
 /// Un campo `tabla`: filas repetibles, cada una con las columnas que declara el
 /// catálogo.
@@ -19,6 +20,12 @@ import '../../models/inscripcion_campo.dart';
 /// convertiría una tabla de ocho columnas y tres filas en veinticuatro etiquetas
 /// iguales. El despacho por `tipo` se repite aquí a conciencia, y es más corto
 /// que la configuración que haría falta para parametrizar el campo de arriba.
+///
+/// **Los colores salen de [PaletaInces]**, igual que en `campo_planilla.dart`.
+/// Aquí había siete literales de modo claro —la tarjeta de cada fila era
+/// `#F8FAFC` con borde `#CBD5E1`, y la celda se rellenaba con `Colors.white`
+/// mientras el texto que se escribe lo ponía el `ColorScheme` oscuro en
+/// `#E2E8F0`: **1.18:1**, el mismo fallo del campo suelto—.
 class CampoTabla extends StatefulWidget {
   const CampoTabla({
     super.key,
@@ -128,6 +135,7 @@ class _CampoTablaState extends State<CampoTabla> {
   Widget build(BuildContext context) {
     final columnas = widget.campo.columnasTabla;
     final filas = _filas;
+    final paleta = PaletaInces.de(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -137,14 +145,14 @@ class _CampoTablaState extends State<CampoTabla> {
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: const Color(0xFF0F172A),
+            color: paleta.textoPrincipal,
           ),
         ),
         if (widget.campo.ayuda != null) ...[
           const SizedBox(height: 2),
           Text(
             widget.campo.ayuda!,
-            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+            style: GoogleFonts.inter(fontSize: 11, color: paleta.textoApagado),
           ),
         ],
         const SizedBox(height: 8),
@@ -191,12 +199,14 @@ class _Fila extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final paleta = PaletaInces.de(context);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: paleta.superficieSutil,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFCBD5E1)),
+        border: Border.all(color: paleta.bordeDeCampo),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,21 +246,31 @@ class _Celda extends StatelessWidget {
   final Object? valor;
   final ValueChanged<Object?> onCambio;
 
-  InputDecoration get _decoracion => InputDecoration(
+  /// La decoración de una celda.
+  ///
+  /// **Se aparta del tema a propósito, y en dos cosas.** `isDense` con relleno
+  /// 10/10 —en vez de los 14/16 de un campo suelto— porque una celda vive dentro
+  /// de una fila que a su vez vive dentro de la tarjeta: con el relleno de campo
+  /// completo, ocho columnas por tres filas dejan de caber en 375 px. Y el radio
+  /// es 6 y no `IncesTheme.radioControl` (8) por la misma razón. Lo que **no** se
+  /// aparta es el color: los tres salen de [PaletaInces].
+  InputDecoration _decoracion(PaletaInces paleta) => InputDecoration(
         labelText: columna.etiqueta + (columna.obligatorio ? ' *' : ''),
-        labelStyle: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+        labelStyle: GoogleFonts.inter(fontSize: 12, color: paleta.textoApagado),
         isDense: true,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: paleta.rellenoDeCampo,
         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+          borderSide: BorderSide(color: paleta.bordeDeCampo),
         ),
       );
 
   @override
   Widget build(BuildContext context) {
+    final paleta = PaletaInces.de(context);
+
     switch (columna.tipo) {
       case TipoCampoInscripcion.booleano:
         final marcado = valor == true;
@@ -272,7 +292,7 @@ class _Celda extends StatelessWidget {
         return DropdownButtonFormField<String>(
           isExpanded: true,
           initialValue: seleccionado,
-          decoration: _decoracion,
+          decoration: _decoracion(paleta),
           items: [
             for (final opcion in columna.opciones)
               DropdownMenuItem(value: opcion.valor, child: Text(opcion.etiqueta)),
@@ -285,7 +305,7 @@ class _Celda extends StatelessWidget {
           initialValue: valor?.toString() ?? '',
           keyboardType: TextInputType.number,
           style: GoogleFonts.inter(fontSize: 13),
-          decoration: _decoracion,
+          decoration: _decoracion(paleta),
           onChanged: (texto) {
             final limpio = texto.trim();
             if (limpio.isEmpty) return onCambio(null);
@@ -300,7 +320,7 @@ class _Celda extends StatelessWidget {
         return TextFormField(
           initialValue: valor?.toString() ?? '',
           style: GoogleFonts.inter(fontSize: 13),
-          decoration: _decoracion.copyWith(hintText: 'AAAA-MM-DD'),
+          decoration: _decoracion(paleta).copyWith(hintText: 'AAAA-MM-DD'),
           onChanged: (texto) => onCambio(texto.trim().isEmpty ? null : texto.trim()),
         );
 
@@ -316,7 +336,7 @@ class _Celda extends StatelessWidget {
               : TextInputType.text,
           autocorrect: columna.tipo != TipoCampoInscripcion.email,
           style: GoogleFonts.inter(fontSize: 13),
-          decoration: _decoracion,
+          decoration: _decoracion(paleta),
           onChanged: (texto) => onCambio(texto.trim().isEmpty ? null : texto.trim()),
         );
     }

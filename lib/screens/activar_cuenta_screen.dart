@@ -97,24 +97,22 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final esOscuro = theme.brightness == Brightness.dark;
-    final fondo = esOscuro ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9);
-    final tarjeta = esOscuro ? const Color(0xFF1E293B) : Colors.white;
-    final texto = esOscuro ? Colors.white : const Color(0xFF0F172A);
-    final textoSuave =
-        esOscuro ? const Color(0xFF94A3B8) : const Color(0xFF475569);
-    final relleno = esOscuro ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC);
+    // Los colores salen de la paleta por rol, no de literales de modo claro. El
+    // bloque anterior resolvía el brillo a mano y, al escribir sólo los valores
+    // claros, dejaba el modo oscuro con contrastes ilegibles. `superficieSutil`
+    // es el fondo de pantalla (el mismo gris que antes era `fondo`) y
+    // `superficie` la tarjeta; en claro coinciden con los literales de antes.
+    final paleta = PaletaInces.de(context);
 
     return Scaffold(
-      backgroundColor: fondo,
+      backgroundColor: paleta.superficieSutil,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Card(
-              color: tarjeta,
+              color: paleta.superficie,
               elevation: 8,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -127,9 +125,11 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Azul informativo institucional, no un rol de brillo: el
+                      // mismo azul de marca en claro y en oscuro.
                       const Icon(
                         Icons.person_add_alt_1_outlined,
-                        color: Color(0xFF2563EB),
+                        color: IncesTheme.info,
                         size: 48,
                       ),
                       const SizedBox(height: 16),
@@ -141,7 +141,7 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                         style: GoogleFonts.inter(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
-                          color: texto,
+                          color: paleta.textoPrincipal,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -152,7 +152,8 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                             : 'Define la contraseña de tu cuenta de docente. '
                                 'Mínimo 8 caracteres.',
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(fontSize: 13, color: textoSuave),
+                        style: GoogleFonts.inter(
+                            fontSize: 13, color: paleta.textoSecundario),
                       ),
                       const SizedBox(height: 24),
 
@@ -197,10 +198,10 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                         TextFormField(
                           controller: _passwordController,
                           obscureText: !_passwordVisible,
-                          style: TextStyle(color: texto),
+                          style: TextStyle(color: paleta.textoPrincipal),
                           decoration: InputDecoration(
                             labelText: 'Nueva contraseña',
-                            labelStyle: TextStyle(color: textoSuave),
+                            labelStyle: TextStyle(color: paleta.textoSecundario),
                             prefixIcon:
                                 const Icon(Icons.lock_outline, size: 20),
                             suffixIcon: IconButton(
@@ -215,7 +216,7 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                               ),
                             ),
                             filled: true,
-                            fillColor: relleno,
+                            fillColor: paleta.rellenoDeCampo,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -234,14 +235,14 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                         TextFormField(
                           controller: _confirmarController,
                           obscureText: !_passwordVisible,
-                          style: TextStyle(color: texto),
+                          style: TextStyle(color: paleta.textoPrincipal),
                           decoration: InputDecoration(
                             labelText: 'Confirmar contraseña',
-                            labelStyle: TextStyle(color: textoSuave),
+                            labelStyle: TextStyle(color: paleta.textoSecundario),
                             prefixIcon:
                                 const Icon(Icons.lock_outline, size: 20),
                             filled: true,
-                            fillColor: relleno,
+                            fillColor: paleta.rellenoDeCampo,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -282,7 +283,11 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                           child: FilledButton(
                             onPressed: _isLoading ? null : _activar,
                             style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF2563EB),
+                              // El azul informativo institucional, constante en
+                              // los dos brillos: no es un rol de texto.
+                              backgroundColor: IncesTheme.info,
+                              // Texto blanco sobre el azul del botón: correcto en
+                              // ambos temas, no es una superficie.
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
@@ -310,7 +315,16 @@ class _ActivarCuentaScreenState extends State<ActivarCuentaScreen> {
                           'Volver al inicio',
                           style: GoogleFonts.inter(
                             fontSize: 13,
-                            color: const Color(0xFF60A5FA),
+                            // Aquí hubo tres intentos y los dos primeros sólo
+                            // midieron la mitad del problema. El literal claro
+                            // `#60A5FA` se leía en oscuro y daba 2.5:1 sobre la
+                            // tarjeta blanca. Se cambió por `IncesTheme.info`
+                            // —que sí pasa en claro, 5.17:1— y **siguió mal en
+                            // oscuro**: sobre `#1E293B` da 2.83:1. Un color fijo
+                            // sólo puede acertar en un tema, y la pantalla sigue
+                            // `ThemeMode.system`. `PaletaInces.enlace` da 6.82:1
+                            // en claro y 5.75:1 en oscuro. Medido el 2026-09-30.
+                            color: paleta.enlace,
                           ),
                         ),
                       ),

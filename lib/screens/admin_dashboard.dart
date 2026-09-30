@@ -437,6 +437,11 @@ class MetricasModulos extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // El gris de «Apagados» es un rol de texto apagado, no un literal fijo: en
+    // claro coincide con el #64748B de antes y en oscuro sube al tono legible
+    // sobre la superficie oscura.
+    final paleta = PaletaInces.de(context);
+
     return RejillaTarjetas(
       anchoMinimo: 200,
       children: [
@@ -455,7 +460,7 @@ class MetricasModulos extends StatelessWidget {
           etiqueta: 'Apagados',
           valor: '${total - activos}',
           icono: Icons.toggle_off_outlined,
-          color: const Color(0xFF64748B),
+          color: paleta.textoApagado,
         ),
         TarjetaMetrica(
           etiqueta: 'Auditoría hoy',

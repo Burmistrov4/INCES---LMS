@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/inscripcion_campo.dart';
+import '../../theme/inces_theme.dart';
 import 'campo_rejilla.dart';
 import 'campo_tabla.dart';
 import 'estilos_campo.dart';
@@ -18,6 +19,14 @@ import 'estilos_campo.dart';
 /// por [onCambio]. Así la planilla tiene una sola fuente de verdad, y una
 /// pregunta que se oculta y se vuelve a mostrar conserva lo que el aspirante
 /// había escrito.
+///
+/// ## Los colores salen de [PaletaInces]
+///
+/// Cada widget de este archivo escribía sus propios hexadecimales, **todos de
+/// modo claro**: la etiqueta de un booleano era `#0F172A` y su ayuda `#64748B`.
+/// Sobre la tarjeta oscura (`#1E293B`) esa etiqueta daba **1.22:1**: el mismo
+/// error que `campo_rejilla.dart` tenía, cometido en cada tipo de campo. Ahora
+/// cada `build` resuelve la paleta una vez y ningún color se decide aquí.
 class CampoPlanilla extends StatelessWidget {
   const CampoPlanilla({
     super.key,
@@ -250,6 +259,7 @@ class _Texto extends StatelessWidget {
       autocorrect: tipoTeclado != TextInputType.emailAddress,
       decoration: decoracionDeCampo(
         etiqueta: etiqueta,
+        paleta: PaletaInces.de(context),
         icono: iconoDeCampo(campo.codigo),
         ayuda: campo.ayuda,
         error: error,
@@ -292,6 +302,7 @@ class _Numero extends StatelessWidget {
       keyboardType: TextInputType.number,
       decoration: decoracionDeCampo(
         etiqueta: etiqueta,
+        paleta: PaletaInces.de(context),
         icono: iconoDeCampo(campo.codigo),
         ayuda: campo.ayuda,
         error: error ?? (noEsNumero ? 'Escribe sólo números' : null),
@@ -416,6 +427,7 @@ class _FechaState extends State<_Fecha> {
       onTap: () => _elegir(context),
       decoration: decoracionDeCampo(
         etiqueta: widget.etiqueta,
+        paleta: PaletaInces.de(context),
         icono: iconoDeCampo(widget.campo.codigo),
         ayuda: widget.campo.ayuda,
         error: widget.error,
@@ -452,6 +464,8 @@ class _Booleano extends StatelessWidget {
     // respuesta y no una ausencia. Por eso no se escribe `null` aquí: si lo
     // hiciera, un campo obligatorio de este tipo no se podría cumplir nunca.
     final marcado = valor == true;
+    // La paleta se resuelve una vez para los tres textos que lleva este widget.
+    final paleta = PaletaInces.de(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,7 +484,7 @@ class _Booleano extends StatelessWidget {
                     campo.etiqueta,
                     style: GoogleFonts.inter(
                       fontSize: 14,
-                      color: const Color(0xFF0F172A),
+                      color: paleta.textoPrincipal,
                     ),
                   ),
                 ),
@@ -483,7 +497,7 @@ class _Booleano extends StatelessWidget {
             padding: const EdgeInsets.only(left: 12, top: 2),
             child: Text(
               campo.ayuda!,
-              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+              style: GoogleFonts.inter(fontSize: 11, color: paleta.textoApagado),
             ),
           ),
         if (error != null)
@@ -491,7 +505,7 @@ class _Booleano extends StatelessWidget {
             padding: const EdgeInsets.only(left: 12, top: 4),
             child: Text(
               error!,
-              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626)),
+              style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
             ),
           ),
       ],
@@ -539,6 +553,7 @@ class _Seleccion extends StatelessWidget {
       initialValue: seleccionado,
       decoration: decoracionDeCampo(
         etiqueta: etiqueta,
+        paleta: PaletaInces.de(context),
         icono: iconoDeCampo(campo.codigo),
         ayuda: campo.ayuda,
         error: error,
@@ -578,6 +593,9 @@ class _Multiseleccion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final elegidos = _elegidos;
+    // Igual que el booleano: un solo sitio donde se decide el color de la
+    // etiqueta, la ayuda y el error de este widget.
+    final paleta = PaletaInces.de(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -587,14 +605,14 @@ class _Multiseleccion extends StatelessWidget {
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: const Color(0xFF0F172A),
+            color: paleta.textoPrincipal,
           ),
         ),
         if (campo.ayuda != null) ...[
           const SizedBox(height: 2),
           Text(
             campo.ayuda!,
-            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+            style: GoogleFonts.inter(fontSize: 11, color: paleta.textoApagado),
           ),
         ],
         const SizedBox(height: 8),
@@ -623,7 +641,7 @@ class _Multiseleccion extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             error!,
-            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626)),
+            style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
           ),
         ],
       ],

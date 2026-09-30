@@ -464,6 +464,9 @@ class _TarjetaPrograma extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // El gris de «En borrador» es un rol de texto apagado: en claro coincide con
+    // el #64748B de antes y en oscuro sube al tono legible sobre la tarjeta.
+    final paleta = PaletaInces.de(context);
     final vacio = programa.estaVacio;
 
     return Card(
@@ -523,7 +526,7 @@ class _TarjetaPrograma extends StatelessWidget {
                         texto: programa.activo ? 'Publicado' : 'En borrador',
                         color: programa.activo
                             ? IncesTheme.exito
-                            : const Color(0xFF64748B),
+                            : paleta.textoApagado,
                       ),
                       if (programa.requierePasantia)
                         const _Etiqueta(

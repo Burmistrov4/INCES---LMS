@@ -8,6 +8,7 @@ import '../models/registro_resultado.dart';
 import '../repositories/aspirante_repository.dart';
 import '../repositories/planilla_repository.dart';
 import '../services/auth_service.dart';
+import '../theme/inces_theme.dart';
 import '../widgets/campos_planilla/campo_planilla.dart';
 import '../widgets/campos_planilla/estilos_campo.dart';
 import 'registro_exitoso_screen.dart';
@@ -544,16 +545,38 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
         SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.error_outline, color: Colors.white, size: 20),
+              const Icon(
+                Icons.error_outline,
+                color: IncesTheme.sobreError,
+                size: 20,
+              ),
               const SizedBox(width: 12),
-              Expanded(child: Text(mensaje)),
+              // El color va en el `Text` y no en un `contentTextStyle` del
+              // `SnackBar` porque ese parámetro ya no existe en el widget (sólo
+              // en `SnackBarThemeData`), y tocar el tema afectaría a todos los
+              // avisos de la aplicación, incluidos los que sí usan el fondo por
+              // defecto. Aquí el fondo es rojo fijo, así que el texto también.
+              Expanded(
+                child: Text(
+                  mensaje,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: IncesTheme.sobreError,
+                  ),
+                ),
+              ),
             ],
           ),
-          backgroundColor: const Color(0xFFDC2626),
+          // El fondo y el texto de encima van **juntos**, y no es cosmético: el
+          // tema sólo declara el tamaño del texto de un `SnackBar`, así que el
+          // color lo ponía Material con `onInverseSurface` — claro en tema claro
+          // y **oscuro en tema oscuro**. Sobre este rojo fijo, el aviso se leía
+          // blanco en un tema y casi negro en el otro. Medido el 2026-09-30.
+          backgroundColor: IncesTheme.superficieError,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 6),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(IncesTheme.radioControl),
           ),
         ),
       );
@@ -597,26 +620,34 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     );
   }
 
+  /// El aviso de que la oferta formativa no se pudo cargar.
+  ///
+  /// El bloque se queda **claro en los dos temas** a propósito: el par
+  /// `superficieAdvertencia` + `textoAdvertencia` da 8.15:1 en cualquier fondo,
+  /// así que un aviso claro dentro de una página oscura llama la atención sin
+  /// perder contraste. Inventarle una variante oscura sería diseñar un segundo
+  /// aviso que nadie ha pedido. Los tres colores salen del tema igualmente: lo
+  /// que se decide aquí es *cuáles*, no *qué tono*.
   Widget _construirAvisoProgramas() {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFEF3C7),
+        color: IncesTheme.superficieAdvertencia,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFF59E0B)),
+        border: Border.all(color: IncesTheme.advertencia),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(Icons.warning_amber_rounded,
-              color: Color(0xFFB45309), size: 20),
+              color: IncesTheme.advertenciaFuerte, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               _avisoProgramas!,
               style: GoogleFonts.inter(
                 fontSize: 12,
-                color: const Color(0xFF78350F),
+                color: IncesTheme.textoAdvertencia,
                 height: 1.4,
               ),
             ),
@@ -645,6 +676,10 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   /// qué campos había y en qué orden; lo que no decía era dónde vivían.
   Widget _construirResumen() {
     final catalogo = _catalogo;
+    // Este método pinta siete cosas con color —el bloque, un título, una
+    // cabecera por grupo y dos textos por fila—, así que la paleta se resuelve
+    // una sola vez aquí arriba.
+    final paleta = PaletaInces.de(context);
 
     // Los campos que tienen respuesta, agrupados por el paso que los contiene.
     // Un mapa de listas y no una lista de pares porque el orden de los pasos lo
@@ -685,9 +720,9 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFCBD5E1)),
+        color: paleta.superficieSutil,
+        borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta),
+        border: Border.all(color: paleta.borde),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,7 +732,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
             style: GoogleFonts.inter(
               fontWeight: FontWeight.w600,
               fontSize: 14,
-              color: const Color(0xFF0F172A),
+              color: paleta.textoPrincipal,
             ),
           ),
           for (final paso in pasosConDatos) ...[
@@ -710,7 +745,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF0F172A),
+                      color: paleta.textoPrincipal,
                     ),
                   ),
                 ),
@@ -741,7 +776,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                         fila.key,
                         style: GoogleFonts.inter(
                           fontSize: 12,
-                          color: const Color(0xFF64748B),
+                          color: paleta.textoApagado,
                         ),
                       ),
                     ),
@@ -750,7 +785,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                         fila.value,
                         style: GoogleFonts.inter(
                           fontSize: 13,
-                          color: const Color(0xFF0F172A),
+                          color: paleta.textoPrincipal,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -765,6 +800,8 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   }
 
   Widget _construirConfirmacion() {
+    final paleta = PaletaInces.de(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -779,7 +816,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           'Con tu cédula o correo y esta contraseña entrarás al aula virtual.',
           style: GoogleFonts.inter(
             fontSize: 12,
-            color: const Color(0xFF64748B),
+            color: paleta.textoApagado,
           ),
         ),
         const SizedBox(height: 12),
@@ -790,6 +827,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           enableSuggestions: false,
           decoration: decoracionDeCampo(
             etiqueta: 'Contraseña (mínimo 8 caracteres)',
+            paleta: paleta,
             icono: Icons.lock_outline,
           ).copyWith(
             suffixIcon: IconButton(
@@ -798,7 +836,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
                 size: 20,
-                color: const Color(0xFF64748B),
+                color: paleta.textoApagado,
               ),
               onPressed: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
@@ -819,6 +857,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           enableSuggestions: false,
           decoration: decoracionDeCampo(
             etiqueta: 'Confirmar contraseña',
+            paleta: paleta,
             icono: Icons.lock_reset_outlined,
           ).copyWith(
             suffixIcon: IconButton(
@@ -827,7 +866,7 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
                 size: 20,
-                color: const Color(0xFF64748B),
+                color: paleta.textoApagado,
               ),
               onPressed: () =>
                   setState(() => _obscureConfirm = !_obscureConfirm),
@@ -846,6 +885,13 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
   }
 
   Widget _construirErrorDeCatalogo(String mensaje) {
+    // El icono cae sobre la superficie de la tarjeta, que es clara en un tema y
+    // oscura en el otro. Por eso usa `paleta.aviso` y **no** el ámbar del bloque
+    // de aviso de arriba: aquél sólo se lee sobre su propio fondo ámbar, y sobre
+    // la tarjeta oscura daría 2.91:1 — por debajo del 3:1 de un gráfico con
+    // significado. Medido el 2026-09-30.
+    final paleta = PaletaInces.de(context);
+
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -854,10 +900,10 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 Icons.cloud_off_outlined,
                 size: 44,
-                color: Color(0xFFB45309),
+                color: paleta.aviso,
               ),
               const SizedBox(height: 12),
               Text(
@@ -880,17 +926,19 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F172A) : Colors.white,
-      // Sin `backgroundColor` a propósito: el tema ya pinta el `AppBar`
-      // (`IncesTheme.appBarTheme`), y aquí había un `Colors.blue[900]` —#0D47A1—
-      // que **no** es el azul del producto (`IncesTheme.azulPrimario`, #003B73).
-      // La primera pantalla que ve un aspirante usaba un azul distinto al del
-      // resto de la plataforma, que es exactamente lo que `main.dart` documenta
-      // haber corregido una vez: «cada pantalla se inventaba sus propios
-      // colores y la aplicación no se leía como un solo producto».
+      // Sin `backgroundColor` a propósito, por dos razones que apuntan al mismo
+      // sitio. (1) El tema ya pinta el `AppBar` (`IncesTheme.appBarTheme`), y
+      // aquí había un `Colors.blue[900]` —#0D47A1— que **no** es el azul del
+      // producto (`IncesTheme.azulPrimario`, #003B73). La primera pantalla que ve
+      // un aspirante usaba un azul distinto al del resto de la plataforma, que es
+      // exactamente lo que `main.dart` documenta haber corregido una vez: «cada
+      // pantalla se inventaba sus propios colores y la aplicación no se leía como
+      // un solo producto». (2) El fondo de la página era `#0F172A` en oscuro pero
+      // **blanco** en claro, mientras el tema declara `fondoClaro` (#F8FAFC): la
+      // tarjeta blanca del formulario se dibujaba sobre una página blanca y sólo
+      // la separaba su sombra. El tema ya responde a esta pregunta para los dos
+      // brillos.
       appBar: AppBar(
         title: const Text('Inscripción - INCES La Isabelica'),
         centerTitle: true,
@@ -928,9 +976,11 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
     final maxWidth = constraints.maxWidth > 800 ? 800.0 : constraints.maxWidth;
     final padding =
         isSmallScreen ? const EdgeInsets.all(16) : const EdgeInsets.all(32);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor =
-        isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    // La tarjeta del formulario: la superficie y el borde salen del tema. Antes
+    // se resolvían aquí con un `isDark` y dos pares de hexadecimales que decían
+    // **lo mismo** que `PaletaInces.superficie` y `.borde` — dos formas de
+    // escribir la misma decisión, que es exactamente como se desincronizan.
+    final paleta = PaletaInces.de(context);
 
     return SingleChildScrollView(
       child: Center(
@@ -938,11 +988,14 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
           width: maxWidth,
           padding: padding,
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E293B) : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor),
+            color: paleta.superficie,
+            borderRadius: BorderRadius.circular(IncesTheme.radioTarjeta),
+            border: Border.all(color: paleta.borde),
             boxShadow: [
               BoxShadow(
+                // Una sombra es negra por definición: no es un color del tema y
+                // por eso se queda como literal. Está en la lista de excepciones
+                // de `test/theme_literales_test.dart`, con esta misma razón.
                 color: Colors.black.withValues(alpha: 0.05),
                 blurRadius: 24,
                 offset: const Offset(0, 4),
@@ -990,12 +1043,17 @@ class _AspiranteFormScreenState extends State<AspiranteFormScreen> {
                     FilledButton(
                       onPressed: _enviando ? null : details.onStepContinue,
                       child: _enviando
-                          ? const SizedBox(
+                          // El indicador va **dentro** del botón relleno, así que
+                          // lleva el color de lo que se pinta sobre el primario.
+                          // Sin él tomaría `progressIndicatorTheme` —el azul
+                          // primario— sobre un botón azul primario, o sea
+                          // invisible. Es el rol del tema, no un blanco suelto.
+                          ? SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: Theme.of(context).colorScheme.onPrimary,
                               ),
                             )
                           : Text(

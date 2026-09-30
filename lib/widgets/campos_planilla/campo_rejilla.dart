@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../models/inscripcion_campo.dart';
+import '../../theme/inces_theme.dart';
 
 /// Un campo `rejilla`: una lista de casillas donde cada ítem marcado lleva su
 /// propio valor.
@@ -16,6 +17,12 @@ import '../../models/inscripcion_campo.dart';
 /// «ninguna marcada», que es exactamente lo que `validar_planilla()` entiende
 /// por vacío. Una lista de marcados y un mapa aparte para los «desde» serían dos
 /// estructuras que podrían discrepar; una sola no puede.
+///
+/// **Los colores salen de [PaletaInces].** Tenía los suyos, fijos de modo claro,
+/// y el peor era la etiqueta: `#0F172A` —casi negro— sobre la tarjeta oscura
+/// `#1E293B`, **1.22:1**, medido el 2026-09-30. No es que se leyera mal: no se
+/// leía. Y el relleno del «Desde» era `Colors.white`, que en oscuro dejaba texto
+/// claro sobre blanco.
 class CampoRejilla extends StatelessWidget {
   const CampoRejilla({
     super.key,
@@ -42,6 +49,7 @@ class CampoRejilla extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final paleta = PaletaInces.de(context);
     final marcados = _marcados;
     final items = campo.itemsRejilla;
     final etiquetaDesde = campo.etiquetaDesde;
@@ -70,23 +78,26 @@ class CampoRejilla extends StatelessWidget {
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: const Color(0xFF0F172A),
+            color: paleta.textoPrincipal,
           ),
         ),
         if (campo.ayuda != null) ...[
           const SizedBox(height: 2),
           Text(
             campo.ayuda!,
-            style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+            style: GoogleFonts.inter(fontSize: 11, color: paleta.textoApagado),
           ),
         ],
         const SizedBox(height: 6),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
+            // El bloque hundido. En claro era `#F8FAFC` y la paleta pone
+            // `#F1F5F9`: un punto más marcado, para que coincida con el resto de
+            // bloques hundidos del proyecto en vez de ser el único con su tono.
+            color: paleta.superficieSutil,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFCBD5E1)),
+            border: Border.all(color: paleta.bordeDeCampo),
           ),
           child: Column(
             children: [
@@ -111,7 +122,10 @@ class CampoRejilla extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   item.etiqueta,
-                                  style: GoogleFonts.inter(fontSize: 13),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: paleta.textoPrincipal,
+                                  ),
                                 ),
                               ),
                             ],
@@ -133,21 +147,28 @@ class CampoRejilla extends StatelessWidget {
                             hintText: etiquetaDesde,
                             hintStyle: GoogleFonts.inter(
                               fontSize: 11,
-                              color: const Color(0xFF94A3B8),
+                              color: paleta.textoApagado,
                             ),
+                            // `isDense` y 8/8 y no los 14/16 del tema: este campo
+                            // vive dentro de la fila de una casilla y tiene que
+                            // caber a su lado. Es la única razón por la que este
+                            // campo se aparta del relleno estándar.
                             isDense: true,
                             filled: true,
-                            fillColor: Colors.white,
+                            fillColor: paleta.rellenoDeCampo,
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 8,
                               vertical: 8,
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(6),
-                              borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                              borderSide: BorderSide(color: paleta.bordeDeCampo),
                             ),
                           ),
-                          style: GoogleFonts.inter(fontSize: 12),
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: paleta.textoPrincipal,
+                          ),
                           onChanged: (texto) => cambiarDesde(item.valor, texto.trim()),
                         ),
                       ),
@@ -162,7 +183,7 @@ class CampoRejilla extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             error!,
-            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626)),
+            style: GoogleFonts.inter(fontSize: 12, color: IncesTheme.error),
           ),
         ],
       ],
