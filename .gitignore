@@ -90,6 +90,7 @@ npm-debug.log*
 # al historial. Se ignora por patrón y por nombre, para que no se cuele ni
 # renombrado.
 e2e/informe/
+e2e/informe-hardware/
 e2e/test-results/
 e2e/blob-report/
 e2e/.playwright/

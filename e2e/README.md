@@ -1,6 +1,16 @@
-# Suite E2E — la descarga del CSV hacia HACER
+# Suite E2E
 
-## Por qué existe
+Dos cosas que **ninguna otra prueba del repositorio puede tocar**, porque las dos
+ocurren sólo dentro de un navegador de verdad:
+
+| # | Qué | Por qué no cabe en otro sitio |
+| --- | --- | --- |
+| 1 | La **descarga del CSV** hacia HACER (M4) | El ciclo `Blob` → URL de objeto → `<a download>` → clic vive en `selector_archivos_web.dart`, que usa `package:web` + `dart:js_interop` y **no compila en la VM de Dart** |
+| 2 | El **Stepper de inscripción** (M4) | Los pasos no están escritos en Dart: se construyen desde el catálogo, y sólo un navegador dice qué acaba pintando la pantalla |
+
+## 1. La descarga del CSV hacia HACER
+
+### Por qué existe
 
 `flutter test` **no puede** probar la descarga del archivo, y no por falta de
 ganas: el código que la hace vive en `lib/services/selector_archivos_web.dart` y
@@ -31,6 +41,51 @@ sigue siendo deuda»*.
 decodificada, las dos reglas que más importan son invisibles. Un test que
 afirme `texto.includes('inscripcion_id')` pasa aunque falte el BOM.
 
+## 2. El Stepper de inscripción se construye desde el catálogo
+
+**Qué protege.** El formulario del aspirante no tiene los pasos escritos a mano:
+`aspirante_form_screen.dart` los arma con `catalogo.grupos` y un `for`, así que
+**un grupo del catálogo es un paso**, y un grupo que se queda sin campos
+desaparece solo. Es una virtud —el CFS cambia el formulario desde el panel, sin
+tocar Flutter— y también un riesgo: si el cableado se rompiera, la pantalla
+mostraría pasos que el catálogo no tiene, y **ninguna prueba de widgets lo vería**,
+porque todas usan catálogos falsos.
+
+**La prueba es diferencial, no una lista fija.** No afirma «los pasos son estos
+nueve». Lee el catálogo por `GET /api/v1/inscripcion/campos` —la misma respuesta
+que consume la pantalla— y comprueba que el Stepper muestra **exactamente** esos
+grupos, en ese orden, más el paso de cierre. Si mañana el CFS añade un grupo desde
+el panel, la prueba sigue pasando; sólo falla si la pantalla se desincroniza del
+catálogo, que es el fallo que importa.
+
+**Por qué el paso de cierre se espera aparte.** «Confirmación y Contraseña» es el
+único paso que **no** viene del catálogo: la contraseña es la credencial de la
+cuenta, no un dato de la planilla, así que está fijo en Dart
+(`_construirConfirmacion`). La prueba lo añade al final de la lista esperada — y
+afirma explícitamente que va **después** del último grupo, porque comparar sólo el
+conjunto de títulos no detectaría que se hubiera reordenado.
+
+### Cómo expone Flutter los títulos de paso (medido el 2026-09-29)
+
+Dos formas distintas en la misma pantalla, y ninguna es la obvia:
+
+| Paso | Nodo | Dónde está el texto |
+| --- | --- | --- |
+| El **activo** | `flt-semantics role="group"`, 734×631 | En el **`aria-label`**, como `"1\nDatos personales"` — número, salto de línea, título |
+| Los **colapsados** | `flt-semantics role="button"`, 734×72 | Como **nodo de texto directo**, sin `<span>` y sin `aria-label` |
+
+De ahí salen tres consecuencias, y las tres están en el código:
+
+- Los títulos se **normalizan** (`\s+ → ' '`) antes de comparar: el del paso activo
+  trae un salto de línea en medio.
+- **No se puede filtrar por `role="button"`**: el paso 1 no lo es. La prueba
+  selecciona por «el texto empieza por el número del paso».
+- `FlutterApp.nodos()` **no veía** el texto de los colapsados: sólo miraba
+  `children[0]` cuando era un `<span>`, y esos nodos **no tienen hijos de
+  elemento**. Se le añadió el paso «su propio `textContent` cuando
+  `children.length === 0`». Antes de eso, `volcarSemantica()` los mostraba como
+  botones sin nombre — un diagnóstico que ocultaba justo el dato que se buscaba.
+
 ## Cómo se conduce una app Flutter Web (CanvasKit)
 
 Flutter no pinta widgets: pinta píxeles. **No hay `<button>`, ni `getByText`, ni
@@ -43,6 +98,7 @@ app Flutter Web real, y hay cuatro resultados que cambian el diseño:
 | `getByRole('button', {name})` → **0** coincidencias; `getByText` → **0**; `getByLabel` → **1**; `flt-semantics[aria-label="…"]` → **1** | El localizador por defecto es el atributo, no el rol |
 | Pulsar un nodo semántico con `click()` **también agota el tiempo**; `dispatchEvent` y `force` funcionan | Un POM con `click()` a secas falla el 100 % de las pulsaciones |
 | El árbol semántico **sobrevive** a un cambio de `location.hash` | Se enciende una vez por carga, no en cada paso |
+| El texto de un nodo puede ser un **nodo de texto directo**, sin `<span>` hijo | `nodos()` cae a su propio `textContent` cuando el nodo **no tiene hijos de elemento** (los encabezados de paso colapsados del Stepper son así) |
 | `<canvas>` está en el **shadow DOM** de `flt-glass-pane` | `document.querySelectorAll('canvas').length` da **0** con la app perfecta |
 
 Y una trampa de la app, no del navegador: **el botón de exportar se llama igual
@@ -194,3 +250,82 @@ lo miraría.
 - **La otra mitad de D17.** Que las columnas sean las que HACER espera sigue sin
   saberse. Esta suite comprueba que el archivo cumple el **formato**; no puede
   comprobar que el **contenido** sea el que el INCES necesita.
+
+## Puente de hardware del escáner de QR
+
+`e2e/hardware/` **no forma parte de esta suite** y CI no la ejecuta: tiene su
+propio `playwright.hardware.config.ts`, y `e2e.yml` corre `npx playwright test`,
+que usa `playwright.config.ts` (`testDir: './tests'`). Se invoca a mano.
+
+Existe porque el escáner de QR (M7 · D21) tenía una mitad sin verificar por
+nadie: **la lectura**. En `flutter test` no hay cámara y no hay JDK ≥ 17 para
+compilar el APK, así que la cadena «fotograma → decodificador → texto → API» sólo
+estaba afirmada por sus comentarios.
+
+Se resuelve sustituyendo la cámara por un vídeo con un QR conocido:
+
+```bash
+# 1. El bundle. `build/web` local está congelado (aquí `flutter build web` no
+#    arranca), así que se usa el artefacto `web-bundle` que publica el flujo E2E:
+#    se descarga a C:/tmp/web-bundle.
+# 2. El vídeo. Escribe además un «sidecar» .json con el contenido.
+node devops/generar-qr-y4m.mjs "3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071:471212" "C:/tmp/qr_dummy.y4m"
+
+# 3. La prueba.
+cd e2e
+npx playwright test -c playwright.hardware.config.ts
+```
+
+Qué hace cada prueba:
+
+| # | Prueba | Necesita | Qué mide |
+|---|---|---|---|
+| 1 | el puente | nada | Que la cámara falsa entrega fotogramas y que un lector recupera el texto exacto del QR. Comprueba además que el bundle servido **contiene el escáner**, para no medir un build viejo. |
+| 2 | el recorrido | `E2E_ESTUDIANTE_EMAIL` / `E2E_ESTUDIANTE_PASSWORD` | Entra como alumno, abre «Asistencia», pulsa el botón del escáner y afirma que la app manda el marcaje con el par `<uuid>:<6 dígitos>` leído. Sin credenciales **se salta con un motivo legible**, no falla. |
+
+**Medido el 2026-09-29**, contra el bundle del CI (`main.dart.js`, 3.704.537 B):
+
+```
+[puente] leído por zxing-wasm · fotogramas 640×480 · BarcodeDetector ausente · 1 dispositivo(s) de vídeo
+  ok 1 … 1 · el puente (5.8s)
+  -  2 … 2 · el recorrido
+  1 skipped
+  1 passed (36.1s)
+```
+
+Dos datos que conviene retener:
+
+- **`BarcodeDetector` está ausente en el Chromium de escritorio.** El paquete
+  (`mobile_scanner_web.dart:464-485`) usa la API nativa «cuando está disponible
+  (Chrome/Edge/Safari 17+)» y **cae a `zxing-wasm`» en el resto — y el resto
+  incluye Windows y Linux. Así que lo que se ejerce de verdad en esta máquina es
+  el **respaldo**, que es además el camino más frágil: depende de una CDN. Se
+  midió que `cdn.jsdelivr.net` responde con `cross-origin-resource-policy:
+  cross-origin` y `access-control-allow-origin: *`, así que el `COEP:
+  require-corp` que pone `serve.mjs` **no** lo bloquea.
+- **La grabación de vídeo/traza cuelga el runner.** Con `video` o `trace`
+  encendidos la prueba pasa pero el proceso **no termina** — hay que matarlo a
+  mano y el código de salida se pierde. Por eso van apagados por defecto y se
+  encienden con `E2E_VIDEO=1` / `E2E_TRACE=1` sólo al depurar.
+
+**Lo que este puente NO verifica**, y se dice en voz alta: no ejercita la cámara
+física, ni el driver, ni el diálogo de permiso del sistema operativo
+(`--use-fake-ui-for-media-stream` lo concede solo). Un verde aquí significa «la
+lógica de lectura y marcaje está bien», **no** «el permiso del móvil está bien».
+
+### Modo seguro: deshacer la marca de prueba
+
+La prueba 2 **escribe de verdad** en `attendance_marks`. Para deshacerlo:
+
+```bash
+node e2e/hardware/limpiar-marca.mjs --sesion <uuid> --codigo <6 dígitos>            # lista
+node e2e/hardware/limpiar-marca.mjs --sesion <uuid> --codigo <6 dígitos> --confirmar # borra
+```
+
+Sin `--confirmar` no borra nada. Toca **una sola tabla** —`attendance_marks`— y
+**no abre `attendance_sessions`**: hay 7 sesiones en estado `OPEN` de una tanda
+del 2026-09-26 que son un residuo previo, y alterarlas falsearía lo que la prueba
+mide. Va con la clave de servicio porque **medido**: `attendance_marks` tiene
+políticas de `SELECT` (docente) e `INSERT` (estudiante) y **ninguna de `DELETE`**
+—es una tabla de sólo-añadir por diseño—, así que ningún usuario puede borrar una
+marca, ni la suya.

@@ -27,6 +27,21 @@ export const BOTON_ENTRAR = 'Ingresar al sistema';
  */
 export const SENAL_DE_SESION = 'Inscripciones y Cupos';
 
+/**
+ * Un rótulo que sólo existe en el panel del **alumno**.
+ *
+ * Hace falta porque [SENAL_DE_SESION] es un rótulo del panel de administración
+ * —«Inscripciones y Cupos» es una sección suya— y usarlo para comprobar un
+ * acceso de alumno da un fallo con el mensaje equivocado: diría «revisa las
+ * credenciales» cuando lo que pasa es que la señal no es de ese rol.
+ *
+ * `Mi inscripción` es la **primera** sección del menú del alumno y no depende de
+ * ningún módulo conmutable (`aspirante_dashboard.dart`: no lleva `modulo:`), así
+ * que aparece aunque el administrador haya apagado medio cPanel. Es la señal más
+ * estable que hay para decir «este alumno ya entró».
+ */
+export const SENAL_DE_SESION_ALUMNO = 'Mi inscripción';
+
 export class LoginPage {
   readonly app: FlutterApp;
 
@@ -66,17 +81,23 @@ export class LoginPage {
    * sesión sembrada a mano en `localStorage` probaría un estado que la app nunca
    * produce por sí sola.
    */
-  async entrar(usuario: string, clave: string): Promise<void> {
+  async entrar(usuario: string, clave: string, senal: string = SENAL_DE_SESION): Promise<void> {
     await this.app.escribirEn(CAMPO_USUARIO, usuario);
     await this.app.escribirEn(CAMPO_CLAVE, clave);
     await this.app.pulsar(BOTON_ENTRAR);
 
-    // El panel de administración tarda en montar; la señal es un rótulo del menú.
+    // El panel tarda en montar; la señal es un rótulo del menú.
+    //
+    // La señal se recibe por parámetro y **no se deduce del rol** porque el
+    // cliente no sabe el rol hasta después de entrar: lo único observable desde
+    // fuera es qué rótulos aparecen. Pasar el rótulo equivocado no da un falso
+    // verde —da un rojo con el rótulo en el mensaje—, que es el modo de fallo
+    // correcto.
     await expect
-      .poll(async () => await this.app.cuantos(SENAL_DE_SESION), {
+      .poll(async () => await this.app.cuantos(senal), {
         message:
-          'Se envió el formulario de acceso pero no apareció el panel. Revisa las ' +
-          'credenciales y que la cuenta sea de administración.\n' +
+          `Se envió el formulario de acceso pero no apareció «${senal}». Revisa las ` +
+          'credenciales y que la cuenta tenga el rol al que corresponde esa señal.\n' +
           (await this.app.diagnostico()),
         timeout: 45_000,
       })
