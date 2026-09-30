@@ -735,6 +735,78 @@ enum TonoAviso { info, exito, advertencia, peligro }
 //  Estados de carga y error
 // -----------------------------------------------------------------------------
 
+/// Error de carga de un diálogo, con el botón de reintentar.
+///
+/// **Por qué existe habiendo un [EstadoPanel].** No son el mismo sitio: aquél
+/// envuelve el cuerpo entero de un panel y su rótulo es fijo («No pudimos cargar
+/// esta sección»), porque un panel es siempre la misma pantalla. Un diálogo
+/// sabe **qué** estaba cargando y lo dice con su nombre —«No se pudo cargar la
+/// cola», «No se pudo cargar la lista»—, que es información que el usuario no
+/// tiene de otra forma.
+///
+/// **Por qué es público y no privado de cada diálogo.** Nació copiado: el
+/// diálogo de la cola y el de los inscritos llevaban cada uno su propia copia
+/// privada de estas mismas cuarenta líneas, y la segunda nació al escribir la
+/// primera. Una copia privada por pantalla es deuda silenciosa —el día que se
+/// arregle el contraste de una, la otra se queda atrás—, y este widget no tiene
+/// nada específico de ninguna de las dos.
+///
+/// El título dice **qué** falló y no repite la palabra «error»: el mensaje
+/// traducido de `AppException` ya empieza por «Ocurrió un error…», y duplicarlo
+/// deja al usuario sin información nueva.
+class ErrorConReintento extends StatelessWidget {
+  const ErrorConReintento({
+    super.key,
+    required this.titulo,
+    required this.mensaje,
+    required this.onReintentar,
+  });
+
+  /// Qué se estaba cargando, en pasado y sin la palabra «error».
+  final String titulo;
+
+  /// El mensaje ya traducido de `AppException`, listo para mostrar.
+  final String mensaje;
+
+  final VoidCallback onReintentar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 48,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 12),
+            Text(titulo, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              mensaje,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onReintentar,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Envoltorio que resuelve los estados de carga y error de un panel.
 ///
 /// Se conserva la lógica de la versión anterior —era correcta y evitaba que uno

@@ -119,7 +119,8 @@ class _ColaSeccionDialogState extends State<ColaSeccionDialog> {
                         }
                         return _ListaCola(cola: cola);
                       },
-                      failure: (fallo) => _ErrorConReintento(
+                      failure: (fallo) => ErrorConReintento(
+                        titulo: 'No se pudo cargar la cola',
                         mensaje: fallo.message,
                         onReintentar: _reintentar,
                       ),
@@ -175,55 +176,6 @@ class _ListaCola extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _ErrorConReintento extends StatelessWidget {
-  const _ErrorConReintento({required this.mensaje, required this.onReintentar});
-
-  final String mensaje;
-  final VoidCallback onReintentar;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.cloud_off_outlined,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            // El título dice QUÉ falló, no repite la palabra «error»: el
-            // mensaje traducido de AppException ya empieza por «Ocurrió un
-            // error…», y duplicarlo deja al usuario sin información nueva.
-            Text(
-              'No se pudo cargar la cola',
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              mensaje,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onReintentar,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

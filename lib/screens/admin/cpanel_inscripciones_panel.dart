@@ -5,10 +5,13 @@ import '../../core/result.dart';
 import '../../models/inscripcion.dart';
 import '../../repositories/exportacion_hacer_repository.dart';
 import '../../repositories/inscripcion_repository.dart';
+import '../../repositories/planilla_admin_descarga_repository.dart';
 import '../../services/hacer_export_service.dart';
+import '../../services/planilla_admin_pdf_service.dart';
 import '../../theme/inces_theme.dart';
 import '../../widgets/comunes.dart';
 import 'cpanel_inscripciones_cola_dialog.dart';
+import 'cpanel_inscripciones_inscritos_dialog.dart';
 
 /// Panel de ocupación y cupos del administrador (Módulo 4).
 ///
@@ -25,6 +28,12 @@ import 'cpanel_inscripciones_cola_dialog.dart';
 ///    pensado para usarse **tras ampliar la capacidad**: si la sección está
 ///    llena o ya tiene una oferta en el aire, la RPC no promueve a nadie y el
 ///    repositorio lo devuelve como `Failure` de validación, no como error.
+///  · **Ver inscritos** — lista a los que siguen en la sección (matriculados, en
+///    cola y con oferta viva) y descarga la **planilla de inscripción en PDF de
+///    cada uno**, para imprimirla y entregársela al aspirante que llega al
+///    centro. Es la única puerta de la interfaz a
+///    `GET /api/v1/inscripcion/planilla/{usuarioId}/pdf`, que llevaba construida
+///    desde el 2026-09-25 sin que la llamara ningún código Dart.
 ///  · **Exportar Planilla HACER (.csv)** — descarga la nómina de la sección (una
 ///    fila por matriculado) desde `v_exportacion_hacer`, lista para la
 ///    plataforma del INCES.
@@ -33,8 +42,8 @@ import 'cpanel_inscripciones_cola_dialog.dart';
 /// El panel no tiene un selector de sección: pinta **una tarjeta por sección**, y
 /// cada tarjeta es ya el contexto de su sección. Un botón global tendría que
 /// preguntar «¿cuál?» en un diálogo, que es un paso de más para algo que la
-/// pantalla ya sabe. Las acciones de sección —«Ver cola», «Exportar»,
-/// «Reincorporar» y «Promover siguiente»— van donde está la sección.
+/// pantalla ya sabe. Las acciones de sección —«Ver cola», «Ver inscritos»,
+/// «Exportar», «Reincorporar» y «Promover siguiente»— van donde está la sección.
 ///
 /// «Reincorporar» nació en la cabecera, y el resultado se lee en lo que pedía:
 /// dos **UUIDs escritos a mano**, porque un botón global no tiene la sección y no
@@ -45,6 +54,7 @@ class CpanelInscripcionesPanel extends StatefulWidget {
     super.key,
     this.repositorio,
     this.exportacion,
+    this.planillaAdmin,
     this.selector,
   });
 
@@ -52,6 +62,10 @@ class CpanelInscripcionesPanel extends StatefulWidget {
 
   /// La nómina exportable. Se inyecta en pruebas.
   final ExportacionHacerRepository? exportacion;
+
+  /// La descarga de la planilla de **otro** aspirante (la que el administrador
+  /// imprime y le entrega al que llega al centro). Se inyecta en pruebas.
+  final PlanillaAdminDescargaRepository? planillaAdmin;
 
   /// La descarga. Se inyecta porque la implementación real es del navegador y no
   /// compila en la VM — ver `selector_archivos.dart`.
@@ -72,6 +86,14 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
   /// sin montar una pantalla.
   late final HacerExportService _exportacion = HacerExportService(
     repositorio: widget.exportacion,
+    selector: widget.selector,
+  );
+
+  /// La descarga de la planilla ajena. Mismo reparto que [_exportacion]: la
+  /// secuencia —consultar, recibir el PDF y entregarlo— vive en el servicio, y el
+  /// panel sólo traduce su desenlace a un aviso.
+  late final PlanillaAdminPdfService _planillaAdmin = PlanillaAdminPdfService(
+    repositorio: widget.planillaAdmin,
     selector: widget.selector,
   );
 
@@ -448,6 +470,23 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
                   icon: const Icon(Icons.list_alt_outlined, size: 16),
                   label: const Text('Ver cola'),
                 ),
+                // «Ver inscritos» va junto a «Ver cola» porque son las dos
+                // lecturas de personas de la sección, y ninguna escribe. La
+                // primera responde «¿quién espera?»; ésta, «¿de quién puedo
+                // imprimir la planilla?» —matriculados incluidos, que en la cola
+                // no salen—. Sin ella, la ruta del PDF del administrador seguía
+                // sin tener por dónde llamarse.
+                OutlinedButton.icon(
+                  onPressed: () => mostrarInscritosDeSeccion(
+                    context: context,
+                    repo: _repo,
+                    planilla: _planillaAdmin,
+                    seccionId: o.seccionId,
+                    seccionNombre: titulo,
+                  ),
+                  icon: const Icon(Icons.badge_outlined, size: 16),
+                  label: const Text('Ver inscritos'),
+                ),
                 // La exportación va ANTES de «Promover siguiente» a propósito:
                 // leer la nómina no cambia nada, promover sí. La acción que
                 // escribe queda la última, que es donde el ojo la busca.
@@ -507,7 +546,18 @@ class _CpanelInscripcionesPanelState extends State<CpanelInscripcionesPanel> {
             //
             // `Flexible` y no `Expanded`: el grupo no tiene por qué ocupar toda
             // su mitad, y `Expanded` lo estiraría dejando botones anchos y vacíos.
-            const anchoMinimoParaFila = 640.0;
+            //
+            // **El umbral sube de 640 a 760 al entrar «Ver inscritos».** El
+            // criterio de los 640 era «a partir de aquí el grupo envuelve en dos
+            // líneas como mucho»; con un cuarto botón el grupo pide ~125 px más y
+            // ese mismo ancho ya no garantiza lo mismo. El valor nuevo es una
+            // **estimación** —no se midió píxel a píxel, que aquí no se puede
+            // renderizar—, no una cifra tomada: lo que está medido es la regla,
+            // no el número. Si en pantalla el grupo queda en tres líneas antes de
+            // 760, el número está alto y hay que bajarlo; lo que **no** puede
+            // pasar es que se quede bajo, porque entonces la tarjeta se lee peor
+            // que apilada.
+            const anchoMinimoParaFila = 760.0;
             if (restricciones.maxWidth >= anchoMinimoParaFila) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
