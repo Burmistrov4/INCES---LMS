@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Clasificación de errores del dominio.
@@ -324,9 +326,43 @@ class AppException implements Exception {
     return null;
   }
 
+  /// La razón que GoTrue escribió **dentro** del cuerpo, o el mensaje tal cual.
+  ///
+  /// Para los errores que GoTrue reconoce, `AuthException.message` ya trae el
+  /// texto suelto (`Invalid login credentials`). Pero **para un 500 no**: el SDK
+  /// lanza `AuthRetryableFetchException` con el **cuerpo entero** como mensaje
+  /// (`gotrue/lib/src/fetch.dart`: `throw AuthRetryableFetchException(message:
+  /// response.body, …)`), así que la razón real queda sepultada dentro del JSON
+  /// y el mapeo sólo puede reconocer el fallo por el número, que es lo único
+  /// que distingue un 500 de otro.
+  ///
+  /// Esto la saca. Un mensaje que no sea JSON —que es el caso normal— se
+  /// devuelve intacto, así que las ramas que ya funcionaban no cambian de
+  /// comportamiento: sólo mejora lo que antes no se podía leer.
+  static String _razonDeGotrue(String raw) {
+    if (!raw.startsWith('{')) return raw;
+    try {
+      final cuerpo = jsonDecode(raw);
+      if (cuerpo is! Map) return raw;
+      for (final clave in const ['msg', 'message', 'error_description']) {
+        final valor = cuerpo[clave];
+        if (valor is String && valor.isNotEmpty) return valor;
+      }
+    } on FormatException {
+      // Un cuerpo que empieza por `{` y no es JSON no es un error de verdad:
+      // se sigue con el texto crudo en vez de sustituirlo por una excepción
+      // nueva, que taparía el error original con uno peor.
+    }
+    return raw;
+  }
+
   static AppException _fromAuth(AuthException error) {
     final raw = error.message;
-    final msg = raw.toLowerCase();
+
+    // Se compara contra la **razón**, no contra el cuerpo entero. Es la
+    // diferencia que hacía que un 500 coincidiera por el `"code":500` que lleva
+    // dentro en lugar de por lo que de verdad pasó.
+    final msg = _razonDeGotrue(raw).toLowerCase();
 
     if (msg.contains('invalid login credentials')) {
       return AppException(
@@ -381,17 +417,58 @@ class AppException implements Exception {
       );
     }
 
-    // Caso clave: el trigger de PostgreSQL rechazó los datos (cédula duplicada
-    // o constraint incumplido) y GoTrue devolvió un mensaje genérico. El
-    // detalle real solo aparece en los logs de Supabase.
-    if (msg.contains('database error saving new user') ||
-        msg.contains('unexpected_failure') ||
-        msg.contains('500')) {
+    // GoTrue **revierte el alta entera** cuando no puede enviar el correo de
+    // confirmación, y lo reporta como un 500 genérico. Medido el 2026-09-29:
+    //
+    //   POST /auth/v1/signup → 500
+    //   {"code":500,"error_code":"unexpected_failure",
+    //    "msg":"Error sending confirmation email"}
+    //
+    // `auth.users` no crece: la transacción se deshace, así que el fallo se
+    // parece a un problema de los datos del formulario y **no lo es**.
+    if (msg.contains('sending confirmation email')) {
+      return AppException(
+        type: AppErrorType.servidor,
+        message:
+            'No pudimos enviar el correo de confirmación, así que la '
+            'inscripción no llegó a guardarse. Es un problema del servidor de '
+            'correo del centro, no de tus datos. Avisa al administrador.',
+        code: error.statusCode,
+        technical: raw,
+      );
+    }
+
+    // El disparador de PostgreSQL rechazó la fila. **No se puede afirmar qué
+    // campo falló**: GoTrue lo reduce a `Database error saving new user` y el
+    // detalle sólo existe en los logs del servidor. La rama anterior decía
+    // «verifica que la cédula no esté ya inscrita y que la fecha de nacimiento
+    // sea correcta» —dos afirmaciones que nadie había medido— y su comentario
+    // sostenía que un 500 significa esto. Medido el 2026-09-29: el disparador
+    // resultó **inocente** (el `INSERT` replayado pasó sin error) y la causa
+    // real era el correo. Por eso el mensaje ya no nombra campos.
+    if (msg.contains('database error saving new user')) {
       return AppException(
         type: AppErrorType.validacion,
         message:
-            'No pudimos completar el registro. Verifica que la cédula no esté '
-            'ya inscrita y que la fecha de nacimiento sea correcta.',
+            'No pudimos completar el registro: el servidor rechazó los datos '
+            'al guardarlos. Si ya te habías inscrito con esa cédula o ese '
+            'correo, no lo repitas; pide que revisen tu inscripción.',
+        code: error.statusCode,
+        technical: raw,
+      );
+    }
+
+    // Un 500 nunca es culpa de quien rellena el formulario. Decirle que revise
+    // sus datos le manda a buscar un error que no existe, y en este proyecto
+    // eso costó dos hipótesis falsas antes de que a alguien se le ocurriera
+    // leer el cuerpo de la respuesta.
+    if (error.statusCode == '500' || msg.contains('unexpected_failure')) {
+      return AppException(
+        type: AppErrorType.servidor,
+        message:
+            'El servidor rechazó la operación por un problema interno. Tus '
+            'datos no tienen por qué estar mal: inténtalo de nuevo y, si sigue '
+            'igual, avisa al administrador del centro.',
         code: error.statusCode,
         technical: raw,
       );
