@@ -270,11 +270,25 @@ export class FlutterApp {
   /**
    * Los nodos del árbol semántico, con su geometría.
    *
-   * La «etiqueta» es lo que el nodo muestra de verdad: su `aria-label` si lo
-   * lleva (los inputs) y, si no, el texto del `<span>` que tiene por hijo
-   * directo — que es donde la app real pone el texto visible—. Los envoltorios
-   * también tienen `textContent`, pero es la concatenación de toda su
-   * descendencia y aquí sólo se quiere el texto PROPIO.
+   * La «etiqueta» es lo que el nodo muestra de verdad, por este orden:
+   *
+   *   1. Su `aria-label`, si lo lleva (es donde los campos ponen la etiqueta).
+   *   2. El texto de su `<span>` hijo directo, que es donde la app pone el texto
+   *      visible de botones y textos sueltos.
+   *   3. **Su propio `textContent`, cuando no tiene ningún hijo de elemento.**
+   *
+   * El paso 3 se añadió el **2026-09-29**, medido sobre los encabezados de paso
+   * del Stepper de inscripción: Flutter los pinta como `flt-semantics`
+   * `role="button"` de 734×72 con el texto (`"2 Ubicación y contacto"`) como
+   * **nodo de texto directo**, sin `<span>` y sin `aria-label`. Sin este paso,
+   * `nodos()` los devolvía con etiqueta vacía y `volcarSemantica()` los mostraba
+   * como «botones sin nombre» — un diagnóstico que ocultaba justo el dato que se
+   * estaba buscando. El caso no entra en el paso 2 porque `children[0]` es
+   * `undefined`: no hay hijos de elemento que mirar.
+   *
+   * Los envoltorios también tienen `textContent`, pero es la concatenación de
+   * toda su descendencia y aquí sólo se quiere el texto PROPIO: por eso el paso 3
+   * exige `children.length === 0` y no se aplica a un nodo con hijos.
    */
   async nodos(): Promise<NodoSemantico[]> {
     return this.page.evaluate(() =>
@@ -283,10 +297,11 @@ export class FlutterApp {
           const r = n.getBoundingClientRect();
           let etiqueta = n.getAttribute('aria-label') ?? '';
           if (etiqueta === '') {
-            // Un nodo hoja cuyo único hijo es un span: ese span ES su texto.
             const hijo = n.children[0];
             if (hijo && hijo instanceof HTMLElement && hijo.tagName === 'SPAN') {
               etiqueta = (hijo.textContent ?? '').trim();
+            } else if (n.children.length === 0) {
+              etiqueta = (n.textContent ?? '').trim();
             }
           }
           return {
