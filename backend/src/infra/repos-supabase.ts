@@ -142,7 +142,9 @@ import {
   pareceErrorPostgres,
   traducirError,
 } from './traducir-error.js';
-import { renderizarPlanillaPdf, type EntradaPlanillaPdf } from './planilla-pdf.js';
+import { renderizarPlanillaPdf } from './planilla-pdf.js';
+import { renderizarPlanillaXlsx } from './planilla-xlsx.js';
+import type { EntradaPlanilla } from './planilla-valores.js';
 
 /**
  * Implementación de los puertos sobre Supabase.
@@ -3299,6 +3301,37 @@ class PlanillaSupabase implements PuertaPlanilla {
   }
 
   async generarPdf(usuarioId: string): Promise<Uint8Array> {
+    return renderizarPlanillaPdf(await this.armarEntradaPlanilla(usuarioId));
+  }
+
+  /**
+   * La misma planilla, en `.xlsx` **editable**.
+   *
+   * Es la otra mitad de la decisión de producto del 2026-09-29: el PDF se
+   * imprime y se entrega al aspirante que llega al centro —eso no cambia—, y
+   * además la administración quiere una versión que pueda **tocar**: colocar el
+   * número de planilla, corregir un dato antes de imprimir. Un PDF no se edita.
+   *
+   * Comparte con [generarPdf] **todo menos el dibujo**: la misma entrada y los
+   * mismos formateadores de valor, así que las dos salidas no pueden discrepar
+   * en lo que dicen. Lo único distinto es cómo lo escriben.
+   */
+  async generarXlsx(usuarioId: string): Promise<Uint8Array> {
+    return renderizarPlanillaXlsx(await this.armarEntradaPlanilla(usuarioId));
+  }
+
+  /**
+   * Arma la entrada que comparten los **dos** renderizadores de la planilla.
+   *
+   * Se extrajo el 2026-09-30, al añadir la salida en Excel. Duplicarla habría
+   * dejado dos consultas y dos respaldos de identidad que mantener en paralelo,
+   * y el día que una se arreglara la otra seguiría con el fallo. No es
+   * hipotético: es exactamente cómo vivió el `42703` de D14 — esta consulta se
+   * quedó con una columna que la migración se llevó y nada lo delató, porque
+   * `Fila` es `Record<string, unknown>` y el nombre de una columna dentro de una
+   * cadena de `select` no existe para el compilador.
+   */
+  private async armarEntradaPlanilla(usuarioId: string): Promise<EntradaPlanilla> {
     // `program_id` + su relación, **no** `curso_seleccionado`.
     //
     // D14 (`202609250001`) hizo `drop column curso_seleccionado` y añadió
@@ -3369,7 +3402,7 @@ class PlanillaSupabase implements PuertaPlanilla {
       primer_apellido: texto(fila.apellidos)?.split(/\s+/)[0] ?? null,
     };
 
-    const entrada: EntradaPlanillaPdf = {
+    return {
       cedula: texto(fila.cedula),
       nombres: texto(fila.nombres),
       apellidos: texto(fila.apellidos),
@@ -3379,8 +3412,6 @@ class PlanillaSupabase implements PuertaPlanilla {
       identidad,
       generadoEn: new Date(),
     };
-
-    return renderizarPlanillaPdf(entrada);
   }
 }
 

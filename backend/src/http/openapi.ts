@@ -2998,6 +2998,13 @@ export function construirRegistro(): OpenAPIRegistry {
     .string()
     .openapi({ format: 'binary', description: 'Documento PDF de la planilla de inscripción llena, listo para imprimir.' });
 
+  const CuerpoXlsxBinario = z.string().openapi({
+    format: 'binary',
+    description:
+      'Libro de Excel (OOXML) con la planilla de inscripción llena, en celdas editables. ' +
+      'Es la misma información que el PDF: lo que cambia es que se puede modificar antes de imprimir.',
+  });
+
   const ParametroIdUsuarioPlanilla = z.object({
     usuarioId: z.string().uuid().openapi({
       param: { name: 'usuarioId', in: 'path' },
@@ -3050,6 +3057,70 @@ export function construirRegistro(): OpenAPIRegistry {
         headers: {
           'content-disposition': {
             description: 'Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.pdf',
+            schema: { type: 'string' },
+          },
+        },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: error('La sesión es válida pero el rol no es administrador (SOLO_ADMIN).'),
+      404: error(
+        'El UUID no corresponde a ninguna ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/yo/planilla/xlsx',
+    summary: 'Descarga la planilla de inscripción del llamante como Excel editable',
+    description:
+      'La misma planilla que `/api/v1/yo/planilla/pdf`, en un libro de Excel con los valores en celdas: **los mismos datos y los mismos valores**, en un formato que se puede editar antes de imprimir. El id sale de la sesión, igual que en el PDF. No valida la planilla ni la completa.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Libro de Excel (OOXML) con la planilla de inscripción del llamante.',
+        content: {
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+            schema: CuerpoXlsxBinario,
+          },
+        },
+        headers: {
+          'content-disposition': {
+            description: 'Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.xlsx',
+            schema: { type: 'string' },
+          },
+        },
+      },
+      401: RESPUESTAS_ERROR[401],
+      404: error(
+        'El llamante no tiene ficha de aspirante todavía (SIN_FICHA_DE_ASPIRANTE).',
+      ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/inscripcion/planilla/{usuarioId}/xlsx',
+    summary: 'Descarga la planilla de cualquier aspirante como Excel editable (admin)',
+    description:
+      'Igual que `/api/v1/inscripcion/planilla/{usuarioId}/pdf` pero en Excel editable: misma ficha, mismos valores, otro formato. Lleva **las mismas guardias** que la de PDF —rol de administrador y módulo `m4_inscripciones` encendido— porque el archivo lleva la cédula, el domicilio y el teléfono de una persona, y que sea más cómodo de editar no lo hace menos sensible. La autorización de la fila la da la RLS `aspirantes_admin_all`.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdUsuarioPlanilla },
+    responses: {
+      200: {
+        description: 'Libro de Excel (OOXML) con la planilla del aspirante indicado.',
+        content: {
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
+            schema: CuerpoXlsxBinario,
+          },
+        },
+        headers: {
+          'content-disposition': {
+            description: 'Sugerencia de nombre de archivo: planilla-inscripcion-<uuid>.xlsx',
             schema: { type: 'string' },
           },
         },

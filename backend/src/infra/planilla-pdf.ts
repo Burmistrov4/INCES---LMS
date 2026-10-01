@@ -34,27 +34,18 @@
 
 import { PDFDocument, StandardFonts, type PDFFont, type PDFPage, rgb } from 'pdf-lib';
 import type { CampoInscripcion } from '../dominio/tipos.js';
+import {
+  esVerdadero,
+  etiquetaDe,
+  formatearFecha,
+  valorPlano,
+  type EntradaPlanilla,
+  type OpcionItem,
+} from './planilla-valores.js';
 
-/** Lo que el adaptador entrega al renderizador. */
-export interface EntradaPlanillaPdf {
-  /** Cabecera del formulario físico: el CFS rellena FECHA/PROYECTO/HORARIO; aquí va la emisión. */
-  cedula: string | null;
-  nombres: string | null;
-  apellidos: string | null;
-  email: string | null;
-  /** Catálogo activo, ya ordenado. Es la fuente de verdad de qué se pinta y cómo. */
-  campos: CampoInscripcion[];
-  /** El jsonb relleno del aspirante (`aspirantes.datos_planilla`). */
-  datosPlanilla: Record<string, unknown>;
-  /**
-   * Valores de respaldo tomados de las columnas de identidad de `aspirantes`
-   * (cédula, correo, teléfono, fecha de nacimiento, sexo, dirección, nivel,
-   * curso). Se usan sólo cuando `datosPlanilla` no trae el campo, porque el
-   * formulario puede haber escrito las mismas claves con otro nombre.
-   */
-  identidad: Record<string, string | null>;
-  generadoEn: Date;
-}
+// `EntradaPlanilla` se importa de `planilla-valores.js`: es el contrato que
+// comparten esta salida y la de Excel, y declararlo aquí lo ataba a un solo
+// renderizador. Ver la cabecera de aquel archivo.
 
 const ANCHO = 595.28; // A4
 const ALTO = 841.89;
@@ -141,60 +132,17 @@ function ajustar(texto: string, size: number, font: PDFFont, maxAncho: number): 
 }
 
 // --- Formato de valores por tipo -------------------------------------------------
-
-type OpcionItem = { valor: string; etiqueta: string };
-
-function opcionesLista(opciones: Record<string, unknown> | null): OpcionItem[] {
-  if (!opciones) return [];
-  const lista = opciones.opciones;
-  return Array.isArray(lista) ? (lista as OpcionItem[]) : [];
-}
-
-function etiquetaDe(opciones: Record<string, unknown> | null, valor: string): string | null {
-  return opcionesLista(opciones).find((o) => o.valor === valor)?.etiqueta ?? null;
-}
-
-function esVerdadero(valor: unknown): boolean {
-  return valor === true || valor === 'true' || valor === 1 || valor === '1';
-}
-
-function formatearFecha(valor: unknown): string {
-  if (valor == null) return '';
-  const texto = String(valor);
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto);
-  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
-  return texto;
-}
-
-function valorPlano(campo: CampoInscripcion, datos: Record<string, unknown>, identidad: Record<string, string | null>): string {
-  let valor: unknown = datos[campo.codigo];
-  if (valor === undefined || valor === null || valor === '') valor = identidad[campo.codigo] ?? null;
-  if (valor === undefined || valor === null || valor === '') return '';
-
-  switch (campo.tipo) {
-    case 'booleano':
-      return esVerdadero(valor) ? 'Si' : 'No';
-    case 'seleccion': {
-      const etiqueta = etiquetaDe(campo.opciones, String(valor));
-      return etiqueta ?? String(valor);
-    }
-    case 'multiseleccion': {
-      const arr = Array.isArray(valor) ? (valor as unknown[]) : [valor];
-      return arr
-        .map((v) => etiquetaDe(campo.opciones, String(v)) ?? String(v))
-        .filter(Boolean)
-        .join(', ');
-    }
-    case 'fecha':
-      return formatearFecha(valor);
-    default:
-      return String(valor);
-  }
-}
+//
+//  **Se mudaron a `planilla-valores.ts`**, y el motivo importa: desde que la
+//  planilla tiene dos salidas —este PDF y el Excel—, tenerlas aquí privadas
+//  significaba copiarlas, y dos copias del mismo formato acaban discrepando sin
+//  dar ningún error. El mismo campo se leería distinto impreso que en la hoja de
+//  cálculo. Lo que sigue viviendo aquí es el **dibujo**; lo compartido es el
+//  **significado** del valor.
 
 // --- Bloques de dibujo ----------------------------------------------------------
 
-function dibujarEncabezado(ctx: Ctx, entrada: EntradaPlanillaPdf): void {
+function dibujarEncabezado(ctx: Ctx, entrada: EntradaPlanilla): void {
   // Banda superior del CFS.
   ctx.page.drawRectangle({ x: IZQ, y: ctx.y - 34, width: CONTENIDO, height: 34, color: AZUL });
   escribir(ctx, 'PLANILLA DE INSCRIPCION', IZQ + 10, 13, ctx.bold, BLANCO);
@@ -355,7 +303,7 @@ function dibujarTabla(ctx: Ctx, campo: CampoInscripcion, datos: Record<string, u
 
 // --- Entrada -------------------------------------------------------------------
 
-export async function renderizarPlanillaPdf(entrada: EntradaPlanillaPdf): Promise<Uint8Array> {
+export async function renderizarPlanillaPdf(entrada: EntradaPlanilla): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);

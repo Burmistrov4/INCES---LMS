@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { TIPO_XLSX } from '../../infra/planilla-xlsx.js';
 import type { DependenciasRutas } from '../dependencias.js';
 import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
 import { exigirModulo } from '../plugins/modulos.js';
@@ -120,6 +121,33 @@ export function rutasPlanilla(app: FastifyInstance, deps: DependenciasRutas): vo
             `attachment; filename="planilla-inscripcion-${usuarioId}.pdf"`,
           )
           .send(Buffer.from(pdf));
+      });
+
+      /**
+       * La misma planilla, en `.xlsx` **editable**.
+       *
+       * Lleva exactamente las mismas guardias que la de arriba —`exigirAdmin()`
+       * y `exigirModulo('m4_inscripciones')`, heredadas del bloque— y por la
+       * misma razón: si el PDF de otro aspirante exige rol de administrador,
+       * su versión editable también. Que un formato sea más cómodo de tocar no
+       * lo hace menos sensible: lleva la cédula, el domicilio y el teléfono de
+       * una persona.
+       *
+       * La autorización de la fila la sigue dando la RLS `aspirantes_admin_all`,
+       * no esta ruta (ADR-003).
+       */
+      admin.get('/planilla/:usuarioId/xlsx', async (request, reply) => {
+        const { usuarioId } = request.params as { usuarioId: string };
+
+        const xlsx = await reposDe(request).planilla.generarXlsx(usuarioId);
+
+        return reply
+          .type(TIPO_XLSX)
+          .header(
+            'Content-Disposition',
+            `attachment; filename="planilla-inscripcion-${usuarioId}.xlsx"`,
+          )
+          .send(Buffer.from(xlsx));
       });
     },
     { prefix: '/api/v1/inscripcion' },

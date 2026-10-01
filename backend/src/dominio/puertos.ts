@@ -924,6 +924,22 @@ export interface PuertaPlanilla {
    * completa.
    */
   generarPdf(usuarioId: string): Promise<Uint8Array>;
+
+  /**
+   * La misma planilla, en `.xlsx` **editable**.
+   *
+   * Misma ficha, mismos valores y mismos códigos de error que [generarPdf]: lo
+   * único que cambia es el formato. Existe porque el PDF se imprime y no se
+   * edita, y la administración necesita colocar el número de planilla o
+   * corregir un dato antes de imprimir (decisión de producto del 2026-09-29).
+   *
+   * Va como método del puerto y no como una ruta que componga el archivo por su
+   * cuenta: la consulta a `aspirantes`, el respaldo de identidad y la
+   * resolución del nombre del programa son **los mismos** que los del PDF, y
+   * duplicarlos sería tener dos sitios donde equivocarse. De hecho ya pasó: el
+   * `42703` de D14 vivió en esa consulta sin que nada lo delatara.
+   */
+  generarXlsx(usuarioId: string): Promise<Uint8Array>;
 }
 
 /**

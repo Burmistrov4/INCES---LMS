@@ -27,6 +27,8 @@ import type {
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
 import { renderizarPlanillaPdf } from '../../src/infra/planilla-pdf.js';
+import { renderizarPlanillaXlsx } from '../../src/infra/planilla-xlsx.js';
+import type { EntradaPlanilla } from '../../src/infra/planilla-valores.js';
 import {
   construirClave,
   extensionDe,
@@ -3019,38 +3021,55 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
      */
     async generarPdf(usuarioId) {
       revisar('planilla.generarPdf');
+      return renderizarPlanillaPdf(entradaDePlanilla(usuarioId, 'PDF'));
+    },
 
-      if (!(usuarioId in estado.planillas)) {
-        throw new ErrorApi(
-          404,
-          'SIN_FICHA_DE_ASPIRANTE',
-          'Todavía no tienes una ficha de aspirante, así que no hay planilla que imprimir. La ficha se crea al inscribirte.',
-          { contexto: 'generar la planilla en PDF' },
-        );
-      }
+    async generarXlsx(usuarioId) {
+      revisar('planilla.generarXlsx');
+      return renderizarPlanillaXlsx(entradaDePlanilla(usuarioId, 'Excel'));
+    },
+  };
 
-      const datos = estado.planillas[usuarioId] ?? {};
-      const identidad: Record<string, string | null> = {
+  /**
+   * La entrada que comparten los dos renderizadores del doble.
+   *
+   * Se extrajo al añadir el Excel, y por la misma razón que en el repositorio
+   * real: si cada método montara la suya, el doble podría dar por bueno un
+   * camino que el real no tiene. Un doble que se desvía de aquello a lo que
+   * sustituye convierte la prueba en una opinión.
+   *
+   * El 404 `SIN_FICHA_DE_ASPIRANTE` se lanza aquí y no en cada método: es la
+   * misma condición para las dos salidas, y duplicarla dejaría la puerta abierta
+   * a que una la comprobara y la otra no.
+   */
+  function entradaDePlanilla(usuarioId: string, que: string): EntradaPlanilla {
+    if (!(usuarioId in estado.planillas)) {
+      throw new ErrorApi(
+        404,
+        'SIN_FICHA_DE_ASPIRANTE',
+        'Todavía no tienes una ficha de aspirante, así que no hay planilla que imprimir. La ficha se crea al inscribirte.',
+        { contexto: `generar la planilla en ${que}` },
+      );
+    }
+
+    return {
+      cedula: 'V-12345678',
+      nombres: 'Lorenzo',
+      apellidos: 'Roca',
+      email: 'alumno@ejemplo.com',
+      campos: [...estado.camposInscripcion].sort(
+        (a, b) => a.orden - b.orden || a.codigo.localeCompare(b.codigo),
+      ),
+      datosPlanilla: estado.planillas[usuarioId] ?? {},
+      identidad: {
         cedula: 'V-12345678',
         email: 'alumno@ejemplo.com',
         primer_nombre: 'Lorenzo',
         primer_apellido: 'Roca',
-      };
-
-      return renderizarPlanillaPdf({
-        cedula: 'V-12345678',
-        nombres: 'Lorenzo',
-        apellidos: 'Roca',
-        email: 'alumno@ejemplo.com',
-        campos: [...estado.camposInscripcion].sort(
-          (a, b) => a.orden - b.orden || a.codigo.localeCompare(b.codigo),
-        ),
-        datosPlanilla: datos,
-        identidad,
-        generadoEn: new Date('2026-09-26T00:00:00Z'),
-      });
-    },
-  };
+      },
+      generadoEn: new Date('2026-09-26T00:00:00Z'),
+    };
+  }
 
   /** Filtra y pagina la ocupación, con el mismo contrato que el repositorio real. */
   function listarOcupacionCon(

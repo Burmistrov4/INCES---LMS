@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ErrorApi } from '../../dominio/errores.js';
 import { modulosVisibles } from '../../dominio/tipos.js';
+import { TIPO_XLSX } from '../../infra/planilla-xlsx.js';
 import type { DependenciasRutas } from '../dependencias.js';
 import { esquemaPlanilla } from '../esquemas.js';
 import { exigirSesion, reposDe } from '../plugins/autenticacion.js';
@@ -103,5 +104,33 @@ export function rutasYo(app: FastifyInstance, deps: DependenciasRutas): void {
       .type('application/pdf')
       .header('Content-Disposition', `attachment; filename="planilla-inscripcion-${usuario.id}.pdf"`)
       .send(Buffer.from(pdf));
+  });
+
+  /**
+   * La misma planilla, en `.xlsx` **editable**.
+   *
+   * Es la contraparte editable de la ruta de arriba: **mismos datos, mismos
+   * valores, otro formato**. El PDF se imprime y se entrega; la hoja de cálculo
+   * se puede tocar antes de imprimir —colocar el número de planilla, corregir un
+   * dato—, que es lo que la administración pidió el 2026-09-29 y un PDF no
+   * permite.
+   *
+   * El `usuario.id` vuelve a salir de la sesión y no del cuerpo, por la misma
+   * razón que en el PDF: nadie descarga la planilla de otro por aquí.
+   *
+   * El tipo MIME es el largo de OOXML y no `application/vnd.ms-excel`, que es el
+   * del `.xls` binario viejo: declarar el corto haría que algunos navegadores
+   * abrieran el archivo con la aplicación equivocada.
+   */
+  app.get('/api/v1/yo/planilla/xlsx', { preHandler: [exigirSesion()] }, async (request, reply) => {
+    const usuario = request.usuario;
+    if (!usuario) throw ErrorApi.noAutorizado();
+
+    const xlsx = await reposDe(request).planilla.generarXlsx(usuario.id);
+
+    return reply
+      .type(TIPO_XLSX)
+      .header('Content-Disposition', `attachment; filename="planilla-inscripcion-${usuario.id}.xlsx"`)
+      .send(Buffer.from(xlsx));
   });
 }
