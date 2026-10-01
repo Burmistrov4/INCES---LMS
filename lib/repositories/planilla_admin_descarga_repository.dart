@@ -25,4 +25,12 @@ class PlanillaAdminDescargaRepository {
   Future<Result<Uint8List>> descargarPdfDe(String usuarioId) {
     return Result.guard(() => _gateway.descargarPdfDe(usuarioId));
   }
+
+  /// La misma planilla, en `.xlsx` editable.
+  ///
+  /// Igual que [descargarPdfDe]: un fallo de red, de permisos o de «sin ficha»
+  /// llega con su `AppException`, no como una lista vacía.
+  Future<Result<Uint8List>> descargarXlsxDe(String usuarioId) {
+    return Result.guard(() => _gateway.descargarXlsxDe(usuarioId));
+  }
 }

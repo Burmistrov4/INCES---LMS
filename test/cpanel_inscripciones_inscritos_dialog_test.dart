@@ -61,8 +61,12 @@ void main() {
   /// está en el viewport **no acierta y tampoco se queja** —la aserción se cae
   /// tres líneas después culpando a otra cosa—. Es la trampa que ya documenta
   /// `lecciones.md` para el `Stepper`.
-  Future<void> pulsarDescarga(WidgetTester tester, String estudianteId) async {
-    final boton = find.byKey(Key('descargar-planilla-$estudianteId'));
+  Future<void> pulsarDescarga(
+    WidgetTester tester,
+    String estudianteId, {
+    String formato = 'pdf',
+  }) async {
+    final boton = find.byKey(Key('descargar-$formato-$estudianteId'));
     await tester.ensureVisible(boton);
     await tester.pumpAndSettle();
     await tester.tap(boton);
@@ -103,9 +107,12 @@ void main() {
       // encontraba **dos** widgets y la prueba caía por su propia descripción.
       expect(find.text('Matriculado · ana@inces.gob.ve'), findsOneWidget);
       expect(find.text('En cola · beto@inces.gob.ve'), findsOneWidget);
-      // Un botón por persona: es lo que hace que la planilla sea de alguien.
-      expect(find.byKey(const Key('descargar-planilla-est-A')), findsOneWidget);
-      expect(find.byKey(const Key('descargar-planilla-est-B')), findsOneWidget);
+      // Dos botones por persona —PDF y Excel—: es lo que hace que la planilla
+      // sea de alguien *y* de un formato concreto.
+      expect(find.byKey(const Key('descargar-pdf-est-A')), findsOneWidget);
+      expect(find.byKey(const Key('descargar-xlsx-est-A')), findsOneWidget);
+      expect(find.byKey(const Key('descargar-pdf-est-B')), findsOneWidget);
+      expect(find.byKey(const Key('descargar-xlsx-est-B')), findsOneWidget);
 
       // La sección se pide a la que se pulsó, no a otra.
       expect(inscripciones.ultimaSeccion, 'sec-1');
@@ -152,6 +159,29 @@ void main() {
       expect(selector.ultimoNombreDeBytesDescargado, 'planilla-beto-lopez.pdf');
       expect(
         find.textContaining('Planilla de Beto López descargada'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('el botón de Excel pide el Excel, no el PDF', (tester) async {
+      // Es la aserción que distingue dos botones de uno solo: sin ella, un botón
+      // rotulado «Excel» que por dentro llamara al PDF pasaría cualquier
+      // comprobación sobre los bytes descargados.
+      inscripciones.inscripcionesDeSeccionDevueltas = dosInscritos();
+      descarga.pdfDevuelto = [80, 75, 3, 4]; // `PK`: firma de ZIP, como un .xlsx
+
+      await montar(tester);
+      await pulsarDescarga(tester, 'est-A', formato: 'xlsx');
+
+      expect(descarga.idsSolicitados, ['est-A']);
+      expect(descarga.formatosSolicitados, ['xlsx']);
+      expect(selector.ultimoNombreDeBytesDescargado, 'planilla-ana-perez.xlsx');
+      expect(
+        selector.ultimoTipoMimeBytesDescargado,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      expect(
+        find.textContaining('Planilla de Ana Pérez descargada'),
         findsOneWidget,
       );
     });

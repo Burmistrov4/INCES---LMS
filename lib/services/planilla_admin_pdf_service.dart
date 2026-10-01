@@ -1,7 +1,32 @@
+import 'dart:typed_data';
+
 import '../core/gateways/selector_archivos.dart';
 import '../core/result.dart';
 import '../repositories/planilla_admin_descarga_repository.dart';
 import 'selector_archivos_navegador.dart';
+
+/// Los dos formatos en que el backend emite una planilla.
+///
+/// Cada uno lleva su extensión y su tipo MIME porque son **dos datos distintos
+/// que van juntos**: el nombre del archivo decide con qué se abre, y el MIME
+/// decide qué cree el navegador que le están dando. Separados, el día que se
+/// añada un tercer formato habría que acordarse de los dos sitios.
+///
+/// El MIME del `.xlsx` es el largo de OOXML y no `application/vnd.ms-excel`,
+/// que es el del `.xls` binario antiguo: el corto haría que algunos navegadores
+/// abrieran el archivo con la aplicación equivocada.
+enum FormatoPlanilla {
+  pdf('pdf', 'application/pdf'),
+  xlsx(
+    'xlsx',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+
+  const FormatoPlanilla(this.extension, this.tipoMime);
+
+  final String extension;
+  final String tipoMime;
+}
 
 /// El desenlace de la descarga de la planilla de **otro** aspirante, con los
 /// cuatro casos que el panel distingue.
@@ -136,8 +161,43 @@ class PlanillaAdminPdfService {
   Future<ResultadoDescargaPlanillaAdmin> descargarPlanillaDe({
     required String usuarioId,
     required String estudiante,
+  }) {
+    return _descargar(
+      estudiante: estudiante,
+      formato: FormatoPlanilla.pdf,
+      traer: () => _repositorio.descargarPdfDe(usuarioId),
+    );
+  }
+
+  /// La misma planilla, en Excel **editable**.
+  ///
+  /// Comparte con [descargarPlanillaDe] **todo menos la llamada**: el formato
+  /// sólo decide el sufijo del archivo y el tipo MIME con el que se entrega. Los
+  /// cuatro desenlaces, el trato del 404 y el nombre se escriben una sola vez, y
+  /// eso es lo que impide que una salida se comporte distinto que la otra sin
+  /// que nadie lo note.
+  Future<ResultadoDescargaPlanillaAdmin> descargarExcelDe({
+    required String usuarioId,
+    required String estudiante,
+  }) {
+    return _descargar(
+      estudiante: estudiante,
+      formato: FormatoPlanilla.xlsx,
+      traer: () => _repositorio.descargarXlsxDe(usuarioId),
+    );
+  }
+
+  /// La secuencia compartida: traer los bytes, entregarlos y traducir el final.
+  ///
+  /// El `usuarioId` no llega hasta aquí: viaja dentro de `traer`, que es una
+  /// función ya cerrada sobre él. Pasarlo además sería tener el mismo dato dos
+  /// veces y dejar abierta la posibilidad de que no coincidan.
+  Future<ResultadoDescargaPlanillaAdmin> _descargar({
+    required String estudiante,
+    required FormatoPlanilla formato,
+    required Future<Result<Uint8List>> Function() traer,
   }) async {
-    final resultado = await _repositorio.descargarPdfDe(usuarioId);
+    final resultado = await traer();
 
     switch (resultado) {
       case Failure(error: final fallo):
@@ -153,10 +213,14 @@ class PlanillaAdminPdfService {
         );
 
       case Success(value: final bytes):
-        final nombre = nombreArchivoPlanillaDe(estudiante);
+        final nombre = nombreArchivoPlanillaDe(estudiante, formato: formato);
 
         try {
-          await _selector.descargarBytes(nombre: nombre, contenido: bytes);
+          await _selector.descargarBytes(
+            nombre: nombre,
+            contenido: bytes,
+            tipoMime: formato.tipoMime,
+          );
         } catch (_) {
           // No se propaga el error del navegador: al administrador no le dice
           // nada y no puede hacer nada con él. Lo que sí importa es que el
@@ -186,9 +250,12 @@ class PlanillaAdminPdfService {
 /// tal cual, y un `José Núñez.pdf` acaba siendo un archivo que algunas
 /// herramientas no saben volver a abrir por la ruta. Se pierden las tildes y no
 /// la identidad: `jose-nunez.pdf` sigue diciendo quién es.
-String nombreArchivoPlanillaDe(String estudiante) {
+String nombreArchivoPlanillaDe(
+  String estudiante, {
+  FormatoPlanilla formato = FormatoPlanilla.pdf,
+}) {
   final base = _normalizar(estudiante);
-  return 'planilla-${base.isEmpty ? 'aspirante' : base}.pdf';
+  return 'planilla-${base.isEmpty ? 'aspirante' : base}.${formato.extension}';
 }
 
 /// Vocales acentuadas y compañía que hay que plegar antes de descartar lo que no

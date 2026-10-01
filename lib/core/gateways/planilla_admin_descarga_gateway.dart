@@ -36,4 +36,18 @@ abstract interface class PlanillaAdminDescargaGateway {
   /// `permisos` (401/403) si quien llama no es administrador o el módulo
   /// `m4_inscripciones` está apagado.
   Future<Uint8List> descargarPdfDe(String usuarioId);
+
+  /// La misma planilla, en `.xlsx` **editable**.
+  ///
+  /// Mismos datos, mismos valores y mismos errores que [descargarPdfDe]: lo
+  /// único que cambia es el formato. Existe porque el PDF se imprime y no se
+  /// edita, y la administración necesita colocar el número de planilla o
+  /// corregir un dato antes de imprimir (decisión de producto del 2026-09-29).
+  ///
+  /// Es un método aparte y no un parámetro de [descargarPdfDe] por una razón de
+  /// radio de cambio: el camino del PDF ya está probado y en uso, y añadir un
+  /// parámetro obligaría a tocarlo entero —incluidas sus pruebas— para ganar
+  /// nada. Lo que **sí** se comparte es lo que importa: la ruta base, el token y
+  /// los desenlaces, que viven en un solo sitio detrás de cada método.
+  Future<Uint8List> descargarXlsxDe(String usuarioId);
 }

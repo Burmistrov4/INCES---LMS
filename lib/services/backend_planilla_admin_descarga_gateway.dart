@@ -29,12 +29,21 @@ class BackendPlanillaAdminDescargaGateway
       SupabaseService.instance.auth.currentSession?.accessToken;
 
   @override
-  Future<Uint8List> descargarPdfDe(String usuarioId) {
-    // El PDF viaja binario, así que se usa [ApiClient.getBytes] y no `get`: el
-    // cuerpo no es JSON y `_procesar` intentaría decodificarlo. El error sí
-    // viene como JSON y `getBytes` lo rescata para no inventar un mensaje.
+  Future<Uint8List> descargarPdfDe(String usuarioId) => _descargar(usuarioId, 'pdf');
+
+  @override
+  Future<Uint8List> descargarXlsxDe(String usuarioId) => _descargar(usuarioId, 'xlsx');
+
+  /// La ruta es la misma y sólo cambia la extensión; por eso el sufijo se pasa
+  /// y no se repite la construcción de la URL. Escrita dos veces, la segunda
+  /// acabaría con un segmento de menos.
+  ///
+  /// El archivo viaja binario, así que se usa [ApiClient.getBytes] y no `get`:
+  /// el cuerpo no es JSON y `_procesar` intentaría decodificarlo. El error sí
+  /// viene como JSON y `getBytes` lo rescata para no inventar un mensaje.
+  Future<Uint8List> _descargar(String usuarioId, String formato) {
     return _api.getBytes(
-      '/api/v1/inscripcion/planilla/$usuarioId/pdf',
+      '/api/v1/inscripcion/planilla/$usuarioId/$formato',
       token: _tokenSesion,
     );
   }

@@ -80,17 +80,29 @@ class _InscritosSeccionDialogState extends State<InscritosSeccionDialog> {
   /// resultado en el mensaje que el administrador lee. Así la secuencia se prueba
   /// sin montar el diálogo, y los códigos de error no se interpretan en dos
   /// sitios.
-  Future<void> _descargar(InscripcionDetallada inscripcion) async {
+  Future<void> _descargar(
+    InscripcionDetallada inscripcion,
+    FormatoPlanilla formato,
+  ) async {
     final estudiante = _etiqueta(inscripcion);
-    setState(() => _descargando.add(inscripcion.estudianteId));
 
-    final resultado = await widget.planilla.descargarPlanillaDe(
-      usuarioId: inscripcion.estudianteId,
-      estudiante: estudiante,
-    );
+    // La clave lleva el formato además de la persona: con sólo el id, descargar
+    // el PDF dejaría el botón de Excel girando sin haberlo pulsado, y al revés.
+    final clave = '${inscripcion.estudianteId}-${formato.extension}';
+    setState(() => _descargando.add(clave));
+
+    final resultado = formato == FormatoPlanilla.pdf
+        ? await widget.planilla.descargarPlanillaDe(
+            usuarioId: inscripcion.estudianteId,
+            estudiante: estudiante,
+          )
+        : await widget.planilla.descargarExcelDe(
+            usuarioId: inscripcion.estudianteId,
+            estudiante: estudiante,
+          );
 
     if (!mounted) return;
-    setState(() => _descargando.remove(inscripcion.estudianteId));
+    setState(() => _descargando.remove(clave));
 
     // `switch` sobre un `sealed`: si el servicio gana un desenlace nuevo, esto
     // deja de compilar en vez de dejar caer el caso al vacío.
@@ -253,7 +265,40 @@ class _ListaInscritos extends StatelessWidget {
 
   final List<InscripcionDetallada> inscritos;
   final Set<String> descargando;
-  final Future<void> Function(InscripcionDetallada) onDescargar;
+  final Future<void> Function(InscripcionDetallada, FormatoPlanilla) onDescargar;
+
+  /// El botón de descarga de un formato para una persona.
+  ///
+  /// Se construye con un ayudante porque son **dos por fila** y sólo cambian el
+  /// icono, la etiqueta y el formato: escritos dos veces, el segundo acabaría
+  /// con la clave del primero y una prueba pulsaría el que no cree.
+  Widget _botonDeDescarga(
+    InscripcionDetallada inscrito,
+    FormatoPlanilla formato,
+    IconData icono,
+    String etiqueta,
+  ) {
+    final clave = '${inscrito.estudianteId}-${formato.extension}';
+    final bajando = descargando.contains(clave);
+
+    return IconButton.filledTonal(
+      // La clave ata el botón a **la persona y al formato de su fila**: una
+      // prueba puede pulsar el de una fila concreta y comprobar que viaja el
+      // UUID correcto *y* el formato prometido, que es lo que un botón «de la
+      // lista» esconde.
+      key: Key('descargar-${formato.extension}-${inscrito.estudianteId}'),
+      tooltip: 'Descargar planilla ($etiqueta)',
+      visualDensity: VisualDensity.compact,
+      onPressed: bajando ? null : () => onDescargar(inscrito, formato),
+      icon: bajando
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icono, size: 20),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +311,6 @@ class _ListaInscritos extends StatelessWidget {
         final inscrito = inscritos[i];
         final nombre =
             inscrito.estudianteNombre ?? inscrito.estudianteId;
-        final bajando = descargando.contains(inscrito.estudianteId);
 
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
@@ -288,20 +332,26 @@ class _ListaInscritos extends StatelessWidget {
             ].join(' · '),
             overflow: TextOverflow.ellipsis,
           ),
-          trailing: IconButton.filledTonal(
-            // La clave ata el botón a **la persona de su fila**: una prueba
-            // puede pulsar el de una fila concreta y comprobar que viaja el UUID
-            // correcto, que es el error que un botón «de la lista» esconde.
-            key: Key('descargar-planilla-${inscrito.estudianteId}'),
-            tooltip: 'Descargar planilla (PDF)',
-            onPressed: bajando ? null : () => onDescargar(inscrito),
-            icon: bajando
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.picture_as_pdf_outlined, size: 20),
+          // Dos botones y no uno con menú: son dos descargas que se usan en
+          // momentos distintos —el PDF se imprime y se entrega, el Excel se
+          // edita antes de imprimir— y esconder una detrás de un clic extra
+          // hace que la mitad de la gente no descubra que existe.
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _botonDeDescarga(
+                inscrito,
+                FormatoPlanilla.pdf,
+                Icons.picture_as_pdf_outlined,
+                'PDF',
+              ),
+              _botonDeDescarga(
+                inscrito,
+                FormatoPlanilla.xlsx,
+                Icons.table_chart_outlined,
+                'Excel',
+              ),
+            ],
           ),
         );
       },

@@ -53,6 +53,27 @@ void main() {
       // distinguir varias planillas descargadas seguidas.
       expect(selector.ultimoNombreDeBytesDescargado, 'planilla-jose-nunez.pdf');
     });
+
+    test('la misma persona en Excel: mismo camino, otro formato', () async {
+      // Lo que cambia no es sólo el nombre: es el **método del gateway** que se
+      // llama y el tipo MIME con el que se entrega. Si el servicio pidiera el
+      // PDF y lo llamara «.xlsx», el archivo no abriría y esta prueba lo ve.
+      gateway.pdfDevuelto = [80, 75, 3, 4]; // `PK`
+
+      final resultado = await servicio.descargarExcelDe(
+        usuarioId: 'user-9',
+        estudiante: 'José Núñez',
+      );
+
+      expect(resultado, isA<PlanillaAdminDescargada>());
+      expect(gateway.idsSolicitados, ['user-9']);
+      expect(gateway.formatosSolicitados, ['xlsx']);
+      expect(selector.ultimoNombreDeBytesDescargado, 'planilla-jose-nunez.xlsx');
+      expect(
+        selector.ultimoTipoMimeBytesDescargado,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    });
   });
 
   group('AspiranteSinFicha: el 404 no es un error', () {
@@ -142,6 +163,17 @@ void main() {
       //  El panel no debería pasar vacío, pero `planilla-.pdf` es un archivo que
       //  el usuario no puede identificar; el respaldo evita eso.
       expect(nombreArchivoPlanillaDe('   '), 'planilla-aspirante.pdf');
+    });
+
+    test('el formato decide la extensión', () {
+      //  El PDF es el valor por defecto porque es la salida que ya existía: sin
+      //  él, todas las llamadas que no dicen formato —incluidas las pruebas de
+      //  arriba— tendrían que pasar a decirlo.
+      expect(nombreArchivoPlanillaDe('José Núñez'), 'planilla-jose-nunez.pdf');
+      expect(
+        nombreArchivoPlanillaDe('José Núñez', formato: FormatoPlanilla.xlsx),
+        'planilla-jose-nunez.xlsx',
+      );
     });
   });
 }
