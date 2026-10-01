@@ -228,11 +228,21 @@ const SEMILLA = {
   // declaran las piezas, y el nombre compuesto se compone —en una sola
   // dirección, que es la que no puede desincronizarse.
   //
-  // **La cédula va marcada, no inventada.** `aspirantes.cedula` es `not null`
-  // y única, así que hay que poner algo; poner un número que *parezca* real
-  // sería fabricar un documento de identidad. `SEM-0001` no es una cédula
-  // venezolana y no puede confundirse con una: es la marca la que lo hace
-  // inofensivo, y es la misma que usa la limpieza para encontrarla.
+  // **La cédula son DÍGITOS, y no por gusto: el sistema tiene un contrato de
+  // formato y lo comprueba.** La vista de HACER compone `documento_identidad`
+  // como nacionalidad + cédula con relleno de ceros a nueve dígitos, y el E2E
+  // lo aserta con `/^[A-Z]{1,2}\d{9}$/`. Una cédula marcada como `SEM-0001` lo
+  // rompe — y se midió: `E2E (Playwright)` `36807734413` falló con
+  // `«SEM-0003» no es una letra más 9 dígitos`.
+  //
+  // Lo que hace inofensivo el número no es una marca textual sino que esté
+  // **fuera del rango real**: `90000001` se rellena a `090000001`, o sea 90
+  // millones, y las cédulas venezolanas no llegan ahí. Un número que no puede
+  // pertenecer a nadie no es un documento de identidad fabricado.
+  //
+  // Y por eso **la limpieza ya no se ancla en la cédula** sino en el dominio del
+  // correo: el prefijo `SEM-` se fue con el formato, y el `@semilla.invalid`
+  // sobrevive igual a una caída —que es lo que la limpieza necesita—.
   //
   // **`fechaNac` es de persona adulta a propósito.** El CHECK
   // `aspirantes_requires_tutor_key` exige que `requires_legal_tutor` sea
@@ -244,7 +254,7 @@ const SEMILLA = {
       email: `estudiante1${DOMINIO}`,
       primerNombre: 'Estudiante', segundoNombre: 'Uno',
       primerApellido: 'Semilla', segundoApellido: 'Alfa',
-      cedula: `${PREFIJO}0001`, fechaNac: '1996-04-12', sexo: 'M',
+      cedula: '90000001', fechaNac: '1996-04-12', sexo: 'M',
       telefono: '0414-0000001',
       direccion: 'Calle de la semilla, casa 1 [SEMILLA]',
       numeroPreimpreso: `${PREFIJO}PL-0001`,
@@ -253,7 +263,7 @@ const SEMILLA = {
       email: `estudiante2${DOMINIO}`,
       primerNombre: 'Estudiante', segundoNombre: 'Dos',
       primerApellido: 'Semilla', segundoApellido: 'Beta',
-      cedula: `${PREFIJO}0002`, fechaNac: '1994-09-30', sexo: 'F',
+      cedula: '90000002', fechaNac: '1994-09-30', sexo: 'F',
       telefono: '0414-0000002',
       direccion: 'Calle de la semilla, casa 2 [SEMILLA]',
       numeroPreimpreso: `${PREFIJO}PL-0002`,
@@ -262,7 +272,7 @@ const SEMILLA = {
       email: `estudiante3${DOMINIO}`,
       primerNombre: 'Estudiante', segundoNombre: 'Tres',
       primerApellido: 'Semilla', segundoApellido: 'Gamma',
-      cedula: `${PREFIJO}0003`, fechaNac: '1998-01-22', sexo: 'M',
+      cedula: '90000003', fechaNac: '1998-01-22', sexo: 'M',
       telefono: '0414-0000003',
       direccion: 'Calle de la semilla, casa 3 [SEMILLA]',
       numeroPreimpreso: `${PREFIJO}PL-0003`,
@@ -908,10 +918,17 @@ async function limpiar() {
   //     borrara la cuenta primero, la ficha no desaparecería: se quedaría con
   //     `user_id = null`, viva y sin dueño, ocupando su `cedula` única. La
   //     siguiente corrida del sembrado la volvería a enlazar sin que nadie se
-  //     enterara, y una limpieza «completa» habría dejado basura. El marcador
-  //     es el prefijo de la cédula, que es lo que sobrevive a una caída —el
-  //     mismo criterio que el resto de esta limpieza—.
-  await borrar('fichas de aspirante', `/aspirantes?cedula=like.${PREFIJO}*`);
+  //     enterara, y una limpieza «completa» habría dejado basura.
+  //
+  //     El marcador es el **dominio del correo**, no la cédula: la cédula pasó
+  //     a ser numérica para cumplir el formato que la vista de HACER exige, así
+  //     que perdió el prefijo `SEM-` con el que se la reconocía. El correo
+  //     sobrevive igual a una caída —que es lo único que la limpieza necesita— y
+  //     es el mismo marcador con el que ya se borran las cuentas.
+  await borrar(
+    'fichas de aspirante',
+    `/aspirantes?email=like.*${encodeURIComponent(DOMINIO)}`,
+  );
 
   // 7. Cuentas. Borrar el usuario de Auth arrastra su `profiles` por FK
   //    (`on delete cascade`), así que no hace falta borrar el perfil aparte.
@@ -970,8 +987,9 @@ async function verificar() {
   // pueden ser ciertas a la vez con CERO matrículas que tengan ficha detrás: es
   // exactamente el estado en el que estaba el sembrado, medido el 2026-09-30.
   // La aserción que lo habría cazado es la tercera, no las dos primeras.
-  const fichas = await cuenta(`/aspirantes?select=id&cedula=like.${PREFIJO}*`);
-  const fichasFilas = await rest(`/aspirantes?select=user_id&cedula=like.${PREFIJO}*`);
+  const marcaFichas = `/aspirantes?email=like.*${encodeURIComponent(DOMINIO)}`;
+  const fichas = await cuenta(`${marcaFichas}&select=id`);
+  const fichasFilas = await rest(`${marcaFichas}&select=user_id`);
   const idsConFicha = (fichasFilas ?? []).map((f) => f.user_id).filter(Boolean);
   const matriculasConFicha =
     s && idsConFicha.length > 0
