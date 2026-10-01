@@ -154,18 +154,29 @@ const SEMILLA = {
   // es la que ejercita el camino completo de M2. Los 5 programas que ya existen
   // son todos CURSO_LIBRE, así que sin esto no hay ninguna carrera que probar.
   programa: {
-    code: `${PREFIJO}AS-01`,
-    name: 'Análisis de Sistemas [SEMILLA]',
+    code: `${PREFIJO}SOL-01`,
+    name: 'Soldadura [SEMILLA]',
     type: 'CARRERA',
     requires_internship: false,
   },
 
   // `academic_hours` y no `credits`: la columna real es ésa y exige > 0.
   // `period_order` es el semestre dentro del pensum.
+  //
+  // **Las materias son del OFICIO, no de una carrera de sistemas.** Hasta el
+  // 2026-10-01 aquí decía «Programación I» dentro de un programa llamado
+  // «Análisis de Sistemas»: era la carrera del autor filtrándose en los datos,
+  // y el panel de administración lo mostraba tal cual —una demo del CFS de
+  // soldadura anunciando que enseña a programar—. Lo destapó una medición
+  // contra la base, no una lectura del fuente.
+  //
+  // La primera es la que usa la sección, así que su nombre es el que titula la
+  // tarjeta del panel (`materiaNombre ?? nombre`) y el que tiene que coincidir
+  // con el secreto `E2E_SECCION` de la suite de navegador.
   materias: [
-    { code: `${PREFIJO}AS-PRG`, name: 'Programación I [SEMILLA]', academic_hours: 96, period_order: 1 },
-    { code: `${PREFIJO}AS-BD`, name: 'Bases de Datos [SEMILLA]', academic_hours: 80, period_order: 2 },
-    { code: `${PREFIJO}AS-ADS`, name: 'Análisis y Diseño de Sistemas [SEMILLA]', academic_hours: 72, period_order: 3 },
+    { code: `${PREFIJO}SOL-ARCO`, name: 'Soldadura por Arco [SEMILLA]', academic_hours: 96, period_order: 1 },
+    { code: `${PREFIJO}SOL-SEG`, name: 'Seguridad e Higiene en el Taller [SEMILLA]', academic_hours: 80, period_order: 2 },
+    { code: `${PREFIJO}SOL-MET`, name: 'Metalurgia y Materiales [SEMILLA]', academic_hours: 72, period_order: 3 },
   ],
 
   // `classrooms` no tiene columna `codigo` ni `tipo` (dan PGRST204): el marcador
@@ -179,9 +190,13 @@ const SEMILLA = {
   // abierta y con holgura. Si fuera 2, la tercera matrícula sería WAITLISTED en
   // el flujo real y el sembrado diría una cosa y el sistema otra.
   seccion: {
+    // `SA` = Soldadura por Arco. El nombre corto va al nombre del archivo de la
+    // exportación; **el título que se ve en el panel sale de la materia**, no de
+    // aquí (`materiaNombre ?? nombre`), así que la tarjeta dirá «Soldadura por
+    // Arco [SEMILLA]».
     name: 'SA',
     max_capacity: 10,
-    materiaCode: `${PREFIJO}AS-PRG`,
+    materiaCode: `${PREFIJO}SOL-ARCO`,
   },
 
   // Dos clases en el cuadrante, en días y bloques distintos: el trigger
@@ -199,7 +214,7 @@ const SEMILLA = {
   // estructura académica (con pensum, Regla 1 de M2); la propuesta formativa
   // es lo que la persona elige al inscribirse.
   cursoLibre: {
-    code: `${PREFIJO}AS-CL`,
+    code: `${PREFIJO}SOL-CL`,
     name: 'Soldadura Básica [SEMILLA]',
     type: 'CURSO_LIBRE',
     requires_internship: false,
@@ -813,7 +828,16 @@ async function sembrar() {
 //    · `sections.program_id` y `sections.subject_id` son `on delete restrict`.
 //    · `program_subjects.subject_id` es `on delete restrict`.
 //    · `schedule_slots.classroom_id` es `on delete restrict`.
+//    · `attendance_sessions.section_id` es `on delete restrict` — AÑADIDA el
+//      2026-10-01, y no por completitud: se descubrió porque la limpieza **se
+//      detuvo** con `409 / 23503` al no conocerla. M7 se construyó después de
+//      que este script se escribiera.
 //  Borrar cualquiera de los padres antes que sus hijos falla y deja la mitad.
+//
+//  Esta lista es un inventario y envejece: **cada módulo nuevo que cuelgue de
+//  una sección tiene que entrar aquí**. La forma de saberlo no es leerla, es
+//  ejecutar `--limpiar --confirmar` — que es el paso que la propia guía de
+//  sembrado señala como el más omitido y el que más bugs encuentra.
 // ============================================================================
 async function limpiar() {
   console.log('\n  --- limpieza por marcador ---');
@@ -870,11 +894,71 @@ async function limpiar() {
     } catch (e) {
       console.log(`  (M6 no disponible, se omite: ${e.message.split(':')[0]})`);
     }
+
+    // La asistencia de M7 va **antes** que la sección, y se tolera su ausencia
+    // como la de M6.
+    //
+    // `attendance_sessions.section_id` es `on delete restrict` (medido en
+    // `pg_constraint`), así que **una sola sesión abierta impide borrar la
+    // sección entera**. No es teórico: medido el 2026-10-01, la limpieza se
+    // detuvo con `409 / 23503 — Key (id)=… is still referenced from table
+    // "attendance_sessions"`. Este script se escribió antes de que existiera M7
+    // y no la conocía; el `--limpiar` nunca se había ejercitado desde entonces,
+    // que es exactamente el paso que más se omite y el que más bugs encuentra.
+    //
+    // Las marcas caen solas por `on delete cascade`, pero se borran
+    // explícitamente para que la **simulación cuente lo mismo** que borraría la
+    // ejecución: un `DELETE` simulado no dispara triggers, y dejar el cascade
+    // fuera del recuento haría que los dos números discreparan sin motivo.
+    try {
+      const sesiones = await rest(
+        `/attendance_sessions?select=id&section_id=in.(${listaSecciones})`,
+      );
+      const idsSesiones = (sesiones ?? []).map((s) => s.id);
+      if (idsSesiones.length > 0) {
+        await borrar(
+          'marcas de asistencia (M7)',
+          `/attendance_marks?session_id=in.(${idsSesiones.join(',')})`,
+        );
+      }
+      await borrar(
+        'sesiones de asistencia (M7)',
+        `/attendance_sessions?section_id=in.(${listaSecciones})`,
+      );
+    } catch (e) {
+      console.log(`  (M7 no disponible, se omite: ${e.message.split(':')[0]})`);
+    }
+
     await borrar('matrículas', `/enrollments?section_id=in.(${listaSecciones})`);
     // El cuadrante antes que el aula: `classroom_id` es restrict.
     await borrar('cuadrante', `/schedule_slots?section_id=in.(${listaSecciones})`);
     await borrar('secciones', `/sections?id=in.(${listaSecciones})`);
   }
+
+  // 3b. Las fichas de aspirante, **antes que los programas**.
+  //
+  //     Dos razones, y las dos se midieron:
+  //
+  //     · `aspirantes.program_id` es `on delete restrict` contra `programs`, así
+  //       que una sola ficha impide borrar el programa al que apunta. Medido el
+  //       2026-10-01: la limpieza se detuvo con `409 / 23503 — Key (id)=… is
+  //       still referenced from table "aspirantes"`. Y esto lo destapó el
+  //       propio cambio de la siembra: **antes no había ninguna ficha**, así que
+  //       la restricción nunca se ejercitaba.
+  //     · `aspirantes.user_id` es `on delete set null` contra `auth.users`, no
+  //       `cascade`. Borrar la cuenta primero no borraría la ficha: la dejaría
+  //       con `user_id = null`, viva y sin dueño, ocupando su `cedula` y su
+  //       `email` únicas — y esa persona no podría volver a inscribirse.
+  //
+  //     Se borra por el **dominio del correo** y no por la cédula: la cédula
+  //     pasó a ser numérica para cumplir el formato que la vista de HACER exige,
+  //     así que perdió el prefijo `SEM-` con el que se la reconocía. El correo
+  //     sobrevive igual a una corrida a medias, que es lo único que la limpieza
+  //     necesita, y es el mismo marcador con el que ya se borran las cuentas.
+  await borrar(
+    'fichas de aspirante',
+    `/aspirantes?email=like.*${encodeURIComponent(DOMINIO)}`,
+  );
 
   // 4. La Regla 1 de M2 es SIMÉTRICA, y hay que respetarla en los dos sentidos:
   //    al sembrar, activar el programa DESPUÉS de cargarle el pensum; al
@@ -911,24 +995,6 @@ async function limpiar() {
   //    una URL sin codificar el `[` es dudoso, y en SQL LIKE es un literal
   //    (las clases de caracteres son cosa de SIMILAR TO, no de LIKE).
   await borrar('aulas', `/classrooms?name=like.*${encodeURIComponent('[SEMILLA]')}*`);
-
-  // 6b. Las fichas de aspirante, **antes** que las cuentas.
-  //
-  //     `aspirantes.user_id` es `on delete set null`, no `cascade`. Si se
-  //     borrara la cuenta primero, la ficha no desaparecería: se quedaría con
-  //     `user_id = null`, viva y sin dueño, ocupando su `cedula` única. La
-  //     siguiente corrida del sembrado la volvería a enlazar sin que nadie se
-  //     enterara, y una limpieza «completa» habría dejado basura.
-  //
-  //     El marcador es el **dominio del correo**, no la cédula: la cédula pasó
-  //     a ser numérica para cumplir el formato que la vista de HACER exige, así
-  //     que perdió el prefijo `SEM-` con el que se la reconocía. El correo
-  //     sobrevive igual a una caída —que es lo único que la limpieza necesita— y
-  //     es el mismo marcador con el que ya se borran las cuentas.
-  await borrar(
-    'fichas de aspirante',
-    `/aspirantes?email=like.*${encodeURIComponent(DOMINIO)}`,
-  );
 
   // 7. Cuentas. Borrar el usuario de Auth arrastra su `profiles` por FK
   //    (`on delete cascade`), así que no hace falta borrar el perfil aparte.
