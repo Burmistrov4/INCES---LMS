@@ -41,6 +41,15 @@ on:
       - 'e2e/**'
       - 'lib/**'
       - 'backend/**'
+      # `supabase/**` estaba FUERA, y es un agujero medido (2026-10-01): esta
+      # suite no sólo prueba el código, prueba **contratos sobre los datos** que
+      # la siembra produce —el formato de `documento_identidad`, las columnas del
+      # CSV, las secciones con matrículas—. Cambiar `sembrar-datos.mjs` cambia
+      # esos datos y **no disparaba nada**: el rojo de `SEM-0003` se descubrió en
+      # una corrida que iba por otro motivo, y el arreglo de la cédula habría
+      # quedado sin verificar. Una migración también puede cambiar lo que la
+      # suite ve, así que el filtro cubre la carpeta entera.
+      - 'supabase/**'
       - '.github/workflows/e2e.yml'
       # `pubspec.yaml` y `pubspec.lock` estaban FUERA, y era un agujero medido:
       # este flujo es el ÚNICO que compila el frontend (`flutter build web`), y
