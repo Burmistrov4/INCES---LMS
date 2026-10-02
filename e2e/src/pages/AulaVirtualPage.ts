@@ -138,7 +138,7 @@ export class AulaVirtualPage {
 
   /** Cambia de pestaña dentro del aula. */
   async abrirPestana(rotulo: string): Promise<void> {
-    await this.app.pulsar(rotulo, OPCIONES);
+    await this.app.pulsarPestana(rotulo, OPCIONES);
   }
 
   /** Cuántos nodos del árbol contienen [texto]. Sirve para aserciones de estado. */

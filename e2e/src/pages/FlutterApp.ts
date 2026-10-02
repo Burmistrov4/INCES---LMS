@@ -247,28 +247,58 @@ export class FlutterApp {
       );
     }
 
-    const objetivo = locator.nth(opciones.indice ?? 0);
+    await locator.nth(opciones.indice ?? 0).dispatchEvent('click');
+  }
 
-    if ((await objetivo.getAttribute('role')) === 'tab') {
-      // **La caja tiene que ser la del NODO SEMÁNTICO, no la del DOM.** Medido
-      // el 2026-10-02: `locator.boundingBox()` sobre el `flt-semantics` da **0
-      // etiquetas nuevas** —el `TabBar` no conmuta— y la caja que publica
-      // `nodos()` da **3**. Son dos geometrías distintas y sólo una sirve.
-      const aguja = opciones.ignorarMayusculas ? texto.toLowerCase() : texto;
-      const nodo = (await this.nodos()).find(
-        (n) =>
-          n.rol === 'tab' &&
-          (opciones.ignorarMayusculas
-            ? n.etiqueta.toLowerCase().includes(aguja)
-            : n.etiqueta.includes(aguja)),
+  /**
+   * Pulsa una **pestaña** (`role="tab"`) por coordenadas reales.
+   *
+   * Existe como método propio y no como rama de [pulsar] por **radio de
+   * explosión**: `pulsar` lo usan todas las suites, y hacerle consultar el árbol
+   * en cada pulsación habría cambiado el camino de `export_csv` y
+   * `stepper_inscripcion`, que están en verde. Aquí el riesgo queda contenido en
+   * quien de verdad pulsa pestañas.
+   *
+   * **Por qué no sirve [pulsar].** Medido el 2026-10-02 sobre el `TabBar` del
+   * aula, con diferencia de conjuntos de etiquetas antes y después:
+   *
+   *   · `dispatchEvent('click')`               → **0 etiquetas nuevas**
+   *   · `locator.boundingBox()` + `mouse.click` → **0 etiquetas nuevas**
+   *   · centro geométrico de `nodos()`          → **3 etiquetas nuevas**
+   *
+   * El `TapGestureRecognizer` de Flutter no registra el evento sintético sobre
+   * una pestaña —y sí sobre un botón, por eso `pulsar` sigue como estaba—, y la
+   * caja del `flt-semantics` **no es** la que el gesto necesita: la buena es la
+   * que publica el árbol semántico.
+   *
+   * El nodo se busca por **rol**, no comprobando el rol del primer locator: ese
+   * primer resultado puede ser un contenedor con rol `button` que contenga el
+   * texto —«Trabajo de Clase» aparece dentro de la tarjeta del panel—, y
+   * entonces la comprobación falla y el gesto cae al camino que no conmuta.
+   */
+  async pulsarPestana(rotulo: string, opciones: OpcionesDeTexto = {}): Promise<void> {
+    const aguja = opciones.ignorarMayusculas ? rotulo.toLowerCase() : rotulo;
+    const coincide = (e: string): boolean =>
+      opciones.ignorarMayusculas ? e.toLowerCase().includes(aguja) : e.includes(aguja);
+
+    const nodos = await this.nodos();
+    const pestana = nodos.find((n) => n.rol === 'tab' && coincide(n.etiqueta));
+
+    if (!pestana) {
+      const disponibles = nodos
+        .filter((n) => n.rol === 'tab')
+        .map((n) => n.etiqueta)
+        .join(' · ');
+      throw new Error(
+        `No hay ninguna pestaña que contenga «${rotulo}». ` +
+          `Pestañas en el árbol: ${disponibles || '(ninguna)'}.\n${await this.volcarSemantica()}`,
       );
-      if (nodo) {
-        await this.page.mouse.click(nodo.x + nodo.ancho / 2, nodo.y + nodo.alto / 2);
-        return;
-      }
     }
 
-    await objetivo.dispatchEvent('click');
+    await this.page.mouse.click(
+      pestana.x + pestana.ancho / 2,
+      pestana.y + pestana.alto / 2,
+    );
   }
 
   /**
