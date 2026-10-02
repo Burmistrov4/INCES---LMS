@@ -108,14 +108,42 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
   }
 
   @override
+  /// El correo de la ficha cuya cédula coincida, o `null`.
+  ///
+  /// **Va por RPC y no por consulta directa, y el motivo es que la consulta
+  /// directa no podía funcionar.** El login ocurre **sin sesión**, así que la
+  /// lectura la decide la RLS, y son dos causas apiladas medidas el 2026-10-01:
+  ///
+  ///   1. `profiles.cedula` está rellena en **1 de 6** perfiles —la cédula real
+  ///      vive en `aspirantes`—.
+  ///   2. Las tres políticas de `profiles` son **todas para `authenticated`**.
+  ///      Ninguna incluye `anon`, así que la consulta devolvía **cero filas** y
+  ///      esto lo leía como «la cédula no existe».
+  ///
+  /// `email_por_cedula` es `security definer` y devuelve **un `text`**: el correo,
+  /// o `NULL` si no hay ficha. No expone el padrón —`anon` gana `EXECUTE` sobre
+  /// esa función y nada más— y **normaliza por dígitos en ambos lados**, así que
+  /// `V-12345678` y `12345678` resuelven igual. Esa normalización vive en la base
+  /// a propósito: un solo sitio decide qué cédulas son iguales, y el cliente no
+  /// puede olvidarse de aplicarla.
+  ///
+  /// El contrato de salida **no cambia** respecto de la versión anterior —correo
+  /// o `null`—, así que `AuthService` sigue igual: si la RPC devuelve `null`, o
+  /// una cadena vacía, esto devuelve `null` y el servicio lanza su mensaje
+  /// genérico de credenciales.
+  @override
   Future<String?> emailPorCedula(String cedula) async {
-    final respuesta = await client
-        .from(_tablaPerfiles)
-        .select('email')
-        .eq('cedula', cedula)
-        .maybeSingle();
+    final limpia = cedula.trim();
+    if (limpia.isEmpty) return null;
 
-    final email = respuesta?['email'] as String?;
+    // `rpc` devuelve `dynamic`: la función declara `returns text`, así que un
+    // `as String?` es correcto, pero un `null` de SQL llega como `null` de Dart
+    // y no como la cadena "null".
+    final email = await client.rpc(
+      'email_por_cedula',
+      params: {'p_cedula': limpia},
+    ) as String?;
+
     if (email == null || email.isEmpty) return null;
     return email;
   }
