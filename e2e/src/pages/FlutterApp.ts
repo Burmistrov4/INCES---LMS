@@ -218,8 +218,20 @@ export class FlutterApp {
    *
    * Prefiere los controles con rol (botones, entradas de menú); si no hay
    * ninguno con ese texto, cae a la hoja de texto (los `InkWell` a veces no
-   * declaran rol). Ambos caminos usan `dispatchEvent('click')`, medido en la
-   * app real sobre botones y sobre el placeholder.
+   * declaran rol).
+   *
+   * **Las pestañas se pulsan por coordenadas, no con evento despachado.**
+   * Medido el 2026-10-02 sobre el `TabBar` del aula, con diferencia de conjuntos
+   * de etiquetas antes y después:
+   *
+   *   · `dispatchEvent('click')` → **0 etiquetas nuevas**: el panel NO conmuta.
+   *   · `mouse.click` en el centro del nodo → **3 etiquetas nuevas**: sí conmuta.
+   *
+   * El `TapGestureRecognizer` de Flutter no registra el evento sintético sobre
+   * un `role="tab"`, y sí sobre un botón. Por eso el despachado se conserva para
+   * todo lo demás —donde está medido que funciona— y sólo se sustituye para las
+   * pestañas. Cambiarlo para todo habría alterado el comportamiento de las
+   * suites que ya están en verde.
    */
   async pulsar(
     texto: string,
@@ -235,7 +247,28 @@ export class FlutterApp {
       );
     }
 
-    await locator.nth(opciones.indice ?? 0).dispatchEvent('click');
+    const objetivo = locator.nth(opciones.indice ?? 0);
+
+    if ((await objetivo.getAttribute('role')) === 'tab') {
+      // **La caja tiene que ser la del NODO SEMÁNTICO, no la del DOM.** Medido
+      // el 2026-10-02: `locator.boundingBox()` sobre el `flt-semantics` da **0
+      // etiquetas nuevas** —el `TabBar` no conmuta— y la caja que publica
+      // `nodos()` da **3**. Son dos geometrías distintas y sólo una sirve.
+      const aguja = opciones.ignorarMayusculas ? texto.toLowerCase() : texto;
+      const nodo = (await this.nodos()).find(
+        (n) =>
+          n.rol === 'tab' &&
+          (opciones.ignorarMayusculas
+            ? n.etiqueta.toLowerCase().includes(aguja)
+            : n.etiqueta.includes(aguja)),
+      );
+      if (nodo) {
+        await this.page.mouse.click(nodo.x + nodo.ancho / 2, nodo.y + nodo.alto / 2);
+        return;
+      }
+    }
+
+    await objetivo.dispatchEvent('click');
   }
 
   /**

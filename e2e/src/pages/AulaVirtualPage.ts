@@ -146,6 +146,23 @@ export class AulaVirtualPage {
     return this.app.cuantos(texto, OPCIONES);
   }
 
+  /**
+   * Firma del árbol: rol y etiqueta de cada nodo, ordenados.
+   *
+   * Es la condición de salida de «cambió de pantalla», y existe porque un
+   * **conteo no discrimina**: esperar «más de dos botones» se satisface con la
+   * pantalla anterior, así que una prueba así pasa sin que ocurra lo que dice
+   * medir. Comparar la firma entera no se puede satisfacer sin un cambio real, y
+   * no exige conocer de antemano los rótulos del panel nuevo.
+   */
+  async firmaDelArbol(): Promise<string> {
+    const nodos = await this.app.nodos();
+    return nodos
+      .map((n) => `${n.rol}:${n.etiqueta}`)
+      .sort()
+      .join('|');
+  }
+
   /** Volcado del árbol, para mensajes de fallo. */
   async diagnostico(): Promise<string> {
     return this.app.diagnostico();
