@@ -2850,3 +2850,122 @@ Mientras `classrooms` esté vacía, el cuadrante no se puede usar —una clase s
 aula no existe— y la UI tendrá que decirlo en vez de mostrar un desplegable vacío
 sin explicación.
 
+---
+
+## 13. Infraestructura E2E y el ciclo del Aula Virtual (2026-10-02)
+
+> **Estado: la infraestructura está cerrada y en verde; el ciclo docente↔aprendiz
+> está a una decisión de gestión de estado de cerrarse.**
+
+### 13.1 Lo que la suite E2E cubre hoy
+
+| Suite | Casos | Estado |
+|---|---|---|
+| `export_csv.spec.ts` | 10 | verde |
+| `stepper_inscripcion.spec.ts` | 1 | verde |
+| `aula_virtual.spec.ts` (aprendiz) | 3 | verde |
+| **Total** | **14** | **verde en local (`CI=true`) y en CI** |
+
+`e2e.yml` **no inyectaba** `E2E_ALUMNO_*` / `E2E_DOCENTE_*`: las pruebas del aula
+se **saltaban** y el resumen decía `11 passed`. Un `test.skip` se lee como verde
+—es el agujero que la suite existe para cerrar—. Corregido. También se añadió
+`supabase/**` a los disparadores: el sembrado produce los datos que la suite
+verifica, y no disparaba nada.
+
+### 13.2 El arnés local, que es lo que hace barato escribir E2E aquí
+
+`flutter build web` **no arranca en este equipo** (el `231`), así que el bundle se
+descarga del artefacto `web-bundle` que publica el propio CI:
+
+```bash
+gh run download <run-id> -n web-bundle -D /c/tmp/web-bundle && cp -r /c/tmp/web-bundle build/web
+cd e2e && CI=true NO_PROXY="127.0.0.1,localhost" no_proxy="127.0.0.1,localhost" \
+  npx playwright test <spec> --reporter=list --output=/c/tmp/pw-out-$(date +%s)
+```
+
+**Tres trampas del entorno, las tres medidas, las tres producen un mensaje que
+señala al sitio equivocado:**
+
+1. **`HTTP_PROXY`.** El chequeo de salud del backend va por el proxy, el proxy
+   responde, Playwright da el backend por «ya corriendo» y **no lo arranca**. El
+   navegador recibe `ERR_CONNECTION_REFUSED` y la app dice «No pudimos conectar».
+   Sin `NO_PROXY` esto cuesta horas.
+2. **El *safe-delete shim* de la CLI** bloquea la limpieza de `test-results/` y el
+   fallo aparece como error de Playwright. Se evita con `--output=<dir nuevo>`.
+3. **Backend arrancado a mano** usa la `CORS_ORIGINS` de `backend/.env`
+   (`localhost:8090`) en vez de la que el arnés inyecta (`127.0.0.1:8090`). Para
+   depurar el spec, que lo levante el arnés.
+
+**Y una cuarta, que es de método:** el teardown se cuelga, así que `EXIT=124` con
+los `ok` ya impresos **es un verde**, no un fallo.
+
+### 13.3 Dos hallazgos de CanvasKit que gobiernan todo lo demás
+
+* **`dispatchEvent('click')` no conmuta un `role="tab"`.** Medido con diferencia
+  de conjuntos de etiquetas: **0** nuevas con el evento despachado, **3** con un
+  `mouse.click` real. El `TapGestureRecognizer` no registra el evento sintético
+  sobre una pestaña —y sí sobre un botón—. Por eso `pulsar` conserva el
+  despachado y el gesto de pestaña vive aislado en `FlutterApp.pulsarPestana`.
+* **La geometría del nodo semántico no es la del DOM.**
+  `locator.boundingBox()` sobre `flt-semantics` da **0** etiquetas nuevas; el
+  centro que publica `nodos()` da **3**. Sólo la segunda sirve.
+
+### 13.4 El ciclo docente↔aprendiz: lo que falta y **lo que no se puede medir**
+
+Medido, lado docente: pestaña «Trabajo de Clase» → `«Nueva tarea»`, `«Calificar»`
+y la tarjeta `«Práctica 1: junta a tope [SEMILLA] · Tarea de ejemplo del sembrado.
+Publícala para generar las entregas. · Tarea · 10 pts»`.
+
+Medido, modal de creación:
+
+```
+NUEVA TAREA O MATERIAL · Tipo · Una tarea se califica; un material es de lectura.
+Al publicar se crea una entrega por estudiante matriculado.
+Tarea (se califica) · Fecha límite… · Permitir entrega tardía · Back
+Crear y publicar          ← el botón de confirmar
+```
+
+**El modal crea y publica en un solo gesto.** No hay `Publicar` ni `Aceptar`: el
+`BORRADOR` del sembrado es estado del seed, **no del flujo**.
+
+Medido, modal de calificación — **y aquí está el hueco**:
+
+```
+Calificaciones · LIBRO DE CALIFICACIONES · Práctica 1: junta a tope [SEMILLA]
+Actualizar · Back
+```
+
+**Sin campo de nota, sin botón de devolución, y sin una sola llamada a
+`/entregas`.** El libro abre vacío porque la tarea está en `BORRADOR` y no tiene
+entregas. **El `CAMPO_NOTA` y el botón de devolución no son medibles con el estado
+sembrado**: hay que publicar primero, y publicar crea las tres entregas.
+
+### 13.5 La decisión abierta (no se cierra midiendo)
+
+El ciclo del E2E tiene que ser **autocontenido**: crear y publicar → entregas →
+entregar como aprendiz → calificar → devolver. Pero **publicar muta los datos de
+la demo**, lo que choca con el principio de sembrado inmutable. Tres salidas, y
+las tres son decisiones de producto:
+
+| Opción | Coste |
+|---|---|
+| **A · El spec crea su propia tarea** | Autocontenido y repetible; deja tareas acumuladas |
+| **B · Publica la sembrada y re-siembra al terminar** | Estado limpio; **el E2E no puede re-sembrar** (necesita service-role) |
+| **C · `afterAll` que devuelve la tarea a `BORRADOR`** | Repetible; mutación compensatoria, prohibida por el protocolo |
+
+### 13.6 Deudas conocidas que la suite destapó
+
+* **El login con cédula está muerto por construcción.** `profiles.cedula` está
+  rellena en **1 de 6** perfiles —la cédula real vive en `aspirantes`— y las tres
+  políticas de `profiles` son **todas para `authenticated`**, ninguna incluye
+  `anon`. La consulta va sin sesión, devuelve 0 filas y el cliente lo lee como
+  «la cédula no existe». Arreglarlo bien es una RPC `security definer`, y eso es
+  una decisión de seguridad.
+* **El «botón de reinicio» del sembrado no es incondicional.** `--limpiar` se
+  detiene con `23503` si una ficha **real** referencia un programa sembrado —le
+  pasa a la cuenta del propio autor—, porque los programas del sembrado nacen
+  activos y cualquiera puede inscribirse en ellos.
+* **Una limpieza que se detiene no deja el sistema como estaba**: borra hacia
+  arriba hasta donde llega. Tras cualquier limpieza fallida hay que **volver a
+  sembrar**, no dar por hecho que no cambió nada.
+
