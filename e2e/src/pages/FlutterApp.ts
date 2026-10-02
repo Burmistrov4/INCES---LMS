@@ -65,6 +65,42 @@ function paraRegExp(texto: string): RegExp {
   return new RegExp('^' + texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
 }
 
+/** Escapa un texto para usarlo como patrón literal. */
+function escapar(texto: string): string {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Opciones de los localizadores por texto. */
+export interface OpcionesDeTexto {
+  /** Coincidencia exacta en vez de subcadena. */
+  exacto?: boolean;
+  /**
+   * Ignora la capitalización al comparar.
+   *
+   * **Existe por una discrepancia medida, no por comodidad.** La misma entidad
+   * se pinta con dos capitalizaciones distintas según la capa: el listado
+   * escribe «Soldadura por Arco [SEMILLA]» y el encabezado del aula
+   * «SOLDADURA POR ARCO [SEMILLA]». Sin esta opción, el spec tendría que
+   * codificar **dos cadenas** para el mismo dato, y la segunda se quedaría
+   * obsoleta en silencio la primera vez que alguien cambie un estilo de texto.
+   *
+   * El defecto sigue siendo **sensible a mayúsculas**: volverlo insensible por
+   * defecto cambiaría el comportamiento de las suites que ya están en verde
+   * —`export_csv` y `stepper_inscripcion`— y podría hacerlas coincidir con
+   * nodos que hoy no coinciden.
+   */
+  ignorarMayusculas?: boolean;
+}
+
+/** El filtro de `hasText` que corresponde a las opciones. */
+function filtroDeTexto(texto: string, opciones: OpcionesDeTexto): string | RegExp {
+  if (opciones.ignorarMayusculas) {
+    const patron = opciones.exacto ? `^${escapar(texto)}$` : escapar(texto);
+    return new RegExp(patron, 'i');
+  }
+  return opciones.exacto ? paraRegExp(texto) : texto;
+}
+
 /**
  * Cuántas veces se reintenta un tecleo completo antes de darse por vencido.
  *
@@ -146,13 +182,11 @@ export class FlutterApp {
    * hojas son los nodos que realmente pintan texto: botones (role=`button`,
    * con su span) y textos sueltos (`Text` de Flutter).
    */
-  etiqueta(texto: string, opciones: { exacto?: boolean } = {}): Locator {
+  etiqueta(texto: string, opciones: OpcionesDeTexto = {}): Locator {
     const hojas = this.page.locator(
       'xpath=//flt-semantics[not(descendant::flt-semantics)]',
     );
-    return opciones.exacto
-      ? hojas.filter({ hasText: paraRegExp(texto) })
-      : hojas.filter({ hasText: texto });
+    return hojas.filter({ hasText: filtroDeTexto(texto, opciones) });
   }
 
   /**
@@ -162,17 +196,15 @@ export class FlutterApp {
    * `tabindex="0"` y la clase `flt-tappable`. Este localizador los prefiere
    * por encima del de texto porque son los que de verdad responden a un click.
    */
-  controles(texto: string, opciones: { exacto?: boolean } = {}): Locator {
+  controles(texto: string, opciones: OpcionesDeTexto = {}): Locator {
     const conRol = this.page.locator(
       'flt-semantics[role="button"], flt-semantics[role="link"], flt-semantics[role="tab"], flt-semantics[role="menuitem"]',
     );
-    return opciones.exacto
-      ? conRol.filter({ hasText: paraRegExp(texto) })
-      : conRol.filter({ hasText: texto });
+    return conRol.filter({ hasText: filtroDeTexto(texto, opciones) });
   }
 
   /** Cuántos widgets llevan ese texto visible (hojas) o lo muestran como control. */
-  async cuantos(texto: string, opciones: { exacto?: boolean } = {}): Promise<number> {
+  async cuantos(texto: string, opciones: OpcionesDeTexto = {}): Promise<number> {
     // Se cuentan los controles y las hojas de texto; un widget que sea ambas
     // cosas se descuenta para no inflar. Para señales de «apareció X» importa
     // `> 0`, así que la unión es lo correcto.
@@ -189,7 +221,10 @@ export class FlutterApp {
    * declaran rol). Ambos caminos usan `dispatchEvent('click')`, medido en la
    * app real sobre botones y sobre el placeholder.
    */
-  async pulsar(texto: string, opciones: { exacto?: boolean; indice?: number } = {}): Promise<void> {
+  async pulsar(
+    texto: string,
+    opciones: OpcionesDeTexto & { indice?: number } = {},
+  ): Promise<void> {
     let locator = this.controles(texto, opciones);
     if ((await locator.count()) === 0) locator = this.etiqueta(texto, opciones);
 
