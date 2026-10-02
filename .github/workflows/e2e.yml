@@ -212,6 +212,16 @@ jobs:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
           E2E_SECCION: ${{ secrets.E2E_SECCION }}
+          # Las dos credenciales del bucle del aula (M6). Sin ellas
+          # `aula_virtual.spec.ts` se **salta** con su propio `test.skip`, y un
+          # salto se lee como verde en el resumen: la suite diría «11 passed»
+          # mientras cuatro pruebas del aula no corren —que es exactamente lo que
+          # pasó en `36963954077`—. Faltaban porque este flujo se escribió antes
+          # de que existieran los secretos.
+          E2E_ALUMNO_EMAIL: ${{ secrets.E2E_ALUMNO_EMAIL }}
+          E2E_ALUMNO_PASSWORD: ${{ secrets.E2E_ALUMNO_PASSWORD }}
+          E2E_DOCENTE_EMAIL: ${{ secrets.E2E_DOCENTE_EMAIL }}
+          E2E_DOCENTE_PASSWORD: ${{ secrets.E2E_DOCENTE_PASSWORD }}
 
           # Variables del backend, que hereda el `webServer` de Playwright.
           PORT: '3001'
