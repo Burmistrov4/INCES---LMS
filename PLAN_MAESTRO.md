@@ -161,6 +161,28 @@ Campos del modal:  {"aria":"Título","tipo":"text"}
 **El modal crea y publica en un solo gesto.** No hay `Publicar` ni `Aceptar`; el
 `BORRADOR` del sembrado es estado del seed, **no del flujo**.
 
+### 3.1-bis Arranque de Flutter Web — **RESUELTO / VERIFICADO**
+
+Medido el 2026-10-02 con captura de consola, errores de página y red:
+
+```
+script[src*="flutter_bootstrap"]          (1350 ms)
+script[src*="main.dart"]                  (1410 ms)
+flutter-view                              (8025 ms)
+flt-glass-pane                            (8049 ms)   ← APARECE
+flt-semantics-placeholder, flt-semantics  (8066 ms)
+Errores de página: NINGUNO · Red fallida: NINGUNA
+ARRANQUE COMPLETO: 8081 ms
+```
+
+`AppConfig.validate()`, `Supabase.initialize()` y `runApp()` **completan**.
+Único mensaje de consola: un *warning* de rendimiento de WebGL
+(`GPU stall due to ReadPixels`). **Un timeout de 8 s dentro de un límite de 60 s
+no es bloqueante hoy**, aunque conviene tenerlo presente en runners en frío.
+
+**No volver a investigar `flt-glass-pane` sin evidencia nueva que contradiga
+esto.**
+
 ### 3.2 El bloqueante abierto
 
 El spec del ciclo (`aula_virtual_ciclo.spec.ts`) **falla al conmutar de pestaña**,
@@ -173,20 +195,40 @@ y la causa **NO está identificada**. Lo que sí está medido:
 | Spec con `bringToFront()` antes del click | ❌ |
 | Spec con login perezoso (un solo contexto vivo) | ❌ |
 
-**La única diferencia estructural que queda es `describe.serial` + `beforeAll`.**
-La hipótesis de concurrencia de contextos quedó **refutada por medición**: se
-eliminó y el fallo persistió.
+#### Bisectado ejecutado — **A y B descartadas**
 
-**Tres intentos fallidos ya consumidos** (`bringToFront`, login perezoso,
-aserción determinista). **No seguir con hipótesis: bisectar.**
+Un solo archivo con **tres casos que ejecutan la misma secuencia** y sólo difieren
+en el elemento estructural. El primero es el control y **tiene que pasar**.
 
-| Corrida | Se añade a la sonda que funciona | Qué se aprende |
-|---|---|---|
-| 1 | envolver el `test` en `test.describe.serial` | ¿es el `describe`? |
-| 2 | `beforeAll` con el login del docente dentro | ¿es el `beforeAll`? |
-| 3 | un segundo `test` vacío tras el primero | ¿es el orden entre casos? |
+| Caso | Estructura | Resultado | Tiempo |
+|---|---|---|---|
+| **T1** CONTROL | `test()` plano, login dentro | ✅ **PASA** | 24.0 s |
+| **T2** = A | dentro de `describe.serial`, login en el test | ✅ **PASA** | 14.6 s |
+| **T3** = A+B | `describe.serial` + login en `beforeAll` | ✅ **PASA** | 5.2 s |
 
-La que falle **nombra** la causa. Una corrida por escalón, ~4 min cada una.
+**Conclusión: `describe.serial` (A) y `beforeAll` (B) quedan DESCARTADAS por
+medición.** La conmutación de pestaña funciona en las tres estructuras, incluida
+la que el spec del ciclo usa. **El control pasó**, así que el experimento es
+válido.
+
+**Lo que esto implica:** la diferencia **no es estructural**. Sigue en pie el
+sospechoso **C (orden/dependencia entre casos)** o **D (estado persistente)** — el
+spec del ciclo tiene **cuatro** casos y el que falla es el primero, que corre
+después del `beforeAll`… exactamente como T3, que pasa. Queda un elemento sin
+reproducir: **el resto del archivo** (los otros tres casos declarados).
+
+**Hipótesis refutadas por medición, acumuladas:** concurrencia de contextos ·
+`bringToFront` · login perezoso · `describe.serial` · `beforeAll` · arranque de
+Flutter.
+
+**Hipótesis vivas:** orden/dependencia entre casos · estado persistente del
+navegador o del contexto · algo específico del contenido del spec del ciclo que
+el bisectado no reprodujo.
+
+**Siguiente discriminador, y no es otra hipótesis:** reproducir el spec del ciclo
+**recortado a un solo caso** —el primero, idéntico— y ejecutarlo. Si pasa, el
+culpable es el resto del archivo; si falla, el culpable es algo del propio caso
+que el bisectado no replicó, y se compara línea a línea.
 
 ### 3.3 Decisión de producto que hay que tomar (no se cierra midiendo)
 
