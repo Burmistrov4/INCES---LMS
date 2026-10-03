@@ -19,11 +19,14 @@ lo que se construya se defiende ante un jurado.
 **Meta declarada del autor:** superar a Google Classroom, 100 % a la medida del
 INCES, digitalizando la **Planilla de Inscripción** física y sus procesos.
 
-**Restricción de entorno que condiciona la arquitectura:** hay **problemas de
-suministro eléctrico** en Venezuela. El sistema debe operar 24/7 en la nube
-(capas gratuitas) **y** poder correr en un servidor local como respaldo. **La
-arquitectura dual Cloud/Local no es un capricho: es continuidad operativa.** Esto
-tiene consecuencia directa en el Bloque 1 del plan (ver §3).
+**Nota de contexto (2026-10-02).** En esta conversación circuló una instrucción
+que pedía diseñar una **arquitectura dual Cloud/Local** —servidor local, modo
+offline, selector de servidor, sincronización— apoyándose en los cortes
+eléctricos del país. **Esa instrucción pertenecía a OTRO proyecto y fue un error
+humano de contexto: queda fuera del alcance de INCES-LMS-PROJECT.** La
+arquitectura objetivo de este proyecto se determina **exclusivamente** por su
+código, su base de datos, sus migraciones, su configuración, su documentación
+real, sus pruebas y sus requisitos funcionales. Ver §4.
 
 **Stack real** (corrige una suposición frecuente: **no es Next.js**):
 
@@ -208,49 +211,37 @@ inventan localizadores.**
 
 ---
 
-## 4. BLOQUE 2 — El servidor local: la opción que el autor echa en falta
+## 4. BLOQUE 2 — RETIRADO: la línea de «modo local» no pertenece a este proyecto
 
-**Hallazgo, medido:** `lib/core/config/app_config.dart` define la configuración
-como **constantes de compilación**:
+> **Corrección de contexto (2026-10-02).** Una instrucción anterior de esta
+> conversación pidió diseñar e implementar un «modo local / Cloud vs Local»:
+> pantalla para introducir la IP de un servidor local, persistencia de esa
+> configuración, resolución en cascada de `API_BASE_URL`, indicador de modo,
+> arquitectura offline-first. **Esa instrucción pertenecía a OTRO proyecto y fue
+> un error humano de contexto. Queda eliminada de este documento y del alcance
+> de INCES-LMS-PROJECT.**
+>
+> **Nada de eso se implementa, se diseña ni se registra como deuda pendiente.**
+> Si aparece en cualquier otro documento del repositorio, se corrige.
 
-```dart
-class AppConfig {
-  static const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  static const String supabaseAnonKey = String.fromEnvironment(...);
-  static const String apiBaseUrl = String.fromEnvironment(...);
-  static void validate() { ... }
-}
-```
+**Lo que sí es cierto, y es sólo un dato descriptivo, no una tarea:**
+`lib/core/config/app_config.dart` define la configuración con
+`String.fromEnvironment(...)`, es decir **constantes de compilación** resueltas
+con `--dart-define` en el momento del build. Eso es una propiedad de la
+arquitectura actual y se documenta como tal.
 
-**No existe ninguna opción en tiempo de ejecución para introducir la IP de un
-servidor local.** La URL del backend y la de Supabase se hornean en el bundle con
-`--dart-define` en el momento de compilar.
+**Y lo que importa para diagnosticar el arranque (§6, P0):** si el bundle se
+compila **sin** esas variables, o con valores vacíos o inválidos, `AppConfig`
+queda mal formada y `Supabase.initialize(...)` puede fallar **antes de
+`runApp(...)`** — que es exactamente la clase de fallo que produce que
+`flt-glass-pane` no llegue a aparecer. La pregunta correcta **no** es «cómo
+apuntar a un servidor local», sino:
 
-**Consecuencia directa sobre la restricción del §0:** hoy, si se cae la nube o se
-va el internet, **no hay forma de que la app apunte al servidor local** sin
-recompilar el bundle y volver a desplegarlo. Para una restricción que el autor
-describe como *continuidad operativa*, eso es un hueco funcional de primer orden.
-
-**Lo que hay que construir (propuesta, requiere validación del autor):**
-
-1. **Una pantalla de configuración de conexión** —visible sólo con un gesto
-   deliberado (p. ej. mantener pulsado el logo, o `/#/configuracion`) para que no
-   la vea un aprendiz— donde se introduzca la **IP o URL del servidor local** y,
-   si aplica, la `anon key` de la instancia local de Supabase.
-2. **Persistencia local** de esos valores (`shared_preferences` o equivalente).
-3. **Resolución en cascada** en `AppConfig`: si hay valor persistido → se usa;
-   si no → el `String.fromEnvironment` compilado. **Ese orden importa**: el valor
-   horneado debe ser el respaldo, no el que gana.
-4. **Un botón de «probar conexión»** que haga `GET /salud` contra la URL
-   introducida y diga si responde — porque un error de IP se ve igual que un
-   backend apagado, y el usuario necesita saber cuál de los dos es.
-5. **Indicador visible de modo** (nube / local) en la interfaz, para que nadie
-   trabaje contra el servidor equivocado creyendo que está en el otro.
-
-**Pregunta abierta para el autor:** ¿esa pantalla **existió** y se retiró, o el
-recuerdo es de otro proyecto? En el código actual **no hay rastro** de ella (no
-hay claves de configuración persistida relacionadas). Conviene confirmarlo antes
-de diseñarla, porque si existió hay que recuperar su contrato, no reinventarlo.
+* ¿qué variables existen y cuáles son obligatorias?
+* ¿cómo se proporcionan durante el build del E2E y del despliegue?
+* ¿qué ocurre si faltan?
+* ¿qué ocurre si tienen un valor inválido?
+* ¿`AppConfig.validate()` corre antes o después de `Supabase.initialize()`?
 
 ---
 
