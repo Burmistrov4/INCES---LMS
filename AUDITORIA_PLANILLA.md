@@ -371,6 +371,155 @@ justamente la capa que define las cosas.
 
 ---
 
+## 15. Cierre de trazabilidad (2026-10-05)
+
+### 15.1 Datos — los 38 campos oficiales
+
+**38/38 trazados.** Verificado contra los `codigo` de
+`202609240001_mod4_catalogo_inscripcion.sql`. **El catálogo tiene todo lo que la
+planilla física pide**, `numero_preimpreso` incluido (línea 475, grupo `Cabecera`).
+
+**Una diferencia semántica real, y es la única encontrada:** el PDF oficial separa
+**1er. y 2do. nombre** y **1er. y 2do. apellido** —cuatro campos—; el catálogo tiene
+`primer_nombre`, `segundo_nombre`, `primer_apellido`, `segundo_apellido` **también
+cuatro**. ✅ **Coinciden.** La diferencia está en **familiares** (§15.3).
+
+### 15.2 Cabecera — los 4 valores derivados
+
+| Campo | Fuente | ¿Derivación implementada? | Estado |
+|---|---|---|---|
+| FECHA | lapso / inscripción | **NO VERIFICADO** | derivable, no implementado |
+| PROYECTO | programa de la sección | **NO VERIFICADO** | derivable, no implementado |
+| ESPACIO INTEGRAL SOCIALISTA | sección / espacio | **NO VERIFICADO** | derivable, no implementado |
+| HORARIO | horario de la sección | **NO VERIFICADO** | derivable, no implementado |
+
+**No están en el catálogo**, y eso **confirma** la decisión arquitectónica de la
+migración: no los introduce el aspirante.
+
+**Lo que falta, exactamente:** una función que, dado el `usuarioId`, resuelva
+**sección → programa → lapso → horario** y devuelva los cuatro valores. El
+`seccion_id` **existe** en el dominio (`backend/src/dominio/tipos.ts`,
+`http/esquemas.ts`, `rutas/aula.ts`), así que **la fuente está**; **lo que no he
+verificado es que alguien los componga para la planilla.**
+
+**NO se añaden a `datos_planilla`** — son derivados, y guardarlos los dejaría
+desincronizados el día que cambie el horario.
+
+### 15.3 Familiares — **8 columnas, no 9**
+
+Literal del catálogo (líneas 557-567):
+
+```
+cedula · nombres · apellidos · fecha_nac · genero · parentesco ·
+diversidad_funcional · estado_civil          → 8 columnas
+```
+
+| Columna catálogo | PDF oficial | Correspondencia |
+|---|---|---|
+| `cedula` | CÉDULA DE IDENTIDAD N° | **EXACTA** |
+| `nombres` | **1er. Y 2do. NOMBRES** | **PARCIAL** — el PDF pide dos, el catálogo uno |
+| `apellidos` | **1er. Y 2do. APELLIDOS** | **PARCIAL** — ídem |
+| `fecha_nac` | FECHA DE NACIMIENTO | **EXACTA** |
+| `genero` | GENERO | **EXACTA** (opciones F/M) |
+| `parentesco` | PARENTESCO | **EXACTA** |
+| `diversidad_funcional` | DIVERSIDAD FUNCIONAL | **PARCIAL** — el PDF tiene 6 casillas tipificadas; el catálogo es **texto libre** |
+| `estado_civil` | ESTADO CIVIL | **PARCIAL** — el PDF tiene 5 casillas; el catálogo es **texto libre** |
+
+**Mi §7 dijo «9 columnas». Era falso: son 8.** Y la diferencia de fondo no es el
+número: son **tres columnas donde el catálogo guarda texto libre y el papel pide
+casillas tipificadas**. Eso **no impide el renderizado** —se imprime el texto— pero
+**impide marcar casillas**, que es como el formulario oficial está diseñado.
+
+### 15.4 Misiones — **20/20 exactas**
+
+Literal del catálogo (líneas 574-585). Comparadas una a una contra el texto
+extraído del PDF original:
+
+| # | Catálogo | PDF | ¿Coincide? |
+|---|---|---|---|
+| 1-20 | RIBAS · MERCAL · MADRES_DEL_BARRIO · HABITAT · PIAR · NEGRA_HIPOLITA · BARRIO_ADENTRO · MIRANDA · IDENTIDAD · CASA_DE_ALIMENTACION · GUAICAIPURO · ROBINSON_I_Y_II · HIJOS_DE_VZLA · SUCRE · VUELVAN_CARAS · VUELVAN_CARAS_JOVENES · GM_VIVIENDA_VZLA · GM_AGROVENEZUELA · GM_SABER_Y_TRABAJO · NINGUNA | las 20 mismas, en el mismo orden | **20/20 ✅** |
+
+**Todas llevan «desde cuándo»** ✓ — `etiqueta_desde: "Desde"`, `multiple: true`.
+**El tipo es `rejilla` y no `multiseleccion`, y la migración lo explica:** «cada
+ítem marcado lleva un valor propio».
+
+**Y `mision_ribaras` NO es una errata.** La migración lo documenta (línea 587):
+
+> «OJO: duplica en parte a `aspirantes.mision_ribaras`, que es el campo de texto
+> libre del formulario actual. **Hay que decidir cuál manda antes de refactorizar
+> la pantalla.**»
+
+**Es un campo legacy en conflicto declarado, no un nombre mal escrito.** Mi
+observación de «errata» en §12.5 era incorrecta. **Y hay una decisión de negocio
+pendiente que no es mía:** cuál de los dos manda.
+
+### 15.5 `numero_preimpreso` — flujo
+
+| Paso | Evidencia |
+|---|---|
+| Definición | migración `202609240001`, línea 475, grupo `Cabecera`, tipo `texto` |
+| Persistencia | `aspirantes.datos_planilla` (jsonb) |
+| `EntradaPlanilla` | vía `planilla-valores.ts` |
+| PDF actual | `planilla-pdf.ts` lo consume |
+| XLSX | `planilla-xlsx.ts` lo consume |
+| **Captura en Flutter** | **NO VERIFICADO** |
+
+**¿Quién debe introducirlo?** El documento oficial lo sitúa en el **encabezado**,
+junto a FECHA y PROYECTO — es decir, **en la zona de lo preimpreso**, no en la de
+lo que rellena el aspirante. Y el catálogo lo pone en el grupo **`Cabecera`**, no
+en `Datos personales`.
+
+**Eso apunta a D o E de tu lista —introducido al imprimir, o asociado después al
+ejemplar físico— y NO a A.** Pero es **inferencia desde la agrupación**, no una
+regla de negocio documentada, así que **queda como pregunta abierta**, no como
+conclusión.
+
+### 15.6 Contrato recomendado para `planilla-oficial-pdf.ts`
+
+**Opción B — un `PlanillaOficialData` derivado.** Y la razón no es estética:
+
+**El `EntradaPlanilla` actual es una lista plana de `{campo, etiqueta, valor}`.**
+Un renderer de posición fija necesita saber **qué es cada cosa**, no en qué orden
+viene: para poner «1er. NOMBRE» en su casilla tiene que poder pedir *el primer
+nombre*, no recorrer una lista hasta encontrarlo. **Con la lista plana, el renderer
+tendría que buscar por etiqueta — y ahí es donde empieza a decidir semántica**, que
+es justo lo que tu §7 prohíbe.
+
+**El adaptador es donde vive esa decisión, y es donde debe vivir:** un
+`planilla-oficial-valores.ts` que traduzca el jsonb a una estructura **con nombre y
+posición conocidos**, y un renderer que **sólo dibuje**.
+
+**Ventaja añadida:** el adaptador es **la única pieza que hay que tocar** si el
+INCES cambia un campo, y **se puede probar sin generar un PDF** — que es lo que
+hace verificable todo lo demás.
+
+---
+
+## 16. Criterio de cierre
+
+```
+38/38 campos oficiales:        TRAZADOS ✅
+ 4/4 campos derivados:         NO IMPLEMENTADOS — fuente existe, composición no verificada
+familiares:                    ESTRUCTURA CONOCIDA ✅ — 8 columnas, 3 en texto libre
+misiones:                      ESTRUCTURA CONOCIDA ✅ — 20/20 exactas, todas con «desde»
+numero_preimpreso:             FLUJO CONOCIDO ✅ — captura en Flutter NO VERIFICADA
+EntradaPlanilla:               REQUIERE ADAPTADOR
+modelo de datos:               SUFICIENTE — ningún campo obliga a cambiar el esquema
+```
+
+# APTO PARA DISEÑO DETALLADO DEL RENDERER
+
+**Con dos cabos sueltos que el diseño debe absorber, no ignorar:**
+
+1. **La cabecera necesita una función de derivación que hoy no está verificada.** Sin ella, el renderer oficial recibiría cuatro valores vacíos — y un formulario con el encabezado en blanco **no es la planilla oficial**.
+2. **Familiares tiene tres columnas en texto libre donde el papel pide casillas.** El diseño debe decidir si se imprimen como texto o si el modelo se tipifica — **y esa decisión es de negocio, no de renderizado.**
+
+**Ninguno de los dos es un dato faltante.** Los dos son **piezas por construir sobre
+un modelo que ya es suficiente** — que es exactamente el estado que esta fase
+buscaba demostrar.
+
+---
+
 ## 14. Veredicto anterior — conservado para trazabilidad
 
 # NO APTO PARA IMPLEMENTACIÓN — FALTAN DATOS/EVIDENCIA
