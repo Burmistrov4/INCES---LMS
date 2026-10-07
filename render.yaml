@@ -22,9 +22,9 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: CORS_ORIGINS
-        sync: false
+        value: https://inces-lms.pages.dev
       - key: FRONTEND_URL
-        sync: false
+        value: https://inces-lms.pages.dev
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID
