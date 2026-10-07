@@ -82,6 +82,10 @@ enchufa al mismo contrato.
 
 ## 4. Matriz de trazabilidad
 
+> **ESTADO HISTÓRICO — SUPERADO POR §12 Y §15.** Las columnas «NO VERIFICADO»
+> de esta sección se resolvieron: **38/38 trazados** contra los `codigo` de la
+> migración. Se conserva por trazabilidad, no como estado vigente.
+
 **Cómo leerla.** «Existe en modelo» se refiere al catálogo `inscripcion_campos` +
 `datos_planilla`. **El catálogo vive en la base de datos y no lo he consultado** —
 ver §7, riesgo 1. Por eso la columna 3 va marcada **NO VERIFICADO** salvo donde
@@ -134,6 +138,10 @@ oficial lo tiene en el encabezado, así que su ausencia se nota.
 
 ## 5. Campos faltantes
 
+> **ESTADO HISTÓRICO — SUPERADO POR §12.2.** Aquí se concluyó que la lista de
+> faltantes no se podía dar. **Es falso:** el catálogo de la migración tiene los
+> 38 campos de la física. Se conserva por trazabilidad.
+
 **No puedo dar la lista exacta, y ésa es la conclusión más importante de esta sección.**
 
 La matriz tiene **38 filas** y **36 van marcadas NO VERIFICADO** en la columna
@@ -162,6 +170,9 @@ Medidas, no estimadas:
 ---
 
 ## 7. Riesgos
+
+> **ESTADO HISTÓRICO — PARCIALMENTE SUPERADO.** El riesgo 1 (el catálogo como
+> incógnita) queda cerrado por §12.2. **Los riesgos 2, 3, 4 y 5 siguen vigentes.**
 
 **Riesgo 1 — el catálogo es la incógnita, y es la que decide.** Sin consultar
 `inscripcion_campos` no se sabe si faltan campos **o si están y sólo hay que

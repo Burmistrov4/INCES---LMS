@@ -39,6 +39,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=deps  /app/node_modules ./node_modules
 COPY --from=build /app/dist         ./dist
+COPY assets ./assets
 COPY package.json ./
 
 USER app

@@ -40,6 +40,7 @@ import {
   esquemaCrearAnuncio,
   esquemaCrearTarea,
   esquemaFirmarSubida,
+  esquemaMotivoObservacion,
   esquemaPlanilla,
   rolSchema,
   tipoEntidadArchivoSchema,
@@ -1259,6 +1260,34 @@ const RespuestaPlanilla = z
     }),
   })
   .openapi('RespuestaPlanilla');
+
+const EstadoVersionPlanilla = z
+  .enum(['ENVIADA', 'OBSERVADA', 'REENVIADA', 'APROBADA'])
+  .openapi('EstadoVersionPlanilla');
+
+const VersionPlanilla = z
+  .object({
+    id: z.string().uuid(),
+    aspiranteId: z.string().uuid(),
+    numero: z.number().int(),
+    estado: EstadoVersionPlanilla,
+    datosSnapshot: z.record(z.unknown()),
+    enviadaAt: z.string(),
+    aprobadaAt: z.string().nullable(),
+    approvedBy: z.string().uuid().nullable(),
+    createdAt: z.string(),
+  })
+  .openapi('VersionPlanilla');
+
+const RespuestaVersionPlanilla = z
+  .object({ version: VersionPlanilla })
+  .openapi('RespuestaVersionPlanilla');
+
+const RespuestaVersionesPlanilla = z
+  .object({ versiones: z.array(VersionPlanilla) })
+  .openapi('RespuestaVersionesPlanilla');
+
+const CuerpoMotivoObservacion = esquemaMotivoObservacion.openapi('CuerpoMotivoObservacion');
 
 const parametrosListadoSecciones = z.object({
   busqueda: z.string().optional().openapi({
@@ -2983,6 +3012,127 @@ export function construirRegistro(): OpenAPIRegistry {
       404: error(
         'Todavía no hay ficha de aspirante que actualizar (SIN_FICHA_DE_ASPIRANTE). La ficha la crea la inscripción, no esta ruta.',
       ),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/yo/planilla/enviar',
+    summary: 'Envía la planilla de inscripción para revisión',
+    description:
+      'Crea una nueva versión de la planilla guardada y la deja en estado ENVIADA. La ficha debe existir y cumplir los campos obligatorios del catálogo.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Versión creada y enviada.',
+        content: { 'application/json': { schema: RespuestaVersionPlanilla } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      404: error('El llamante no tiene ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).'),
+      409: error('La planilla ya tiene una versión enviada o existe un conflicto de estado.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/yo/planilla/reenviar',
+    summary: 'Reenvía una planilla observada',
+    description:
+      'Crea una nueva versión a partir de la planilla guardada después de una observación.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Nueva versión reenviada.',
+        content: { 'application/json': { schema: RespuestaVersionPlanilla } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      404: error('El llamante no tiene ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).'),
+      409: error('No existe una versión observada que pueda reenviarse o el estado actual impide el reenvío.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'get',
+    path: '/api/v1/yo/planilla/versiones',
+    summary: 'Lista las versiones de la planilla del llamante',
+    description:
+      'Devuelve el historial de versiones de la planilla del usuario autenticado.',
+    security: [{ bearerAuth: [] }],
+    responses: {
+      200: {
+        description: 'Historial de versiones de la planilla.',
+        content: { 'application/json': { schema: RespuestaVersionesPlanilla } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/inscripcion/planilla/{versionId}/observar',
+    summary: 'Observa una versión de planilla',
+    description:
+      'Marca una versión enviada como OBSERVADA y registra el motivo que debe corregir el aspirante.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: z.object({
+        versionId: z.string().uuid().openapi({
+          param: { name: 'versionId', in: 'path' },
+          description: 'UUID de la versión de planilla.',
+        }),
+      }),
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoMotivoObservacion } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Versión observada.',
+        content: { 'application/json': { schema: RespuestaVersionPlanilla } },
+      },
+      400: error('El cuerpo de observación no es válido.'),
+      401: RESPUESTAS_ERROR[401],
+      403: error('La sesión no tiene rol de administrador o el módulo está deshabilitado.'),
+      404: error('La versión de planilla no existe o no es accesible.'),
+      409: error('La versión no está en un estado que permita observarla.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...inscripcionesTag,
+    method: 'post',
+    path: '/api/v1/inscripcion/planilla/{versionId}/aprobar',
+    summary: 'Aprueba una versión de planilla',
+    description:
+      'Marca una versión ENVIADA o REENVIADA como APROBADA y registra quién la aprobó.',
+    security: [{ bearerAuth: [] }],
+    request: {
+      params: z.object({
+        versionId: z.string().uuid().openapi({
+          param: { name: 'versionId', in: 'path' },
+          description: 'UUID de la versión de planilla.',
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description: 'Versión aprobada.',
+        content: { 'application/json': { schema: RespuestaVersionPlanilla } },
+      },
+      401: RESPUESTAS_ERROR[401],
+      403: error('La sesión no tiene rol de administrador o el módulo está deshabilitado.'),
+      404: error('La versión de planilla no existe o no es accesible.'),
+      409: error('La versión no está en un estado que permita aprobarla.'),
       503: RESPUESTAS_ERROR[503],
     },
   });

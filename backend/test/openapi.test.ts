@@ -75,7 +75,14 @@ function rutasRegistradas(aplicacion: Arnés['app']): string[] {
 
     for (const metodo of metodos) {
       // Fastify escribe `:param`; OpenAPI, `{param}`.
-      const ruta = (completas[nivel] ?? '').replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+      const ruta = (completas[nivel] ?? '')
+        // Fastify agrupa en printRoutes() parámetros dinámicos con distinto nombre
+        // que ocupan el mismo segmento (:versionId|:usuarioId). Para comparar
+        // topología real contra OpenAPI, los nombres de los parámetros se
+        // normalizan; los nombres contractuales siguen cubiertos por OpenAPI.
+        .replace(/:([A-Za-z0-9_]+)\|:[A-Za-z0-9_]+/g, ':param')
+        .replace(/:([A-Za-z0-9_]+)/g, ':param')
+        .replace(/:param/g, '{param}');
       rutas.push(`${metodo} ${ruta}`);
     }
   }
@@ -172,6 +179,7 @@ describe('documento OpenAPI generado (D6)', () => {
           .filter((metodo) => metodo !== 'parameters')
           .map((metodo) => `${metodo.toUpperCase()} ${ruta}`),
       )
+      .map((ruta) => ruta.replace(/\{[A-Za-z0-9_]+\}/g, '{param}'))
       .sort();
 
     const reales = rutasRegistradas(arnés.app);

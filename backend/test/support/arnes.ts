@@ -26,8 +26,8 @@ import type {
   VeredictoCodigo,
 } from '../../src/dominio/puertos.js';
 import { ErrorApi } from '../../src/dominio/errores.js';
-import { renderizarPlanillaPdf } from '../../src/infra/planilla-pdf.js';
 import { renderizarPlanillaXlsx } from '../../src/infra/planilla-xlsx.js';
+import { renderizarPlanillaOficialDesdeEntrada } from '../../src/infra/planilla-oficial-adaptador.js';
 import type { EntradaPlanilla } from '../../src/infra/planilla-valores.js';
 import {
   construirClave,
@@ -3016,10 +3016,9 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
      * Genera el PDF de la planilla llena.
      *
      * El doble reproduce la misma regla de la base que `guardar`: sin ficha no hay
-     * planilla. Con ficha, delega en el renderizador **real** (`infra/planilla-pdf`)
-     * alimentado con el catálogo y el `datos_planilla` del estado. No es un marcador
-     * de prueba: la ruta se prueba contra el mismo renderizador que producción, así
-     * que un fallo del pintor se ve en CI y no sólo al volcarlo en la nube.
+     * planilla. Con ficha, delega en el adaptador del **renderizador oficial**
+     * alimentado con el catálogo y el `datos_planilla` del estado. El arnés debe
+     * seguir el mismo contrato de salida que producción: PDF institucional de una página.
      */
     async enviarPlanilla(usuarioId) {
       revisar('planilla.enviarPlanilla');
@@ -3080,7 +3079,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
 
     async generarPdf(usuarioId) {
       revisar('planilla.generarPdf');
-      return renderizarPlanillaPdf(entradaDePlanilla(usuarioId, 'PDF'));
+      return renderizarPlanillaOficialDesdeEntrada(entradaDePlanilla(usuarioId, 'PDF'));
     },
 
     async generarXlsx(usuarioId) {

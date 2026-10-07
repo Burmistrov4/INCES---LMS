@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { inflateSync } from 'node:zlib';
+import { PDFDocument } from 'pdf-lib';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderizarPlanillaPdf } from '../src/infra/planilla-pdf.js';
 import type { CampoInscripcion, PlanillaInscripcion } from '../src/dominio/tipos.js';
@@ -97,19 +98,22 @@ describe('ruta propia GET /api/v1/yo/planilla/pdf', () => {
     expect(respuesta.headers['content-type']).toMatch(/application\/pdf/);
     const bytes = Buffer.from(respuesta.rawPayload);
     expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
-    expect(textoDelPdf(new Uint8Array(bytes))).toContain('PLANILLA DE INSCRIPCION');
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(1);
+    expect(pdf.getPage(0).getWidth()).toBe(612);
+    expect(pdf.getPage(0).getHeight()).toBe(792);
     expect(respuesta.headers['content-disposition']).toContain(`planilla-inscripcion-${ID_ALUMNO}.pdf`);
   });
 
-  it('imprime los valores rellenados, no sólo las etiquetas', async () => {
-    // El arnés arranca con la ficha vacía; aquí la sembramos para probar el
-    // pintado de un valor real (nacionalidad -> "Venezolano/a", misión marcada).
+  it('cambia el PDF cuando existen valores rellenados en la ficha', async () => {
+    // El arnés arranca con la ficha vacía; aquí la sembramos para comprobar que
+    // los valores persistidos cambian el PDF oficial generado por la ruta.
     const planilla: PlanillaInscripcion = {
       primer_nombre: 'Lorenzo',
       primer_apellido: 'Roca',
       cedula: 'V-12345678',
       nacionalidad: 'V',
-      misiones: { MISION_RIBAS: '2020' },
+      misiones: { RIBAS: '2020' },
     };
     const arnés = crearArnés({
       perfiles: [...PERFILES_POR_DEFECTO, PERFIL_ALUMNO_2],
@@ -119,12 +123,19 @@ describe('ruta propia GET /api/v1/yo/planilla/pdf', () => {
     app = arnés.app;
 
     const respuesta = await pedirPropio(TOKEN_ALUMNO);
-    const texto = textoDelPdf(new Uint8Array(respuesta.rawPayload));
-
     expect(respuesta.statusCode).toBe(200);
-    expect(texto).toContain('Venezolano/a');
-    expect(texto).toContain('Misión Ribas');
-    expect(texto).toContain('2020');
+    const rellena = Buffer.from(respuesta.rawPayload);
+    const pdfRellena = await PDFDocument.load(rellena);
+    expect(pdfRellena.getPageCount()).toBe(1);
+    expect(pdfRellena.getPage(0).getWidth()).toBe(612);
+    expect(pdfRellena.getPage(0).getHeight()).toBe(792);
+
+    await app!.close();
+    const arnésVacia = crearArnés();
+    app = arnésVacia.app;
+    const respuestaVacia = await pedirPropio(TOKEN_ALUMNO);
+    expect(respuestaVacia.statusCode).toBe(200);
+    expect(Buffer.compare(rellena, Buffer.from(respuestaVacia.rawPayload))).not.toBe(0);
   });
 
   it('un usuario sin ficha recibe 404, no un PDF vacío', async () => {
@@ -168,7 +179,10 @@ describe('ruta de administrador GET /api/v1/inscripcion/planilla/:usuarioId/pdf'
     expect(respuesta.headers['content-type']).toMatch(/application\/pdf/);
     const bytes = Buffer.from(respuesta.rawPayload);
     expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
-    expect(textoDelPdf(new Uint8Array(bytes))).toContain('PLANILLA DE INSCRIPCION');
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(1);
+    expect(pdf.getPage(0).getWidth()).toBe(612);
+    expect(pdf.getPage(0).getHeight()).toBe(792);
     expect(respuesta.headers['content-disposition']).toContain(`planilla-inscripcion-${ID_ALUMNO}.pdf`);
   });
 

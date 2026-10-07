@@ -2324,6 +2324,107 @@
         ],
         "additionalProperties": false
       },
+      "EstadoVersionPlanilla": {
+        "type": "string",
+        "enum": [
+          "ENVIADA",
+          "OBSERVADA",
+          "REENVIADA",
+          "APROBADA"
+        ]
+      },
+      "VersionPlanilla": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aspiranteId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "numero": {
+            "type": "integer"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoVersionPlanilla"
+          },
+          "datosSnapshot": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "enviadaAt": {
+            "type": "string"
+          },
+          "aprobadaAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "aspiranteId",
+          "numero",
+          "estado",
+          "datosSnapshot",
+          "enviadaAt",
+          "aprobadaAt",
+          "approvedBy",
+          "createdAt"
+        ]
+      },
+      "RespuestaVersionPlanilla": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/VersionPlanilla"
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "RespuestaVersionesPlanilla": {
+        "type": "object",
+        "properties": {
+          "versiones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionPlanilla"
+            }
+          }
+        },
+        "required": [
+          "versiones"
+        ]
+      },
+      "CuerpoMotivoObservacion": {
+        "type": "object",
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "motivo"
+        ],
+        "additionalProperties": false
+      },
       "Archivo": {
         "type": "object",
         "properties": {
@@ -7595,6 +7696,380 @@
           },
           "404": {
             "description": "Todavía no hay ficha de aspirante que actualizar (SIN_FICHA_DE_ASPIRANTE). La ficha la crea la inscripción, no esta ruta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/yo/planilla/enviar": {
+      "post": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Envía la planilla de inscripción para revisión",
+        "description": "Crea una nueva versión de la planilla guardada y la deja en estado ENVIADA. La ficha debe existir y cumplir los campos obligatorios del catálogo.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versión creada y enviada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaVersionPlanilla"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El llamante no tiene ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La planilla ya tiene una versión enviada o existe un conflicto de estado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/yo/planilla/reenviar": {
+      "post": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Reenvía una planilla observada",
+        "description": "Crea una nueva versión a partir de la planilla guardada después de una observación.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nueva versión reenviada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaVersionPlanilla"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El llamante no tiene ficha de aspirante (SIN_FICHA_DE_ASPIRANTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No existe una versión observada que pueda reenviarse o el estado actual impide el reenvío.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/yo/planilla/versiones": {
+      "get": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Lista las versiones de la planilla del llamante",
+        "description": "Devuelve el historial de versiones de la planilla del usuario autenticado.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historial de versiones de la planilla.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaVersionesPlanilla"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inscripcion/planilla/{versionId}/observar": {
+      "post": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Observa una versión de planilla",
+        "description": "Marca una versión enviada como OBSERVADA y registra el motivo que debe corregir el aspirante.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la versión de planilla."
+            },
+            "required": true,
+            "name": "versionId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoMotivoObservacion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Versión observada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaVersionPlanilla"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El cuerpo de observación no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene rol de administrador o el módulo está deshabilitado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La versión de planilla no existe o no es accesible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La versión no está en un estado que permita observarla.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inscripcion/planilla/{versionId}/aprobar": {
+      "post": {
+        "tags": [
+          "Inscripciones"
+        ],
+        "summary": "Aprueba una versión de planilla",
+        "description": "Marca una versión ENVIADA o REENVIADA como APROBADA y registra quién la aprobó.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la versión de planilla."
+            },
+            "required": true,
+            "name": "versionId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Versión aprobada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaVersionPlanilla"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión no tiene rol de administrador o el módulo está deshabilitado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La versión de planilla no existe o no es accesible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La versión no está en un estado que permita aprobarla.",
             "content": {
               "application/json": {
                 "schema": {

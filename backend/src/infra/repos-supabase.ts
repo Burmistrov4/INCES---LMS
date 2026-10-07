@@ -143,8 +143,8 @@ import {
   pareceErrorPostgres,
   traducirError,
 } from './traducir-error.js';
-import { renderizarPlanillaPdf } from './planilla-pdf.js';
 import { renderizarPlanillaXlsx } from './planilla-xlsx.js';
+import { renderizarPlanillaOficialDesdeEntrada } from './planilla-oficial-adaptador.js';
 import type { EntradaPlanilla } from './planilla-valores.js';
 
 /**
@@ -3453,7 +3453,7 @@ class PlanillaSupabase implements PuertaPlanilla {
   }
 
   async generarPdf(usuarioId: string): Promise<Uint8Array> {
-    return renderizarPlanillaPdf(await this.armarEntradaPlanilla(usuarioId));
+    return renderizarPlanillaOficialDesdeEntrada(await this.armarEntradaPlanilla(usuarioId));
   }
 
   /**
