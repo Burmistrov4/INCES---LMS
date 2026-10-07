@@ -122,6 +122,7 @@ import {
   type Perfil,
   type Periodo,
   type PlanillaInscripcion,
+  type VersionPlanilla,
   type Programa,
   type ProgramaConTotales,
   type PublicacionTarea,
@@ -284,6 +285,24 @@ function aInvitacion(fila: Fila): InvitacionDocente {
     isUsed: booleano(fila.is_used, false),
     createdAt: textoObligatorio(fila.created_at),
     expiresAt: textoObligatorio(fila.expires_at),
+  };
+}
+
+function aVersionPlanilla(fila: Fila): VersionPlanilla {
+  const estado = fila.estado;
+  if (estado !== 'ENVIADA' && estado !== 'OBSERVADA' && estado !== 'REENVIADA' && estado !== 'APROBADA') {
+    throw new Error(`Estado de versión de planilla desconocido: ${String(estado)}`);
+  }
+  return {
+    id: textoObligatorio(fila.id),
+    aspiranteId: textoObligatorio(fila.aspirante_id),
+    numero: entero(fila.numero, 0),
+    estado,
+    datosSnapshot: (objetoOpcional(fila.datos_snapshot) as PlanillaInscripcion | null) ?? {},
+    enviadaAt: textoObligatorio(fila.enviada_at),
+    aprobadaAt: texto(fila.aprobada_at),
+    approvedBy: texto(fila.approved_by),
+    createdAt: textoObligatorio(fila.created_at),
   };
 }
 
@@ -891,6 +910,7 @@ const TABLA_ASPIRANTES = 'aspirantes';
 
 /** El catálogo de campos de la planilla de inscripción. */
 const TABLA_CAMPOS_INSCRIPCION = 'inscripcion_campos';
+const TABLA_PLANILLA_VERSIONES = 'planilla_versiones';
 
 /**
  * Columnas del catálogo.
@@ -3242,6 +3262,63 @@ class PlanillaSupabase implements PuertaPlanilla {
     return filas.map(aCampoInscripcion);
   }
 
+  private async ficha(usuarioId: string): Promise<{ id: string; datosPlanilla: PlanillaInscripcion }> {
+    const respuesta = await this.cliente
+      .from(TABLA_ASPIRANTES)
+      .select('id,datos_planilla')
+      .eq('user_id', usuarioId)
+      .maybeSingle();
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer la ficha de aspirante');
+    if (!respuesta.data) {
+      throw ErrorApi.noEncontrado('SIN_FICHA_DE_ASPIRANTE', 'No tienes una ficha de aspirante.');
+    }
+    const fila = respuesta.data as Fila;
+    return {
+      id: textoObligatorio(fila.id),
+      datosPlanilla: (objetoOpcional(fila.datos_planilla) as PlanillaInscripcion | null) ?? {},
+    };
+  }
+
+  private async validarPlanillaParaEnvio(planilla: PlanillaInscripcion): Promise<void> {
+    const respuesta = await this.cliente.rpc('validar_planilla', { p_datos: planilla });
+    if (respuesta.error) {
+      const mensaje = mensajeDe(respuesta.error);
+      if (esPlanillaIncompleta(mensaje)) {
+        throw ErrorApi.invalido('PLANILLA_INCOMPLETA', mensaje, {
+          contexto: 'validar la planilla para envío',
+        });
+      }
+      throw traducirError(respuesta.error, 'validar la planilla para envío');
+    }
+  }
+
+  private async ultimaVersion(aspiranteId: string): Promise<VersionPlanilla | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_PLANILLA_VERSIONES)
+      .select('id,aspirante_id,numero,estado,datos_snapshot,enviada_at,aprobada_at,approved_by,created_at')
+      .eq('aspirante_id', aspiranteId)
+      .order('numero', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer las versiones de la planilla');
+    return respuesta.data ? aVersionPlanilla(respuesta.data as Fila) : null;
+  }
+
+  private async insertarVersion(
+    aspiranteId: string,
+    numero: number,
+    estado: 'ENVIADA' | 'REENVIADA',
+    datosSnapshot: PlanillaInscripcion,
+  ): Promise<VersionPlanilla> {
+    const respuesta = await this.cliente
+      .from(TABLA_PLANILLA_VERSIONES)
+      .insert({ aspirante_id: aspiranteId, numero, estado, datos_snapshot: datosSnapshot })
+      .select('id,aspirante_id,numero,estado,datos_snapshot,enviada_at,aprobada_at,approved_by,created_at')
+      .single();
+    if (respuesta.error) throw traducirError(respuesta.error, 'crear versión de la planilla');
+    return aVersionPlanilla(respuesta.data as Fila);
+  }
+
   async guardar(usuarioId: string, planilla: PlanillaInscripcion): Promise<PlanillaInscripcion> {
     const respuesta = await this.cliente
       .from(TABLA_ASPIRANTES)
@@ -3260,6 +3337,81 @@ class PlanillaSupabase implements PuertaPlanilla {
     // colapsa claves repetidas y normaliza números, así que devolver la entrada
     // sería afirmar que la base guardó exactamente eso sin haberlo comprobado.
     return objetoOpcional((respuesta.data as Fila | null)?.datos_planilla) ?? {};
+  }
+
+  async enviarPlanilla(usuarioId: string): Promise<VersionPlanilla> {
+    const ficha = await this.ficha(usuarioId);
+    await this.validarPlanillaParaEnvio(ficha.datosPlanilla);
+    const ultima = await this.ultimaVersion(ficha.id);
+    if (ultima) {
+      throw ErrorApi.conflicto('PLANILLA_YA_ENVIADA', 'La planilla ya tiene una versión enviada.');
+    }
+    return this.insertarVersion(ficha.id, 1, 'ENVIADA', ficha.datosPlanilla);
+  }
+
+  async reenviarPlanilla(usuarioId: string): Promise<VersionPlanilla> {
+    const ficha = await this.ficha(usuarioId);
+    const ultima = await this.ultimaVersion(ficha.id);
+    if (!ultima) {
+      throw ErrorApi.conflicto('PLANILLA_SIN_VERSION', 'No existe una planilla observada para reenviar.');
+    }
+    if (ultima.estado !== 'OBSERVADA') {
+      throw ErrorApi.conflicto('PLANILLA_NO_OBSERVADA', 'La última versión de la planilla no está observada.');
+    }
+    await this.validarPlanillaParaEnvio(ficha.datosPlanilla);
+    try {
+      return await this.insertarVersion(ficha.id, ultima.numero + 1, 'REENVIADA', ficha.datosPlanilla);
+    } catch (error) {
+      if (!(error instanceof ErrorApi) || error.codigo !== 'REGISTRO_DUPLICADO') throw error;
+      const actual = await this.ultimaVersion(ficha.id);
+      if (actual?.estado === 'REENVIADA') {
+        throw ErrorApi.conflicto('CONFLICTO_VERSION_PLANILLA', 'La planilla ya fue reenviada por otra petición.');
+      }
+      if (actual?.estado === 'OBSERVADA') {
+        return this.insertarVersion(ficha.id, actual.numero + 1, 'REENVIADA', ficha.datosPlanilla);
+      }
+      throw ErrorApi.conflicto('CONFLICTO_VERSION_PLANILLA', 'La planilla cambió mientras se reenviaba.');
+    }
+  }
+
+  async versiones(usuarioId: string): Promise<VersionPlanilla[]> {
+    const ficha = await this.ficha(usuarioId);
+    const respuesta = await this.cliente
+      .from(TABLA_PLANILLA_VERSIONES)
+      .select('id,aspirante_id,numero,estado,datos_snapshot,enviada_at,aprobada_at,approved_by,created_at')
+      .eq('aspirante_id', ficha.id)
+      .order('numero', { ascending: true });
+    if (respuesta.error) throw traducirError(respuesta.error, 'listar versiones de la planilla');
+    return (respuesta.data ?? []).map((fila) => aVersionPlanilla(fila as Fila));
+  }
+
+  async observarPlanilla(adminId: string, versionId: string, motivo: string): Promise<VersionPlanilla> {
+    const respuesta = await this.cliente.rpc('observar_planilla_atomico', {
+      p_version_id: versionId,
+      p_admin_id: adminId,
+      p_motivo: motivo,
+    });
+    if (respuesta.error) throw traducirError(respuesta.error, 'observar la planilla');
+    const fila = Array.isArray(respuesta.data) ? respuesta.data[0] : respuesta.data;
+    if (!fila) {
+      throw ErrorApi.conflicto('TRANSICION_PLANILLA_INVALIDA', 'La versión ya no está en estado ENVIADA.');
+    }
+    return aVersionPlanilla(fila as Fila);
+  }
+
+  async aprobarPlanilla(adminId: string, versionId: string): Promise<VersionPlanilla> {
+    const respuesta = await this.cliente
+      .from(TABLA_PLANILLA_VERSIONES)
+      .update({ estado: 'APROBADA', aprobada_at: new Date().toISOString(), approved_by: adminId })
+      .eq('id', versionId)
+      .in('estado', ['ENVIADA', 'REENVIADA'])
+      .select('id,aspirante_id,numero,estado,datos_snapshot,enviada_at,aprobada_at,approved_by,created_at')
+      .maybeSingle();
+    if (respuesta.error) throw traducirError(respuesta.error, 'aprobar la planilla');
+    if (!respuesta.data) {
+      throw ErrorApi.conflicto('TRANSICION_PLANILLA_INVALIDA', 'La versión no puede aprobarse desde su estado actual.');
+    }
+    return aVersionPlanilla(respuesta.data as Fila);
   }
 
   /** Traduce el fallo de la escritura a un código que el cliente pueda accionar. */

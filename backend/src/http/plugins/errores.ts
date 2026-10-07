@@ -49,7 +49,15 @@ export function registrarManejadorDeErrores(app: FastifyInstance): void {
     }
 
     // 4. Cuerpo JSON malformado.
-    if (fallo.statusCode === 400 && fallo.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+    // `FST_ERR_CTP_*` es una FAMILIA de Fastify: EMPTY_JSON_BODY, INVALID_MEDIA_TYPE,
+    // BODY_LIMIT, INVALID_CHARACTER… Cubrir sólo un código dejaba a los hermanos
+    // cayendo al pozo genérico y respondiendo 500 con un código de PostgreSQL
+    // (`ERROR_BASE_DE_DATOS`) para un error de ENTRADA del cliente.
+    //
+    // Se compara por prefijo y no enumerando: la rama ya está acotada por
+    // `statusCode === 400`, así que no puede capturar un 5xx de Fastify, y la
+    // lista de códigos de la familia crece con cada versión de Fastify.
+    if (fallo.statusCode === 400 && fallo.code?.startsWith('FST_ERR_CTP_')) {
       const api = ErrorApi.peticionInvalida('El cuerpo debe ser JSON válido.');
       return reply.status(api.estado).send(cuerpoDeError(api));
     }

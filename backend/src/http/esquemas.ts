@@ -808,6 +808,10 @@ export const esquemaReincorporar = z
  * `{}` sólo puede venir de un error de programación o de una sonda. Rechazarlo
  * convierte un borrado silencioso en un 400 que dice qué pasó.
  */
+export const esquemaMotivoObservacion = z
+  .object({ motivo: z.string().trim().min(1, 'El motivo de observación no puede estar vacío.').max(2000) })
+  .strict();
+
 export const esquemaPlanilla = z
   .object({
     planilla: z

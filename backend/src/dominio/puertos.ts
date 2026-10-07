@@ -35,6 +35,7 @@ import type {
   Perfil,
   Periodo,
   PlanillaInscripcion,
+  VersionPlanilla,
   Programa,
   ProgramaConTotales,
   PublicacionTarea,
@@ -901,6 +902,11 @@ export interface PuertaPlanilla {
    * guardó exactamente eso sin haberlo comprobado.
    */
   guardar(usuarioId: string, planilla: PlanillaInscripcion): Promise<PlanillaInscripcion>;
+  enviarPlanilla(usuarioId: string): Promise<VersionPlanilla>;
+  reenviarPlanilla(usuarioId: string): Promise<VersionPlanilla>;
+  versiones(usuarioId: string): Promise<VersionPlanilla[]>;
+  observarPlanilla(adminId: string, versionId: string, motivo: string): Promise<VersionPlanilla>;
+  aprobarPlanilla(adminId: string, versionId: string): Promise<VersionPlanilla>;
 
   /**
    * Genera la **planilla de inscripción del INCES llena** en PDF para un

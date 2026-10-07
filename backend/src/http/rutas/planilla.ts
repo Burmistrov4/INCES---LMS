@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { TIPO_XLSX } from '../../infra/planilla-xlsx.js';
+import { ErrorApi } from '../../dominio/errores.js';
+import { esquemaMotivoObservacion } from '../esquemas.js';
 import type { DependenciasRutas } from '../dependencias.js';
 import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
 import { exigirModulo } from '../plugins/modulos.js';
@@ -108,6 +110,21 @@ export function rutasPlanilla(app: FastifyInstance, deps: DependenciasRutas): vo
       admin.addHook('preHandler', exigirAdmin());
       // Segundo a propósito: ver el porqué en la guardia de arriba.
       admin.addHook('preHandler', exigirInscripciones);
+
+      admin.post('/planilla/:versionId/observar', async (request) => {
+        const usuario = request.usuario;
+        if (!usuario) throw ErrorApi.noAutorizado();
+        const { versionId } = request.params as { versionId: string };
+        const { motivo } = esquemaMotivoObservacion.parse(request.body);
+        return { version: await reposDe(request).planilla.observarPlanilla(usuario.id, versionId, motivo) };
+      });
+
+      admin.post('/planilla/:versionId/aprobar', async (request) => {
+        const usuario = request.usuario;
+        if (!usuario) throw ErrorApi.noAutorizado();
+        const { versionId } = request.params as { versionId: string };
+        return { version: await reposDe(request).planilla.aprobarPlanilla(usuario.id, versionId) };
+      });
 
       admin.get('/planilla/:usuarioId/pdf', async (request, reply) => {
         const { usuarioId } = request.params as { usuarioId: string };

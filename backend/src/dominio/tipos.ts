@@ -16,6 +16,20 @@ export function esRol(valor: unknown): valor is Rol {
   return typeof valor === 'string' && (ROLES as readonly string[]).includes(valor);
 }
 
+export type EstadoVersionPlanilla = 'ENVIADA' | 'OBSERVADA' | 'REENVIADA' | 'APROBADA';
+
+export interface VersionPlanilla {
+  id: string;
+  aspiranteId: string;
+  numero: number;
+  estado: EstadoVersionPlanilla;
+  datosSnapshot: PlanillaInscripcion;
+  enviadaAt: string;
+  aprobadaAt: string | null;
+  approvedBy: string | null;
+  createdAt: string;
+}
+
 export interface Perfil {
   id: string;
   email: string;

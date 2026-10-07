@@ -68,6 +68,24 @@ export function rutasYo(app: FastifyInstance, deps: DependenciasRutas): void {
    * cualquier fila, y sin el parámetro esta ruta escribiría en la ficha que la
    * base eligiera. Misma razón que en `misInscripciones` y `miHorario`.
    */
+  app.post('/api/v1/yo/planilla/enviar', { preHandler: [exigirSesion()] }, async (request) => {
+    const usuario = request.usuario;
+    if (!usuario) throw ErrorApi.noAutorizado();
+    return { version: await reposDe(request).planilla.enviarPlanilla(usuario.id) };
+  });
+
+  app.post('/api/v1/yo/planilla/reenviar', { preHandler: [exigirSesion()] }, async (request) => {
+    const usuario = request.usuario;
+    if (!usuario) throw ErrorApi.noAutorizado();
+    return { version: await reposDe(request).planilla.reenviarPlanilla(usuario.id) };
+  });
+
+  app.get('/api/v1/yo/planilla/versiones', { preHandler: [exigirSesion()] }, async (request) => {
+    const usuario = request.usuario;
+    if (!usuario) throw ErrorApi.noAutorizado();
+    return { versiones: await reposDe(request).planilla.versiones(usuario.id) };
+  });
+
   app.put('/api/v1/yo/planilla', { preHandler: [exigirSesion()] }, async (request) => {
     const usuario = request.usuario;
     if (!usuario) throw ErrorApi.noAutorizado();

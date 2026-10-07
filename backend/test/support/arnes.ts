@@ -69,6 +69,7 @@ import type {
   Perfil,
   Periodo,
   PlanillaInscripcion,
+  VersionPlanilla,
   Programa,
   PublicacionTarea,
   Rol,
@@ -1204,6 +1205,7 @@ export interface EstadoFalso {
    * planilla: la ausencia de clave *es* el caso a probar.
    */
   planillas: Record<string, PlanillaInscripcion>;
+  planillaVersiones?: Record<string, VersionPlanilla[]>;
 
   // --- M5 ---
   /**
@@ -3019,6 +3021,63 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
      * de prueba: la ruta se prueba contra el mismo renderizador que producción, así
      * que un fallo del pintor se ve en CI y no sólo al volcarlo en la nube.
      */
+    async enviarPlanilla(usuarioId) {
+      revisar('planilla.enviarPlanilla');
+      if (!(usuarioId in estado.planillas)) throw ErrorApi.noEncontrado('SIN_FICHA_DE_ASPIRANTE', 'No tienes ficha.');
+      const existente = estado.planillaVersiones?.[usuarioId] ?? [];
+      if (existente.length) throw ErrorApi.conflicto('PLANILLA_YA_ENVIADA', 'La planilla ya tiene una versión enviada.');
+      const datos = estado.planillas[usuarioId];
+      if (!datos) throw ErrorApi.noEncontrado('SIN_FICHA_DE_ASPIRANTE', 'No tienes ficha.');
+      const faltan = estado.camposInscripcion.filter((c) => c.obligatorio && valorDeCampoVacio(datos, c.codigo)).map((c) => c.codigo);
+      if (faltan.length) throw ErrorApi.invalido('PLANILLA_INCOMPLETA', `Faltan campos obligatorios en la planilla: ${faltan.join(', ')}.`);
+      const version = { id: crypto.randomUUID(), aspiranteId: usuarioId, numero: 1, estado: 'ENVIADA', datosSnapshot: { ...datos }, enviadaAt: new Date().toISOString(), aprobadaAt: null, approvedBy: null, createdAt: new Date().toISOString() } as VersionPlanilla;
+      estado.planillaVersiones ??= {};
+      estado.planillaVersiones[usuarioId] = [version];
+      return version;
+    },
+
+    async reenviarPlanilla(usuarioId) {
+      revisar('planilla.reenviarPlanilla');
+      const versiones = estado.planillaVersiones?.[usuarioId] ?? [];
+      const ultima = versiones.at(-1);
+      if (!ultima) throw ErrorApi.conflicto('PLANILLA_SIN_VERSION', 'No existe una versión.');
+      if (ultima.estado !== 'OBSERVADA') throw ErrorApi.conflicto('PLANILLA_NO_OBSERVADA', 'La última versión no está observada.');
+      const datos = estado.planillas[usuarioId];
+      if (!datos) throw ErrorApi.noEncontrado('SIN_FICHA_DE_ASPIRANTE', 'No tienes ficha.');
+      const faltan = estado.camposInscripcion.filter((c) => c.obligatorio && valorDeCampoVacio(datos, c.codigo)).map((c) => c.codigo);
+      if (faltan.length) throw ErrorApi.invalido('PLANILLA_INCOMPLETA', `Faltan campos obligatorios en la planilla: ${faltan.join(', ')}.`);
+      const version = { id: crypto.randomUUID(), aspiranteId: usuarioId, numero: ultima.numero + 1, estado: 'REENVIADA', datosSnapshot: { ...datos }, enviadaAt: new Date().toISOString(), aprobadaAt: null, approvedBy: null, createdAt: new Date().toISOString() } as VersionPlanilla;
+      versiones.push(version);
+      return version;
+    },
+
+    async versiones(usuarioId) {
+      revisar('planilla.versiones');
+      return [...(estado.planillaVersiones?.[usuarioId] ?? [])];
+    },
+
+    async observarPlanilla(adminId, versionId, motivo) {
+      revisar('planilla.observarPlanilla');
+      void adminId;
+      void motivo;
+      const todas = Object.values(estado.planillaVersiones ?? {});
+      const version = todas.flat().find((v) => v.id === versionId);
+      if (!version || version.estado !== 'ENVIADA') throw ErrorApi.conflicto('TRANSICION_PLANILLA_INVALIDA', 'Transición inválida.');
+      version.estado = 'OBSERVADA';
+      return version;
+    },
+
+    async aprobarPlanilla(adminId, versionId) {
+      revisar('planilla.aprobarPlanilla');
+      const todas = Object.values(estado.planillaVersiones ?? {});
+      const version = todas.flat().find((v) => v.id === versionId);
+      if (!version || (version.estado !== 'ENVIADA' && version.estado !== 'REENVIADA')) throw ErrorApi.conflicto('TRANSICION_PLANILLA_INVALIDA', 'Transición inválida.');
+      version.estado = 'APROBADA';
+      version.aprobadaAt = new Date().toISOString();
+      version.approvedBy = adminId;
+      return version;
+    },
+
     async generarPdf(usuarioId) {
       revisar('planilla.generarPdf');
       return renderizarPlanillaPdf(entradaDePlanilla(usuarioId, 'PDF'));
