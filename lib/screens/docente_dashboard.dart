@@ -163,6 +163,17 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen>
     Navigator.of(context, rootNavigator: true).pushReplacementNamed('/login');
   }
 
+  void _navegarA(String destino) {
+    final idx = _items.indexWhere(
+      (it) =>
+          it.titulo.toLowerCase() == destino.toLowerCase() ||
+          it.titulo.toLowerCase().contains(destino.toLowerCase()),
+    );
+    if (idx != -1) {
+      setState(() => _seleccionada = idx);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Nulable a propósito: `aula_produccion_test.dart` y
@@ -234,6 +245,7 @@ class _DocenteDashboardScreenState extends State<DocenteDashboardScreen>
         return PanelMisAulas(
           gateway: _aulasPropias,
           aulaGateway: _aulaContenido,
+          onNavegarA: _navegarA,
         );
 
       case 'Asistencia':

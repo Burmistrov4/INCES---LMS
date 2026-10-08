@@ -6,6 +6,7 @@ import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import 'aula_virtual_dashboard.dart';
+import 'docente/docente_resumen_panel.dart';
 
 /// Listado «Mis aulas»: las secciones de quien mira y la puerta al Aula Virtual.
 ///
@@ -37,13 +38,21 @@ import 'aula_virtual_dashboard.dart';
 /// es una decisión del llamante, no un hueco que rellenar: quien lo deja nulo
 /// está pidiendo justamente esto.
 class PanelMisAulas extends StatefulWidget {
-  const PanelMisAulas({super.key, required this.gateway, this.aulaGateway});
+  const PanelMisAulas({
+    super.key,
+    required this.gateway,
+    this.aulaGateway,
+    this.onNavegarA,
+  });
 
   /// De dónde sale el listado de secciones.
   final AulasPropiasGateway gateway;
 
   /// La puerta del contenido del aula. Ver la nota de la clase.
   final AulaGateway? aulaGateway;
+
+  /// Permite navegar a otra pestaña del dashboard docente.
+  final void Function(String seccion)? onNavegarA;
 
   @override
   State<PanelMisAulas> createState() => _PanelMisAulasState();
@@ -179,7 +188,15 @@ class _PanelMisAulasState extends State<PanelMisAulas> {
         ],
         Expanded(
           child: ListView(
-            children: [for (final aula in mis.aulas) _tarjeta(aula)],
+            children: [
+              for (final aula in mis.aulas) _tarjeta(aula),
+              if (mis.esDocente) ...[
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 16),
+                DocenteResumenPanel(onNavegarA: widget.onNavegarA),
+              ],
+            ],
           ),
         ),
       ],

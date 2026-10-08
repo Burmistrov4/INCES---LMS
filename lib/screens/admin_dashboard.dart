@@ -239,6 +239,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     Navigator.of(context, rootNavigator: true).pushReplacementNamed('/login');
   }
 
+  void _navegarA(String destino) {
+    final idx = _items.indexWhere(
+      (it) =>
+          it.titulo.toLowerCase() == destino.toLowerCase() ||
+          it.titulo.toLowerCase().contains(destino.toLowerCase()),
+    );
+    if (idx != -1) {
+      setState(() => _seleccionada = idx);
+    }
+  }
+
   String get _tituloSeccion => _items[_seleccionada].titulo;
 
   @override
@@ -288,9 +299,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
     switch (item.titulo) {
       case 'Módulos del Sistema':
-        return const ContenidoSeccion(
-          migas: ['Inicio', 'Administración del sistema', 'Módulos'],
-          child: CpanelModulosPanel(),
+        return ContenidoSeccion(
+          migas: const ['Inicio', 'Administración del sistema', 'Módulos'],
+          child: CpanelModulosPanel(
+            onNavegarA: _navegarA,
+            mostrarResumenEjecutivo: true,
+          ),
         );
       case 'Parámetros':
         return const ContenidoSeccion(

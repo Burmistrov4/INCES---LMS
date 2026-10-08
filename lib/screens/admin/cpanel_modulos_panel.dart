@@ -7,6 +7,7 @@ import '../../repositories/modulo_repository.dart';
 import '../../theme/inces_theme.dart';
 import '../../widgets/comunes.dart';
 import '../admin_dashboard.dart';
+import 'admin_resumen_panel.dart';
 
 /// Módulo que da acceso a este mismo panel.
 ///
@@ -46,9 +47,16 @@ const Map<String, IconData> _iconosModulo = {
 /// es una tarjeta con badge de estado, roles visibles y una cabecera que
 /// identifica su categoría, de modo que el estado se reconoce de un vistazo.
 class CpanelModulosPanel extends StatefulWidget {
-  const CpanelModulosPanel({super.key, this.repositorio});
+  const CpanelModulosPanel({
+    super.key,
+    this.repositorio,
+    this.onNavegarA,
+    this.mostrarResumenEjecutivo = false,
+  });
 
   final ModuloRepository? repositorio;
+  final void Function(String seccion)? onNavegarA;
+  final bool mostrarResumenEjecutivo;
 
   @override
   State<CpanelModulosPanel> createState() => _CpanelModulosPanelState();
@@ -231,6 +239,15 @@ class _CpanelModulosPanelState extends State<CpanelModulosPanel> {
       physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       children: [
+        if (widget.mostrarResumenEjecutivo) ...[
+          AdminResumenPanel(
+            repositorioModulos: _repo,
+            onNavegarA: widget.onNavegarA,
+          ),
+          const SizedBox(height: 20),
+          const Divider(),
+          const SizedBox(height: 16),
+        ],
         // --- Command Center: las cifras primero ----------------------------
         // Van arriba y no al final porque responden a «¿cómo está el sistema?»
         // antes de que el usuario tenga que buscar nada.

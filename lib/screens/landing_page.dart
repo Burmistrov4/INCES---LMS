@@ -95,7 +95,10 @@ class _LandingPageState extends State<LandingPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _construirHero(),
+            _construirPilares(),
+            _construirRoles(),
             _construirOferta(),
+            _construirCompromiso(),
             _construirPie(),
           ],
         ),
@@ -232,6 +235,337 @@ class _LandingPageState extends State<LandingPage> {
   }
 
   // ---------------------------------------------------------------------------
+  // Pilares del Sistema y Roles
+  // ---------------------------------------------------------------------------
+
+  Widget _construirPilares() {
+    final theme = Theme.of(context);
+    final esOscuro = theme.brightness == Brightness.dark;
+
+    final pilares = [
+      (
+        icono: Icons.computer_outlined,
+        titulo: 'Aula Virtual Especializada',
+        modulo: 'Módulo 6',
+        descripcion:
+            'Tablón de clase interactivo, asignaciones técnicas de soldadura '
+            'y calificaciones formativas continuas.',
+      ),
+      (
+        icono: Icons.qr_code_scanner_rounded,
+        titulo: 'Asistencia Segura con QR',
+        modulo: 'Módulo 7',
+        descripcion:
+            'Registro de presencialidad en talleres con códigos dinámicos efímeros '
+            'y verificación presencial de guardias.',
+      ),
+      (
+        icono: Icons.how_to_reg_outlined,
+        titulo: 'Asignación Transparente de Cupos',
+        modulo: 'Módulo 4',
+        descripcion:
+            'Postulación en línea con asignación automática por orden de llegada (FIFO) '
+            'y aforo controlado por taller.',
+      ),
+      (
+        icono: Icons.cloud_done_outlined,
+        titulo: 'Almacenamiento Cloudflare R2',
+        modulo: 'Módulo 5',
+        descripcion:
+            'Biblioteca de manuales técnicos, planos y guías de seguridad industrial '
+            'disponibles 24/7 sin límite de transferencia.',
+      ),
+    ];
+
+    return Container(
+      color: esOscuro
+          ? theme.colorScheme.surface
+          : IncesTheme.fondoClaro,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: IncesTheme.azulPrimario.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'CAPACIDADES DEL SISTEMA',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.primary,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Plataforma Diseñada para la Formación Técnica Productiva',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tecnología moderna al servicio de aprendices, facilitadores y directivos del CFS Carabobo.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 32),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columnas = constraints.maxWidth > 900
+                      ? 4
+                      : constraints.maxWidth > 550
+                          ? 2
+                          : 1;
+                  final ancho =
+                      (constraints.maxWidth - 16 * (columnas - 1)) / columnas;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      for (final p in pilares)
+                        SizedBox(
+                          width: ancho,
+                          child: Card(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.circular(IncesTheme.radioTarjeta),
+                              side: BorderSide(
+                                color: theme.colorScheme.outline
+                                    .withValues(alpha: 0.6),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Container(
+                                        width: 42,
+                                        height: 42,
+                                        decoration: BoxDecoration(
+                                          color: theme.colorScheme.primary
+                                              .withValues(alpha: 0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Icon(
+                                          p.icono,
+                                          size: 22,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: theme.colorScheme
+                                              .surfaceContainerHighest,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          p.modulo,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: theme
+                                                .colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    p.titulo,
+                                    style:
+                                        theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    p.descripcion,
+                                    style:
+                                        theme.textTheme.bodySmall?.copyWith(
+                                      color: theme
+                                          .colorScheme.onSurfaceVariant,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _construirRoles() {
+    final theme = Theme.of(context);
+
+    final perfiles = [
+      (
+        rol: 'Aprendiz y Aspirante',
+        icono: Icons.school_outlined,
+        ventajas: [
+          'Inscripción digital autónoma',
+          'Acceso inmediato a tareas y guías',
+          'Marcaje de asistencia con QR',
+        ],
+      ),
+      (
+        rol: 'Docente y Facilitador',
+        icono: Icons.badge_outlined,
+        ventajas: [
+          'Gestión de aula virtual por materia',
+          'Generador de código QR para lista',
+          'Evaluación formativa y retroalimentación',
+        ],
+      ),
+      (
+        rol: 'Coordinación y Administración',
+        icono: Icons.admin_panel_settings_outlined,
+        ventajas: [
+          'Command Center con switches M0-M8',
+          'Programación del cuadrante y talleres',
+          'Trazabilidad y auditoría inmutable',
+        ],
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Experiencia Integral por Rol',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Interfaces diseñadas para responder exactamente a las responsabilidades de cada miembro de la comunidad educativa.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columnas = constraints.maxWidth > 800 ? 3 : 1;
+                  final ancho =
+                      (constraints.maxWidth - 16 * (columnas - 1)) / columnas;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      for (final p in perfiles)
+                        SizedBox(
+                          width: ancho,
+                          child: Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surface,
+                              borderRadius: BorderRadius.circular(
+                                  IncesTheme.radioTarjeta),
+                              border:
+                                  Border.all(color: theme.colorScheme.outline),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(p.icono,
+                                        size: 24,
+                                        color: theme.colorScheme.primary),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        p.rol,
+                                        style:
+                                            theme.textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                for (final v in p.ventajas) ...[
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_outline,
+                                        size: 16,
+                                        color: IncesTheme.exito,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          v,
+                                          style:
+                                              theme.textTheme.bodySmall?.copyWith(
+                                            color: theme
+                                                .colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Oferta formativa (dinámica)
   // ---------------------------------------------------------------------------
 
@@ -336,6 +670,73 @@ class _LandingPageState extends State<LandingPage> {
           ],
         );
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Compromiso y Calidad
+  // ---------------------------------------------------------------------------
+
+  Widget _construirCompromiso() {
+    final theme = Theme.of(context);
+    return Container(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Column(
+            children: [
+              Text(
+                'Compromiso Institucional con la Calidad',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'El CFS Nacional de Soldadura «Rafael Urdaneta» forma los profesionales que impulsan los sectores productivos e industriales del país.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                spacing: 24,
+                runSpacing: 16,
+                alignment: WrapAlignment.center,
+                children: [
+                  _insignia(
+                      Icons.verified_outlined, 'Certificación Nacional INCES'),
+                  _insignia(Icons.precision_manufacturing_outlined,
+                      'Formación Dual Taller y Aula'),
+                  _insignia(Icons.lock_clock_outlined,
+                      'Infraestructura Tecnológica 24/7'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _insignia(IconData icono, String texto) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icono, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Text(
+          texto,
+          style: theme.textTheme.labelMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 

@@ -16,6 +16,7 @@ import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import '../widgets/modulos_del_menu.dart';
+import 'aspirante/estudiante_resumen_panel.dart';
 import 'aspirante/marcar_asistencia_panel.dart';
 import 'gestor_documental_panel.dart';
 import 'mis_aulas_panel.dart';
@@ -233,6 +234,17 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
     Navigator.of(context, rootNavigator: true).pushReplacementNamed('/login');
   }
 
+  void _navegarA(String destino) {
+    final idx = _items.indexWhere(
+      (it) =>
+          it.titulo.toLowerCase() == destino.toLowerCase() ||
+          it.titulo.toLowerCase().contains(destino.toLowerCase()),
+    );
+    if (idx != -1) {
+      setState(() => _seleccionada = idx);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Nulable a propósito: en las pruebas este panel se monta sin proveedor de
@@ -374,7 +386,7 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
               ? _panelError(_error!)
               : _aspirante == null
                   ? _panelVacio()
-                  : _panelFicha(_aspirante!),
+                  : SingleChildScrollView(child: _panelFicha(_aspirante!)),
     );
   }
 
@@ -462,6 +474,13 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        EstudianteResumenPanel(
+          aspirante: aspirante,
+          onNavegarA: _navegarA,
+        ),
+        const SizedBox(height: 20),
+        const Divider(),
+        const SizedBox(height: 16),
         // Tarjeta de identidad con la cabecera de marca. Es la versión de
         // «perfil» del lenguaje visual que usan las tarjetas de módulo.
         Card(

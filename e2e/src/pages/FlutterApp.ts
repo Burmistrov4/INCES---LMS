@@ -303,19 +303,27 @@ export class FlutterApp {
    */
   async pulsarReal(
     texto: string,
-    opciones: OpcionesDeTexto & { rol?: string } = {},
+    opciones: OpcionesDeTexto & { rol?: string; tiempoLimiteMs?: number } = {},
   ): Promise<void> {
     const aguja = opciones.ignorarMayusculas ? texto.toLowerCase() : texto;
     const coincide = (e: string): boolean =>
       opciones.ignorarMayusculas ? e.toLowerCase().includes(aguja) : e.includes(aguja);
 
     const PULSABLES = ['button', 'link', 'tab', 'menuitem'];
-    const nodos = await this.nodos();
-    const objetivo = nodos.find(
-      (n) =>
-        coincide(n.etiqueta) &&
-        (opciones.rol !== undefined ? n.rol === opciones.rol : PULSABLES.includes(n.rol)),
-    );
+    const tiempoLimite = opciones.tiempoLimiteMs ?? 10_000;
+    const inicio = Date.now();
+    let objetivo: NodoSemantico | undefined;
+
+    while (Date.now() - inicio < tiempoLimite) {
+      const nodos = await this.nodos();
+      objetivo = nodos.find(
+        (n) =>
+          coincide(n.etiqueta) &&
+          (opciones.rol !== undefined ? n.rol === opciones.rol : PULSABLES.includes(n.rol)),
+      );
+      if (objetivo) break;
+      await this.page.waitForTimeout(250);
+    }
 
     if (!objetivo) {
       throw new Error(
