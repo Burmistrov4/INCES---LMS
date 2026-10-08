@@ -1,0 +1,29 @@
+# Cloudflare Pages — política de caché del frontend Flutter Web.
+# HTML/bootstrap se mantienen cortos; artefactos estáticos pesados se cachean.
+
+/index.html
+  Cache-Control: public, max-age=300, must-revalidate
+
+/
+  Cache-Control: public, max-age=300, must-revalidate
+
+/flutter_bootstrap.js
+  Cache-Control: public, max-age=300, must-revalidate
+
+/main.dart.js
+  Cache-Control: public, max-age=3600, must-revalidate
+
+/flutter.js
+  Cache-Control: public, max-age=604800
+
+/canvaskit/*
+  Cache-Control: public, max-age=604800
+
+/assets/*
+  Cache-Control: public, max-age=604800
+
+/icons/*
+  Cache-Control: public, max-age=604800
+
+/favicon.png
+  Cache-Control: public, max-age=604800

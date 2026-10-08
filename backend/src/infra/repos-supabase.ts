@@ -3859,7 +3859,11 @@ class AulaSupabase implements PuertaAula {
       // El orden del índice `m6_tareas_seccion_orden_idx`: por tema y, dentro,
       // por el orden manual que puso el docente.
       .order('tema', { ascending: true, nullsFirst: true })
-      .order('orden', { ascending: true });
+      .order('orden', { ascending: true })
+      // Desempate estable: lo último publicado queda arriba dentro del mismo
+      // tema/orden. Con el valor por defecto `orden = 0`, evita enterrar la
+      // actividad recién publicada debajo de todo el historial.
+      .order('publicado_en', { ascending: false, nullsFirst: false });
 
     if (respuesta.error) {
       throw traducirError(respuesta.error, 'leer el trabajo de clase');

@@ -1,5 +1,5 @@
 name: inces_lms_app
-description: "A new Flutter project."
+description: "Sistema de gestión académica del INCES La Isabelica para aspirantes, aprendices, docentes y administradores."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -31,10 +31,10 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.0      # Cliente oficial de Supabase
-  provider: ^6.1.2              # Gestión de estado ligera y limpia
-  google_fonts: ^6.2.1          # Tipografías modernas (ej. Inter o Poppins para el cPanel)
+  provider: ^6.1.2              # GestiÃ³n de estado ligera y limpia
+  google_fonts: ^6.2.1          # TipografÃ­as modernas (ej. Inter o Poppins para el cPanel)
   intl: ^0.19.0                 # Formateo de fechas
-  uuid: ^4.0.0                  # Generación de UUIDs
+  uuid: ^4.0.0                  # GeneraciÃ³n de UUIDs
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -43,39 +43,39 @@ dependencies:
   # y el canal WS actualiza el tablero sin polling.
   qr_flutter: ^4.1.0
   # Lector de QR: la segunda mitad de D21 (M7). Hasta ahora el alumno tecleaba los
-  # seis dígitos que ve en la pizarra; con esto puede apuntar y leerlos.
+  # seis dÃ­gitos que ve en la pizarra; con esto puede apuntar y leerlos.
   #
   # Plataformas, **medidas** en el `flutter.plugin.platforms` del propio paquete:
-  # `android`, `ios`, `macos` y `web`. O sea que Windows y Linux no están cubiertos
-  # (no existen ni sus carpetas), y **macOS sí lo está**. El botón se muestra sólo
-  # en Android, iOS y Web por **decisión de alcance**, no por falta de soporte: son
+  # `android`, `ios`, `macos` y `web`. O sea que Windows y Linux no estÃ¡n cubiertos
+  # (no existen ni sus carpetas), y **macOS sÃ­ lo estÃ¡**. El botÃ³n se muestra sÃ³lo
+  # en Android, iOS y Web por **decisiÃ³n de alcance**, no por falta de soporte: son
   # los tres destinos institucionales. En macOS, Windows y Linux se oculta.
   #
-  # **MLKit en su variante EMPAQUETADA, a propósito.** Es la que trae el modelo
+  # **MLKit en su variante EMPAQUETADA, a propÃ³sito.** Es la que trae el modelo
   # dentro del APK (+3-10 MB) y funciona **sin red**; la ligera (~600 KB) lo
   # descarga la primera vez desde Google Play Services. En el contexto del INCES
-  # —con conectividad irregular en el aula— que el escáner funcione sin conexión y
-  # sin latencia vale esos megas: la variante ligera fallaría justo el día que la
-  # red no va, que es cuando más hace falta.
+  # â€”con conectividad irregular en el aulaâ€” que el escÃ¡ner funcione sin conexiÃ³n y
+  # sin latencia vale esos megas: la variante ligera fallarÃ­a justo el dÃ­a que la
+  # red no va, que es cuando mÃ¡s hace falta.
   #
-  # La decisión se **declara** en `android/gradle.properties`
+  # La decisiÃ³n se **declara** en `android/gradle.properties`
   # (`dev.steenbakker.mobile_scanner.useUnbundled=false`) en vez de confiar en el
-  # valor por defecto del paquete. Aquí sólo queda el registro de *por qué*.
+  # valor por defecto del paquete. AquÃ­ sÃ³lo queda el registro de *por quÃ©*.
   mobile_scanner: ^7.4.2
   web_socket_channel: ^3.0.1
   crypto: ^3.0.3
-  # API del navegador (DOM) para elegir archivos y abrir descargas — M5, Capa 7.
-  # Ya venía resuelta como transitiva de Flutter (1.1.1 en pubspec.lock), así que
+  # API del navegador (DOM) para elegir archivos y abrir descargas â€” M5, Capa 7.
+  # Ya venÃ­a resuelta como transitiva de Flutter (1.1.1 en pubspec.lock), asÃ­ que
   # declararla no descarga nada; sin declararla, importarla da
   # `depend_on_referenced_packages`. Es la alternativa vigente a `dart:html`,
-  # que está deprecado y activaría `avoid_web_libraries_in_flutter`.
+  # que estÃ¡ deprecado y activarÃ­a `avoid_web_libraries_in_flutter`.
   web: ^1.1.0
-  # Memoria de la preferencia de tema (Bloque D). Mismo caso que `web`: ya venía
-  # resuelta como transitiva (2.5.5 en pubspec.lock) y su versión ya está en el
-  # `package_config.json`, así que declararla no descarga nada nuevo.
+  # Memoria de la preferencia de tema (Bloque D). Mismo caso que `web`: ya venÃ­a
+  # resuelta como transitiva (2.5.5 en pubspec.lock) y su versiÃ³n ya estÃ¡ en el
+  # `package_config.json`, asÃ­ que declararla no descarga nada nuevo.
   #
-  # La declaración **no es cosmética**: sin ella, importarla da
-  # `depend_on_referenced_packages`, y ese aviso ya se había tapado tres veces
+  # La declaraciÃ³n **no es cosmÃ©tica**: sin ella, importarla da
+  # `depend_on_referenced_packages`, y ese aviso ya se habÃ­a tapado tres veces
   # con un `// ignore: depend_on_referenced_packages` en
   # `test/deep_link_activacion_test.dart`, `test/phase1_onboarding_test.dart` y
   # `test/widget_test.dart`. Al declararla, los tres `ignore` se retiran: dejaron

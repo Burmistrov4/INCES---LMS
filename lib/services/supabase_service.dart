@@ -266,16 +266,20 @@ class SupabaseService implements AuthGateway, AspiranteGateway, ModulesGateway {
     if (id == null) return null;
 
     // D14: la ficha ya no guarda el NOMBRE del programa, así que se trae por la
-    // relación incrustada. Es la única ruta que pide `programs(name)` porque es la
-    // única que pinta el nombre —el panel del aspirante—; las demás devuelven el
-    // modelo con `programaNombre` nulo, y quien lo pinte debe tener respaldo.
+    // relación incrustada. La proyección es explícita y contiene exactamente los
+    // campos que `AspiranteModel` consume, incluida `datos_planilla`: una columna
+    // nueva en `aspirantes` no debe aumentar silenciosamente el payload de cada
+    // apertura del dashboard.
+    // `programs(name)` es la única relación incrustada porque es la única que pinta
+    // el nombre —las demás devuelven el modelo con `programaNombre` nulo, y quien
+    // lo pinte debe tener respaldo.
     //
     // Se comprobó contra la API real que PostgREST resuelve el embed por
     // `aspirantes_program_id_fkey` (un embed inventado devuelve 400 PGRST200, así
     // que el 200 no es un falso positivo).
     final respuesta = await client
         .from(_tablaAspirantes)
-        .select('*, programs(name)')
+        .select('id, user_id, nombres, apellidos, cedula, fecha_nac, sexo, telefono, email, direccion, nivel_educativo, program_id, mision_ribaras, discapacidad, tipo_discapacidad, numero_identidad_tutor, nombre_tutor, parentesco_tutor, telefono_tutor, correo_tutor, requires_legal_tutor, datos_planilla, created_at, updated_at, programs(name)')
         .eq('user_id', id)
         .maybeSingle();
 

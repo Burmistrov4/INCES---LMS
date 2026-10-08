@@ -84,7 +84,7 @@ class _LibroCalificacionesPanelState extends State<LibroCalificacionesPanel> {
     setState(() => _ocupadas.add(fila.estudianteId));
 
     final resultado = await Result.guard(
-      () => widget.gateway.calificar(fila.estudianteId, nota),
+      () => widget.gateway.calificar(fila.entregaId, nota),
     );
     if (!mounted) {
       _ocupadas.remove(fila.estudianteId);
@@ -107,7 +107,7 @@ class _LibroCalificacionesPanelState extends State<LibroCalificacionesPanel> {
     setState(() => _ocupadas.add(fila.estudianteId));
 
     final resultado = await Result.guard(
-      () => widget.gateway.devolver(fila.estudianteId),
+      () => widget.gateway.devolver(fila.entregaId),
     );
     if (!mounted) {
       _ocupadas.remove(fila.estudianteId);

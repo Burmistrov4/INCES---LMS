@@ -331,6 +331,7 @@ class Entrega {
 /// fallo silencioso que la RPC existe para evitar.
 class LibroEntrega {
   const LibroEntrega({
+    required this.entregaId,
     required this.estudianteId,
     required this.estado,
     required this.esTardia,
@@ -339,6 +340,9 @@ class LibroEntrega {
     this.notaAsignada,
     this.devueltaEn,
   });
+
+  /// ID de `m6_entregas`; es el identificador que exigen las RPC de calificar/devolver.
+  final String entregaId;
 
   final String estudianteId;
   final EstadoEntrega estado;
@@ -372,9 +376,10 @@ class LibroEntrega {
   /// obligatorios. Un `as bool` a secas haría que la respuesta de `calificar`
   /// reventara al parsear.
   ///
-  /// `id` y `entregadaEn` vienen del libro de calificaciones y no se leen: la UI
-  /// del docente todavía no los pinta.
+  /// `id` es el ID real de la entrega y se conserva porque las acciones del docente
+  /// (`calificar`/`devolver`) operan sobre esa fila de `m6_entregas`.
   factory LibroEntrega.fromJson(Map<String, dynamic> json) => LibroEntrega(
+        entregaId: json['id'] as String,
         estudianteId: json['estudianteId'] as String,
         estado: EstadoEntrega.desde(json['estado'] as String?),
         esTardia: json['esTardia'] as bool? ?? false,

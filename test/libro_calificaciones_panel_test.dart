@@ -16,6 +16,7 @@ LibroEntrega _fila({
   bool faltante = false,
 }) =>
     LibroEntrega(
+      entregaId: id,
       estudianteId: id,
       estado: estado,
       esTardia: esTardia,

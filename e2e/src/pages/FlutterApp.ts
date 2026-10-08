@@ -276,6 +276,61 @@ export class FlutterApp {
    * texto —«Trabajo de Clase» aparece dentro de la tarjeta del panel—, y
    * entonces la comprobación falla y el gesto cae al camino que no conmuta.
    */
+  /**
+   * Pulsa **por coordenadas reales**, buscando el nodo por rol en `nodos()`.
+   *
+   * Es el gesto que sí dispara el `TapGestureRecognizer` de Flutter, y existe
+   * porque `dispatchEvent('click')` **no siempre lo hace**. Medido el
+   * 2026-10-03, sobre el botón «Nueva tarea» del panel de trabajo del docente:
+   *
+   *   · el control es `rol="button"`, y `controles()` y `etiqueta()` lo
+   *     encuentran los dos — no es un problema de localizador;
+   *   · con `dispatchEvent` → **el modal NO monta** (`Crear y publicar` no
+   *     aparece, 15 s de espera);
+   *   · con `mouse.click` en el centro del nodo → **el modal SÍ monta**.
+   *
+   * Mismo control, mismo estado, **sólo cambia el gesto**: es un diferencial
+   * controlado, no una correlación.
+   *
+   * **No sustituye a `pulsar`.** `pulsar` conserva el despachado porque está
+   * medido que funciona en entradas de menú, y de eso viven `export_csv` y
+   * `stepper_inscripcion`. Este método se usa **donde se abre un modal**, que es
+   * donde el despachado está medido que falla. El radio de explosión se acota a
+   * quien lo llama a propósito.
+   *
+   * [rol] permite exigir un rol concreto; sin él se acepta cualquier nodo con
+   * rol pulsable cuya etiqueta contenga el texto.
+   */
+  async pulsarReal(
+    texto: string,
+    opciones: OpcionesDeTexto & { rol?: string } = {},
+  ): Promise<void> {
+    const aguja = opciones.ignorarMayusculas ? texto.toLowerCase() : texto;
+    const coincide = (e: string): boolean =>
+      opciones.ignorarMayusculas ? e.toLowerCase().includes(aguja) : e.includes(aguja);
+
+    const PULSABLES = ['button', 'link', 'tab', 'menuitem'];
+    const nodos = await this.nodos();
+    const objetivo = nodos.find(
+      (n) =>
+        coincide(n.etiqueta) &&
+        (opciones.rol !== undefined ? n.rol === opciones.rol : PULSABLES.includes(n.rol)),
+    );
+
+    if (!objetivo) {
+      throw new Error(
+        `No hay ningún nodo pulsable que contenga «${texto}»` +
+          (opciones.rol ? ` con rol «${opciones.rol}»` : '') +
+          `.\n${await this.volcarSemantica()}`,
+      );
+    }
+
+    await this.page.mouse.click(
+      objetivo.x + objetivo.ancho / 2,
+      objetivo.y + objetivo.alto / 2,
+    );
+  }
+
   async pulsarPestana(rotulo: string, opciones: OpcionesDeTexto = {}): Promise<void> {
     const aguja = opciones.ignorarMayusculas ? rotulo.toLowerCase() : rotulo;
     const coincide = (e: string): boolean =>
@@ -295,6 +350,26 @@ export class FlutterApp {
       );
     }
 
+    // **NO SE SABE si `bringToFront()` hace falta. No lo afirma este comentario.**
+    //
+    // Aquí vivieron dos afirmaciones y **las dos eran falsas**:
+    //
+    //   1. «La segunda página roba el viewport» — una explicación causal que el
+    //      bisect nunca respaldó, porque **el bisect ya lo incluía**.
+    //   2. «Es necesario, medido por aislamiento» — escrita el 2026-10-03 a
+    //      partir de **la mitad del experimento**: quitar `bringToFront` hizo
+    //      fallar el caso siguiente en dos corridas (19,4 s y 19,5 s), y
+    //      restaurarlo **también** lo hizo fallar (3/4 en las dos). Un
+    //      experimento cuyo control no pasa no aísla nada.
+    //
+    // Se conserva tal cual para **no introducir otra variable** mientras se
+    // estabiliza el instrumento de medición. Lo único medido de esta función es
+    // la geometría: `dispatchEvent` → **0** etiquetas nuevas, la caja del
+    // `flt-semantics` del DOM → **0**, el centro que publica `nodos()` → **3**.
+    //
+    // Si alguien vuelve a mirar esto: **el A/B de `bringToFront` no se hace dentro
+    // de la suite completa.** Se hace con el caso aislado, y con control.
+    await this.page.bringToFront();
     await this.page.mouse.click(
       pestana.x + pestana.ancho / 2,
       pestana.y + pestana.alto / 2,

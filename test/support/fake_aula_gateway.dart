@@ -249,6 +249,7 @@ class FakeAulaGateway implements AulaGateway {
     return _mutarLibro(
       entregaId,
       (e) => LibroEntrega(
+        entregaId: e.entregaId,
         estudianteId: e.estudianteId,
         estado: e.estado,
         esTardia: e.esTardia,
@@ -268,6 +269,7 @@ class FakeAulaGateway implements AulaGateway {
     return _mutarLibro(
       entregaId,
       (e) => LibroEntrega(
+        entregaId: e.entregaId,
         estudianteId: e.estudianteId,
         // Devolver cierra el ciclo: la entrega pasa a DEVUELTA y la nota borrador
         // se copia a la asignada (es lo que el alumno por fin ve).
@@ -289,10 +291,11 @@ class FakeAulaGateway implements AulaGateway {
     String estudianteId,
     LibroEntrega Function(LibroEntrega) cambio,
   ) {
-    final indice = libro.indexWhere((e) => e.estudianteId == estudianteId);
+    final indice = libro.indexWhere((e) => e.entregaId == estudianteId);
     if (indice < 0) {
       return cambio(
         LibroEntrega(
+          entregaId: estudianteId,
           estudianteId: estudianteId,
           estado: EstadoEntrega.devuelta,
           esTardia: false,

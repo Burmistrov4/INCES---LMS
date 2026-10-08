@@ -1,46 +1,62 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="INCES LMS La Isabelica: sistema de gestión académica para aspirantes, aprendices, docentes y administradores del centro de formación.">
+  <meta name="keywords" content="INCES, LMS, La Isabelica, formación técnica, cursos, inscripción, aula virtual, gestión académica">
+  <meta name="author" content="INCES La Isabelica">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#0b5cab">
+  <link rel="canonical" href="https://inces-lms.pages.dev/">
 
-  <!-- iOS meta tags & icons -->
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="INCES LMS">
+  <meta property="og:title" content="INCES LMS — Gestión Académica">
+  <meta property="og:description" content="Plataforma académica del INCES La Isabelica para formación, inscripciones, aulas, asistencia y seguimiento del aprendizaje.">
+  <meta property="og:url" content="https://inces-lms.pages.dev/">
+  <meta property="og:locale" content="es_VE">
+
+  <!-- Twitter/X -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="INCES LMS — Gestión Académica">
+  <meta name="twitter:description" content="Plataforma académica del INCES La Isabelica.">
+
+  <!-- PWA / identidad -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="inces_lms_app">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="INCES LMS">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>inces_lms_app</title>
+  <title>INCES LMS — Gestión Académica | La Isabelica</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Datos estructurados: ayuda a los buscadores a interpretar la portada pública. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "EducationalOrganization",
+    "name": "INCES La Isabelica",
+    "url": "https://inces-lms.pages.dev/",
+    "description": "Sistema de gestión académica y formación técnica del INCES La Isabelica.",
+    "areaServed": "La Isabelica, Valencia, Carabobo, Venezuela"
+  }
+  </script>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <noscript>
+    <main>
+      <h1>INCES LMS — Sistema de Gestión Académica</h1>
+      <p>Plataforma del INCES La Isabelica para formación técnica, inscripciones, aulas virtuales, asistencia y seguimiento académico.</p>
+    </main>
+  </noscript>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

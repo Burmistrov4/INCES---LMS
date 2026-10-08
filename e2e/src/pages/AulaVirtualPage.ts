@@ -34,6 +34,43 @@ export const PESTANA_TABLON = 'Tablón';
 export const PESTANA_TRABAJO = 'Trabajo de Clase';
 
 /**
+ * Rótulos del ciclo de la tarea — **los tres están medidos**.
+ *
+ *   · `Nueva tarea` y `Calificar` — del volcado del panel de trabajo del
+ *     docente, 2026-10-02.
+ *   · `Listo` — del volcado del modal de éxito tras publicar, 2026-10-03. Es el
+ *     que cierra el modal; sin él, `Calificar` queda **detrás** y el caso
+ *     siguiente falla con «No hay ningún widget pulsable».
+ *
+ * Aquí vivieron cinco constantes **inferidas** —`BOTON_PUBLICAR`,
+ * `BOTON_CONFIRMAR`, `BOTON_CALIFICAR_CONFIRMAR`, `BOTON_DEVOLVER`,
+ * `CAMPO_NOTA`— y se retiraron el 2026-10-03. La razón queda escrita para que
+ * nadie las reintroduzca por comodidad: **una constante inferida con nombre de
+ * contrato se lee como un hecho.** `BOTON_CONFIRMAR` decía «Aceptar» y el botón
+ * real es «Crear y publicar»; quien leyera este archivo habría construido sobre
+ * una invención.
+ *
+ * Los que faltan se añaden cuando se midan, con su evidencia en el comentario.
+ */
+export const BOTON_NUEVA_TAREA = 'Nueva tarea'; // medido
+export const BOTON_CALIFICAR = 'Calificar'; // medido
+export const BOTON_CERRAR_MODAL = 'Listo'; // medido — cierra el modal de éxito tras publicar
+
+// **NO hay más constantes, y es deliberado.** Aquí vivieron `BOTON_PUBLICAR`,
+// `BOTON_CONFIRMAR`, `BOTON_CALIFICAR_CONFIRMAR`, `BOTON_DEVOLVER` y `CAMPO_NOTA`
+// como valores **inferidos**. Se retiraron el 2026-10-03 porque una constante
+// inferida con nombre de contrato **se lee como un hecho**: `BOTON_CONFIRMAR`
+// decía «Aceptar» y el botón real es «Crear y publicar», así que cualquiera que
+// leyera el archivo habría construido sobre una invención.
+//
+// Los que faltan se añaden **cuando se midan**, y su comentario dirá cómo:
+//   · `CAMPO_NOTA`, `BOTON_DEVOLVER`, `BOTON_CALIFICAR_CONFIRMAR` — requieren
+//     abrir una entrega concreta dentro del libro de calificaciones, y ese paso
+//     todavía no se ha medido. El libro abre con las 3 entregas ya generadas
+//     —lo confirma el modal al publicar— pero **no las lista en la vista de
+//     entrada**: hay un paso intermedio que aún no se conoce.
+
+/**
  * Comparación de texto del aula: subcadena e **insensible a mayúsculas**.
  *
  * El listado pinta «Soldadura por Arco [SEMILLA]» y el encabezado del aula
@@ -61,12 +98,26 @@ export class AulaVirtualPage {
    * mal —un fallo que apunta al menú cuando el problema es el orden de dos
    * líneas—.
    */
-  async irAMisAulas(): Promise<Response> {
+  async irAMisAulas(): Promise<Response | null> {
     const respuesta = this.page.waitForResponse((r) => r.url().includes(RUTA_LISTADO), {
       timeout: 30_000,
     });
     await this.app.pulsar('Mis aulas');
-    return respuesta;
+
+    try {
+      return await respuesta;
+    } catch (error) {
+      // Tras un login con la señal «Mis aulas», Flutter puede dejar la pantalla
+      // ya montada y no emitir otra petición al pulsar el elemento que ya está
+      // seleccionado. En ese caso no hay una respuesta nueva que esperar; la
+      // prueba de navegación real ocurre inmediatamente después en abrirAula,
+      // que exige que la tarjeta de la sección exista y no sólo que el menú diga
+      // «Mis aulas». No ocultamos otros fallos: si no hay ningún rastro del panel,
+      // se vuelve a lanzar el timeout original.
+      const panelMontado = (await this.cuantos('Mis aulas')) > 0;
+      if (panelMontado) return null;
+      throw error;
+    }
   }
 
   /**
@@ -136,9 +187,58 @@ export class AulaVirtualPage {
       .toBeGreaterThan(0);
   }
 
-  /** Cambia de pestaña dentro del aula. */
-  async abrirPestana(rotulo: string): Promise<void> {
+  /**
+   * Cambia de pestaña y **espera a que el cambio ocurra de verdad**.
+   *
+   * [esperarPor] es un rótulo que **sólo existe en la vista destino**. Es
+   * obligatorio y no tiene valor por defecto a propósito: sin él, la única forma
+   * de saber que la pestaña conmutó sería comparar la firma del árbol, y **eso se
+   * satisface con ruido de repintado** —un nodo que se re-renderiza cambia la
+   * firma sin que la pestaña se haya movido—. Medido el 2026-10-02: la misma
+   * conmutación pasó por firma en una corrida y falló en la siguiente.
+   *
+   * Un nodo exclusivo no admite esa ambigüedad: `Nueva tarea` no puede aparecer
+   * sin que el panel de trabajo esté montado.
+   */
+  async abrirPestana(rotulo: string, esperarPor: string): Promise<void> {
     await this.app.pulsarPestana(rotulo, OPCIONES);
+    await expect
+      .poll(async () => await this.cuantos(esperarPor), {
+        timeout: 20_000,
+        message:
+          `la pestaña «${rotulo}» no conmutó: «${esperarPor}» no apareció.\n` +
+          (await this.app.diagnostico()),
+      })
+      .toBeGreaterThan(0);
+
+    // **Y después, esperar a que la pantalla TERMINE de montar.**
+    //
+    // Medido el 2026-10-05: el rótulo exclusivo aparece pronto —el árbol va por
+    // ~39 nodos— pero la pantalla completa tiene **56**. Pulsar en ese hueco hace
+    // que el modal no monte: con 56 nodos monta con los dos gestos, con 39 no
+    // monta con ninguno. **El fallo no era el gesto, era pulsar sobre una
+    // pantalla a medio pintar.**
+    //
+    // La condición es «el árbol deja de crecer», no «aparece un nodo»: un nodo
+    // puede aparecer antes de que el resto esté listo, y ése fue el error que
+    // convirtió esto en intermitente. Dos muestras consecutivas con el mismo
+    // número de nodos significan que el montaje terminó.
+    await expect
+      .poll(
+        async () => {
+          const a = (await this.app.nodos()).length;
+          const b = (await this.app.nodos()).length;
+          return a === b ? a : -1;
+        },
+        {
+          timeout: 20_000,
+          intervals: [200, 200, 300, 300, 400],
+          message:
+            `el árbol del aula no se estabilizó tras «${rotulo}».\n` +
+            (await this.app.diagnostico()),
+        },
+      )
+      .toBeGreaterThan(0);
   }
 
   /** Cuántos nodos del árbol contienen [texto]. Sirve para aserciones de estado. */
@@ -167,4 +267,5 @@ export class AulaVirtualPage {
   async diagnostico(): Promise<string> {
     return this.app.diagnostico();
   }
+
 }
