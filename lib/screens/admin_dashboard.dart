@@ -8,6 +8,7 @@ import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
 import '../widgets/modulos_del_menu.dart';
+import 'admin/admin_resumen_panel.dart';
 import 'admin/cpanel_auditoria_accesos_panel.dart';
 import 'admin/cpanel_auditoria_panel.dart';
 import 'admin/cpanel_modulos_panel.dart';
@@ -77,6 +78,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   /// a lo que se entra—, y después lo planificado. Al revés, tres de cada cuatro
   /// clics caerían en una sección que no existe.
   static const List<ItemNavegacion> _items = [
+    ItemNavegacion(
+      icono: Icons.dashboard_customize_outlined,
+      titulo: 'Centro de Mando',
+      categoria: 'Administración del sistema',
+      modulo: 'm0_cpanel',
+    ),
     ItemNavegacion(
       icono: Icons.tune_outlined,
       titulo: 'Módulos del Sistema',
@@ -298,6 +305,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
 
     switch (item.titulo) {
+      case 'Centro de Mando':
+        return ContenidoSeccion(
+          migas: const ['Inicio', 'Administración del sistema', 'Centro de Mando'],
+          child: SingleChildScrollView(
+            child: AdminResumenPanel(
+              repositorioModulos: _modulosRepo,
+              onNavegarA: _navegarA,
+            ),
+          ),
+        );
       case 'Módulos del Sistema':
         return ContenidoSeccion(
           migas: const ['Inicio', 'Administración del sistema', 'Módulos'],
