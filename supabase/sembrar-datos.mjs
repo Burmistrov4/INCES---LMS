@@ -215,7 +215,7 @@ const SEMILLA = {
   // es lo que la persona elige al inscribirse.
   cursoLibre: {
     code: `${PREFIJO}SOL-CL`,
-    name: 'Soldadura Básica [SEMILLA]',
+    name: 'Soldadura Básica',
     type: 'CURSO_LIBRE',
     requires_internship: false,
   },
