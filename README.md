@@ -199,3 +199,21 @@ curl -s localhost:3001/openapi.json | jq   # el mismo documento, en vivo
 **La regla que ordena las carpetas:** el dominio no conoce ni HTTP ni Supabase. Depende
 de *puertos* (interfaces) y la infraestructura los implementa. Por eso las reglas se
 prueban sin montar nada, y por eso se puede cambiar de proveedor sin tocar la lógica.
+
+---
+## Protocolo para agentes autónomos
+
+Para continuar el proyecto sin depender del historial conversacional, leer primero:
+
+1. ESTADO_DEL_SISTEMA.md
+2. PLAN_MAESTRO.md
+3. PLAN_CIERRE_100_FUNCIONAL_2026.md
+4. docs/AI_AGENT_OPERATING_PROTOCOL.md
+5. docs/AI_AGENT_AUTONOMY_AND_ENVIRONMENT_RECOVERY.md
+6. AUTONOMOUS_AGENT_MASTER_PROMPT.md
+
+El último documento establece la misión de cierre; el contrato de autonomía define cómo recuperarse ante limitaciones de herramientas y cómo continuar sin supervisión.
+
+### Entrada rápida para un agente nuevo
+
+La puerta de entrada autónoma es **AGENT_START_HERE.md**. Desde allí se define el orden de lectura, la verificación inicial, los únicos bloqueadores humanos y la secuencia de continuidad.

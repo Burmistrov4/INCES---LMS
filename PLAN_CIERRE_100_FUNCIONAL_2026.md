@@ -233,6 +233,18 @@ Validar especialmente:
 - doble marcación;
 - refresh conserva estado.
 
+### Evidencia E2E real — 2026-10-08
+- **C1–C10 del ciclo de tarea: 7/7 PASS, 0 FAIL**, Playwright + Chromium, 1 worker, contra Supabase real y backend Fastify real.
+- C1: docente entra y abre Trabajo de Clase.
+- C2: docente crea y publica tarea; API real `201` + publicar `200`.
+- C5: alumno abre exactamente la tarea creada.
+- C6: alumno entrega; `POST /entregas/{id}/entregar` → `200`.
+- C7: docente abre libro de calificaciones; `GET /tareas/{id}/entregas` → `200`.
+- C8: docente califica y devuelve; `POST /entregas/{id}/calificar` → `200` y `POST /entregas/{id}/devolver` → `200`.
+- C9/C10: alumno ve la entrega devuelta y **18 pts**.
+- Corrección funcional aplicada: `LibroEntrega` conserva el `id` real de `m6_entregas` como `entregaId`; las acciones `calificar/devolver` ya no usan `estudianteId` como identificador de entrega.
+- El bundle E2E se recompiló con `.env.json` mediante `--dart-define-from-file`, evitando un falso fallo de arranque por `String.fromEnvironment()`.
+
 ## F7 — E2E ADMINISTRADOR
 
 Login → dashboard → usuarios → invitaciones → roles → programas → materias → pensum → secciones → horarios → inscripciones → cola → planillas → archivos → módulos → parámetros → auditoría.
@@ -964,3 +976,173 @@ Resultado:
 Importante: el `npm test -- --run` de todo el backend había mostrado anteriormente un fallo ajeno a esta integración en una prueba de OpenAPI/operación `/api/v1/sistema-modulos`. No se utilizó ese fallo para degradar los criterios de F2; la batería específica de planilla quedó completamente verde y el fallo general debe tratarse como incidencia independiente.
 
 No se hizo commit ni push de estos cambios todavía.
+
+## EVIDENCIA ADICIONAL — 2026-10-08
+
+### F3 — Invitaciones docentes / seguridad del flujo
+
+- supabase/humo-invitaciones.mjs --confirmar ejecutado contra Supabase y Fastify reales.
+- 19/19 comprobaciones PASS, 0 fallos, exit 0.
+- Se verificaron JWT reales, RLS, creación de invitación, token de un solo uso, hash persistido, activación, rol DOCENTE, nombres/apellidos, rechazo de reutilización y purga sin residuo.
+- correoEnviado=false sigue siendo correcto mientras Resend no permita la entrega al destinatario de prueba; esto NO se considera evidencia de correo entregado.
+
+### F4 — Cloudflare R2 / archivos
+
+- supabase/humo-archivos.mjs --confirmar ejecutado contra R2 real + Supabase real + Fastify real.
+- 52/52 comprobaciones PASS, 0 fallos, exit 0.
+- Se verificaron firma de subida, PUT real, Content-Type firmado, confirmación mediante HeadObject, descarga byte-a-byte, aislamiento A/B, RLS, borrado admin, idempotencia y límite m5_max_bytes.
+- El parámetro temporal de prueba se restauró a 10 MiB y la purga terminó con perfiles=0, trazas=0, archivos=0.
+- Queda registrada una divergencia de contrato: DELETE de archivo ajeno devuelve 403 ARCHIVO_AJENO, mientras GET devuelve 404 para no filtrar existencia. No se cambia sin decisión explícita de producto porque la política actual está implementada deliberadamente en la RPC.
+
+### F5/F6 — Aula Virtual / E2E real
+
+- Suite específica aula_virtual_ciclo.spec.ts: 7/7 PASS, 0 FAIL, 1.8 min, contra Supabase + Fastify reales.
+- El primer barrido combinado de 21 pruebas tuvo una flaqueza C7 al reabrir Mis aulas y terminó 20 PASS / 1 FAIL; se aisló como condición del Page Object cuando la pantalla ya estaba montada y no emitía una nueva petición de mi-horario.
+- Se hizo un ajuste mínimo en e2e/src/pages/AulaVirtualPage.ts: irAMisAulas() acepta la pantalla ya montada sólo si el panel está presente; abrirAula() sigue exigiendo la tarjeta real de la sección. Tras el ajuste, el ciclo completo C1/C2/C5/C6/C7/C8/C9-C10 volvió a quedar 7/7 verde.
+- Backend npm run verify: 31 archivos / 658 tests PASS, typecheck + lint + Vitest, exit 0.
+
+### Credenciales E2E
+
+- Las credenciales E2E requeridas ya existen en e2e/.env.e2e para admin, docente y alumno; no fue necesario crear nuevas cuentas persistentes.
+- Los humos que necesitaban identidades temporales las crearon automáticamente con contraseña efímera y las purgaron al terminar, evitando contaminar la nube.
+
+### Bloqueo externo restante
+
+- Resend sigue siendo el único bloqueo externo de F1: la clave configurada localmente está presente, pero el proveedor la rechaza (HTTP 401 según la evidencia previa del bloque F1). No es técnicamente posible fabricar desde el proyecto una API key válida de Resend: debe emitirse/rotarse en la cuenta de Resend.
+- No se marcará F1 VERDE hasta comprobar recepción real de recovery/invitación en un buzón.
+
+
+### F10/F11 — Resiliencia y producción — comprobación 2026-10-08
+
+- Frontend de producción https://inces-lms.pages.dev/ respondió HTTP 200.
+- API de producción https://inces-lms-api.onrender.com/salud respondió HTTP 200 en una segunda comprobación; la primera solicitud superó el timeout de 20 s, compatible con cold start de Render, y una repetición inmediata respondió en 1.32 s.
+- CORS de producción verificado con Origin https://inces-lms.pages.dev: HTTP 204 y Access-Control-Allow-Origin exacto para Pages.
+- Esto confirma el comportamiento esperado de cold start, pero F11 todavía no puede marcarse VERDE porque recuperación/correo, R2 desde UI, certificados y otros flujos de producción siguen pendientes.
+
+### DECISIÓN DE SECUENCIA — 2026-10-08
+
+Por decisión de producto, **F1 (recuperación de contraseña/correo transaccional) queda DEFERIDA**. No se bloquea el cierre del resto del sistema por Resend. La arquitectura de correo debe mantenerse desacoplada del proveedor para poder sustituir Resend posteriormente sin tocar Flutter ni la lógica académica.
+
+#### Estado de verificación Flutter tras corrección de entregaId
+
+- Batería focalizada: **84 tests PASS, 0 FAIL**, 29.55 s.
+- Incluyó libro de calificaciones, aula de producción, servicio de aula, dashboard del Aula Virtual, Mis Aulas y asistencia.
+- Se corrigieron los fixtures de LibroEntrega para conservar entregaId.
+- Esto es suficiente para continuar; no se esperará a una suite Flutter completa que no aporte cobertura proporcional.
+
+#### Inicio de etapa de rendimiento
+
+- Build release generado correctamente en build/web-final con .env.json.
+- Artefactos: 21 archivos, ~36.1 MiB en disco.
+- Se identificó que una parte importante del peso corresponde a los artefactos de CanvasKit/WASM que Flutter Web empaqueta; se evaluará optimización de renderer/carga antes de tocar funcionalidad.
+- Producción Pages: HTTP 200; descarga HTML inicial medida en ~0.385 s desde la máquina de trabajo.
+- La API Render responde correctamente tras cold start; CORS de Pages ya verificado.
+
+### NUEVA SECUENCIA DE EJECUCIÓN
+
+1. **F1 correo/password recovery:** diferida; proveedor reemplazable después.
+2. **Performance:** baseline, payload, consultas, cargas iniciales, caché, lazy loading y rutas calientes.
+3. **Responsive:** 375 / 768 / 1024 / 1280 / 1440 px.
+4. **Rediseño UI/UX global:** navegación, dashboard, estados, accesibilidad y consistencia.
+5. **3D/animaciones:** sólo donde aporten experiencia sin degradar rendimiento.
+6. **Android:** adaptación final, build, permisos, deep links, almacenamiento y pruebas en dispositivo/emulador.
+
+**Regla:** ningún cambio visual podrá reintroducir regresiones funcionales; cada bloque debe terminar con pruebas y evidencia antes de pasar al siguiente.
+
+## EVIDENCIA DE PERFORMANCE — 2026-10-08
+
+### P-00 Baseline del bundle
+
+- Build release: build/web-final.
+- 39 archivos; aproximadamente 41.43 MiB en disco.
+- WASM: 27.50 MiB.
+- symbols: 8.18 MiB.
+- JavaScript: 4.01 MiB.
+- main.dart.js: 3.57 MiB sin compresión.
+- Producción entrega los artefactos principales con Brotli.
+
+### P-01 Caché de estáticos — ABIERTO
+
+HEAD real de producción mostró Cache-Control: public, max-age=0, must-revalidate para main.dart.js, CanvasKit JS/WASM y flutter_bootstrap.js. Esto obliga al navegador a revalidar los recursos en cada visita.
+
+Se añadió web/_headers con una política conservadora: HTML/bootstrap 5 min, main.dart.js 1 h y estáticos pesados 7 días. **No se marca como cerrada hasta reconstruir, desplegar y comprobar HEAD real en Pages.**
+
+### P-02 Consultas — ABIERTO
+
+La auditoría estática no detectó FutureBuilder excesivos ni polling automático en las rutas principales revisadas. Sí encontró lecturas amplias en lib/services/supabase_service.dart, especialmente AspiranteGateway.todos() sin límite y miFicha() con select amplio + relación.
+
+No se cambia todavía el contrato: el siguiente paso es identificar consumidores, medir filas/payload y decidir si corresponde paginación y columnas mínimas.
+
+### Decisión de renderer
+
+CanvasKit/WASM sigue siendo el renderer vigente. No se cambia hasta una prueba A/B con tiempos de arranque, primer contenido útil, errores de consola, C1 del Aula Virtual, interacción de pestañas y tamaño comprimido.
+
+### Regla de transición
+
+Performance permanece **EN CURSO**. Responsive no comienza hasta cerrar baseline, caché verificable, consultas calientes y al menos una mejora cuantificable sin regresión funcional.
+
+### P-01.1 — Preparación de despliegue de caché
+
+Se verificó que Flutter build web no copia web/_headers al output. Por ello se creó devops/preparar-cloudflare-pages.mjs para copiar el archivo después de compilar. Se probó correctamente sobre build/web-final-perf.
+
+Producción sigue sin el cambio porque todavía no se ha ejecutado un despliegue de Pages con la nueva política. P-01 permanece ABIERTO.
+
+### Verificación post-cambio — 2026-10-08
+
+- Build release con .env.json: PASS, build/web-final-perf, 116.2 s.
+- Batería Flutter focalizada: **84/84 PASS**, 27.75 s, exit 0.
+- El primer intento de test falló por la ausencia de la variable de entorno PROGRAMFILES(X86); se reprodujo inmediatamente con esa variable definida sólo para el proceso y las 84 pruebas quedaron verdes.
+- El build informó Wasm dry-run PASS. Se conserva CanvasKit como renderer mientras no exista A/B funcional/performance.
+## EVIDENCIA P-02 — 2026-10-08
+
+Se completó la medición autenticada de consultas calientes y se cerró P-02 como intervención estructural de payload.
+
+Resultado clave: AspiranteGateway.todos() no tiene consumidores en lib/, por lo que no se introduce paginación/refactor sin necesidad. SupabaseService.miFicha() dejó de usar select(*) y ahora proyecta explícitamente todos los campos que consume AspiranteModel, incluida la planilla y la relación programs(name).
+
+La medición actual conserva 1,348 B de payload para la ficha; por honestidad, no se declara reducción de bytes. El beneficio es impedir que columnas futuras aumenten el payload sin revisión.
+
+Regresión focalizada: 85/85 PASS, 76.25 s.
+
+**Siguiente:** cargas reales por rol y rutas Mis Aulas/Aula Virtual/Inscripciones/cPanel. P-01 continúa abierto hasta despliegue real y verificación HEAD.
+
+
+---
+
+## ACTUALIZACIÓN DE AUTONOMÍA AI — 2026-10-08
+
+Se endureció el contrato de operación para que un agente futuro pueda ejecutar el proyecto de forma autónoma hasta el cierre, sin depender de la conversación previa.
+
+### Documentos de control
+
+- `docs/AI_AGENT_OPERATING_PROTOCOL.md`: contrato operativo ampliado.
+- `AUTONOMOUS_AGENT_MASTER_PROMPT.md`: PROMPT MAESTRO v2 para ejecución autónoma.
+
+### Regla de continuidad
+
+Cerrar un hito **no termina la sesión**. El agente debe recalcular el estado, seleccionar el siguiente discriminador y continuar.
+
+### Únicos bloqueadores humanos
+
+Sólo:
+1. **H1** — credencial externa que únicamente el usuario puede proporcionar.
+2. **H2** — autorización irreversible.
+3. **H3** — decisión de producto genuinamente ambigua.
+4. **H4** — infraestructura externa que exige login interactivo.
+
+Cualquier otro problema debe ser investigado y resuelto por el agente.
+
+### E2E autónomo
+
+El agente puede crear credenciales temporales, datos sintéticos, fixtures y cuentas de prueba mediante mecanismos legítimos del proyecto. Nunca debe imprimir secretos, saltarse seguridad ni utilizar credenciales personales.
+
+### Handover
+
+Si aparece H1/H2/H3/H4, el agente debe completar todo lo independiente y generar `docs/BLOQUEADORES_HUMANOS_<fecha>.md`.
+
+El cierre global debe generar `docs/CIERRE_FINAL_<fecha>.md`.
+
+### Estado de esta actualización
+
+No cambia la secuencia técnica actual:
+**Performance en curso; P-02 cerrado; P-01 abierto; Responsive aún no iniciar.**
+

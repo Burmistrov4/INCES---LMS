@@ -7,6 +7,22 @@
 > **Fecha:** 2026-10-02 · **Autor del levantamiento:** sesión de trabajo sobre el
 > repositorio `github.com/Burmistrov4/INCES---LMS` (rama `main`, `a76116b`).
 
+## ESTADO DE EJECUCIÓN VIGENTE — 2026-10-08
+
+**Fase activa: PERFORMANCE.** F1 (correo/password recovery con Resend) está DEFERIDA por decisión de producto. El orden vigente es: Performance → Responsive (375/768/1024/1280/1440) → UI/UX global → 3D/animaciones con presupuesto de rendimiento → Android → regresión/auditoría final.
+
+**Evidencia de cierre funcional reciente:** Aula Virtual real 7/7 PASS; batería Flutter focalizada 84/84 PASS; backend verify 658/658 PASS; invitaciones 19/19 PASS; R2 52/52 PASS; F2 Planilla VERDE/CERRADA. Producción Pages HTTP 200, API Render HTTP 200 después de cold start y CORS correcto.
+
+**Performance ya medido:** build/web-final ≈41.43 MiB en 39 archivos; 27.50 MiB son WASM, 8.18 MiB symbols y 4.01 MiB JS. main.dart.js ≈3.57 MiB sin compresión. Producción sirve Brotli, pero sus estáticos estaban con Cache-Control: public, max-age=0, must-revalidate.
+
+**Acción actual:** se añadió web/_headers para cachear HTML/bootstrap durante 5 min, main.dart.js 1 h y artefactos estáticos 7 días. **P-01 no está cerrado** hasta reconstruir, desplegar y verificar HEAD real. El renderer Flutter Web no se cambia todavía.
+
+**Siguiente discriminador:** medir AspiranteRepository.obtenerTodos() / SupabaseService.todos() y su payload real; sólo después decidir paginación/columnas mínimas. No modificar contratos por intuición.
+
+**Handover obligatorio:** MEMORY.md y docs/AUDITORIA_RENDIMIENTO_2026-10-08.md son la memoria operativa de esta fase. No borrar probes/documentos sin clasificarlos primero.
+
+---
+
 ---
 
 ## 0. Contexto y objetivo
@@ -430,3 +446,53 @@ CI da rojo **es peor que no tenerlo**.
 | `e2e/src/pages/AulaVirtualPage.ts` | Page Object del aula (M6) |
 | `ESTADO_DEL_SISTEMA.md` | **Documento vivo del estado.** Gana el código; §13 cubre el E2E |
 | `HANDOVER.md` | Registro histórico, **inmutable hacia atrás** |
+
+## ACTUALIZACIÓN DE EJECUCIÓN — 2026-10-08 (P-02)
+
+P-02 de Performance queda **VERIFICADO LOCAL/CERRADO**: se midieron consultas Supabase reales y se sustituyó select(*) de SupabaseService.miFicha() por una proyección explícita de los campos consumidos por AspiranteModel, incluida datos_planilla y programs(name). No se declara reducción de bytes en el dataset actual: la ficha sigue en 1,348 B; el beneficio es evitar crecimiento silencioso futuro.
+
+Regresión focalizada posterior: **85/85 PASS — 76.25 s**.
+
+El repositorio conserva deliberadamente su estado sin commit/push nuevo. No se realizó limpieza agresiva de cambios históricos ni artefactos no rastreados. Los tres probes temporales de esta sesión fueron eliminados.
+
+Para continuidad de agentes AI, el contrato operativo está ahora en **MEMORY.md**, **docs/AI_AGENT_OPERATING_PROTOCOL.md** y **AUTONOMOUS_AGENT_MASTER_PROMPT.md**. Estos documentos son obligatorios para retomar el trabajo con contexto limitado.
+
+**Fase sigue siendo PERFORMANCE.** Próximo discriminador: medir cargas reales por rol y las rutas Mis Aulas, Aula Virtual, Inscripciones/catálogo y cPanel. P-01 de caché sigue abierto hasta despliegue real en Cloudflare Pages y verificación HEAD.
+
+
+---
+
+## CONTRATO DE EJECUCIÓN AUTÓNOMA AI — 2026-10-08
+
+Se establece como política de ejecución del proyecto que los agentes AI con acceso autorizado al repositorio deben trabajar de forma continua hasta cerrar todos los hitos aplicables.
+
+Documentos normativos:
+- `docs/AI_AGENT_OPERATING_PROTOCOL.md`
+- `AUTONOMOUS_AGENT_MASTER_PROMPT.md`
+
+La autonomía permite:
+- inspección;
+- implementación;
+- pruebas;
+- creación de datos/credenciales E2E temporales legítimas;
+- corrección de bugs;
+- optimización;
+- despliegue cuando exista autorización/credencial disponible;
+- documentación;
+- regresión;
+- continuación automática al siguiente hito.
+
+La autonomía NO permite:
+- saltarse MFA/CAPTCHA;
+- desactivar RLS;
+- exponer secretos;
+- destruir datos reales sin autorización;
+- realizar acciones irreversibles sin autorización;
+- inventar credenciales de terceros;
+- afirmar evidencia que no existe.
+
+Únicamente H1/H2/H3/H4 pueden requerir intervención humana, según el protocolo.
+
+El objetivo del plan sigue siendo el cierre total:
+**Performance → Cloudflare → Responsive → UI/UX → Animaciones/3D → Android → Regresión → Producción → Documentación final.**
+

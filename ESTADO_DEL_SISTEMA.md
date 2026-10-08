@@ -2953,6 +2953,43 @@ las tres son decisiones de producto:
 | **B · Publica la sembrada y re-siembra al terminar** | Estado limpio; **el E2E no puede re-sembrar** (necesita service-role) |
 | **C · `afterAll` que devuelve la tarea a `BORRADOR`** | Repetible; mutación compensatoria, prohibida por el protocolo |
 
+### 13.7 Login con cédula: RPC `security definer` (`d63d3b6`)
+
+**Estado: migración escrita y aplicada en el validador; pendiente de aplicar a la nube.**
+
+`202610020001_rpc_email_por_cedula.sql` añade `email_por_cedula(text) returns text`:
+entra una cédula, sale **un correo** o `null`. No devuelve filas, no expone el
+padrón, y `anon` gana `EXECUTE` sobre ella y nada más.
+
+**El riesgo aceptado, escrito aquí para que no se descubra dentro de un año:**
+esto convierte la función en un **oráculo de existencia** —un anónimo puede
+comprobar si una cédula está registrada—. Aprobado a cambio de un login
+coherente. Lo que **no** se hizo: conceder `SELECT` sobre `aspirantes` a `anon`,
+ni crear una política `anon` en `profiles`. Cualquiera de las dos habría abierto
+cédulas, nombres, domicilios y teléfonos para resolver una consulta que sólo
+necesita un correo.
+
+Detalles que no son cosmética:
+
+* **Normalización por dígitos en ambos lados.** El formulario escribe
+  `V-12345678` y el sembrado `12345678`; sin normalizar, el login falla la mitad
+  de las veces y el fallo se ve como «credenciales inválidas», que apunta a la
+  contraseña en vez de al formato.
+* **`REVOKE ALL FROM PUBLIC` antes del `GRANT`.** En PostgreSQL toda función nace
+  ejecutable por `PUBLIC`; conceder sin revocar antes deja el permiso abierto a
+  cualquier rol futuro.
+* **Autocomprobación de cuatro aserciones** al aplicar: `anon` puede,
+  `authenticated` puede, `PUBLIC` **no** puede, y es `security definer`. Un
+  `GRANT` mal puesto **no da error** —concede de más o de menos en silencio—, así
+  que una migración de permisos que no se comprueba a sí misma no es fiable.
+
+**Falta el cambio de cliente**: `lib/services/supabase_service.dart`,
+`emailPorCedula`, pasa de `from('profiles').select('email').eq('cedula', …)` a
+`rpc('email_por_cedula', params: {'p_cedula': cedula})`. El diff está en el
+comentario final de la migración.
+
+Verificado: `Supabase CI` **530 aserciones, 0 fallidas**.
+
 ### 13.6 Deudas conocidas que la suite destapó
 
 * **El login con cédula está muerto por construcción.** `profiles.cedula` está
@@ -2969,3 +3006,27 @@ las tres son decisiones de producto:
   arriba hasta donde llega. Tras cualquier limpieza fallida hay que **volver a
   sembrar**, no dar por hecho que no cambió nada.
 
+
+---
+## ACTUALIZACIÓN DE AUTONOMÍA Y RECUPERACIÓN DE ENTORNO — 2026-10-08
+
+Se añadió el contrato operativo:
+docs/AI_AGENT_AUTONOMY_AND_ENVIRONMENT_RECOVERY.md
+
+Su objetivo es que cualquier agente pueda continuar sin reconstruir la conversación previa.
+
+La política establece:
+- cero espera ante ausencia del propietario;
+- sólo H1/H2/H3/H4 como intervención humana;
+- recuperación por cambio de instrumento y descenso de capa;
+- ingeniería inversa del sistema propio cuando sea necesaria;
+- sustituciones técnicas reversibles;
+- pruebas que deben demostrar su propia precondición;
+- anti-bucle;
+- handoff estructurado;
+- continuidad automática después de cada hito.
+
+La ingeniería inversa NO se utiliza para evadir autenticación, autorización, RLS, MFA, CAPTCHA o controles de seguridad.
+
+Estado técnico que sigue mandando:
+P-02 CERRADO · P-01 ABIERTO · Performance EN CURSO · Responsive aún no iniciar.
