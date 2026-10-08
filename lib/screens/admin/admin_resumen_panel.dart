@@ -35,7 +35,6 @@ class _AdminResumenPanelState extends State<AdminResumenPanel> {
 
   bool _cargando = true;
   List<SystemModule> _modulos = const [];
-  String? _error;
 
   @override
   void initState() {
@@ -46,7 +45,6 @@ class _AdminResumenPanelState extends State<AdminResumenPanel> {
   Future<void> _cargar() async {
     setState(() {
       _cargando = true;
-      _error = null;
     });
 
     final resultado = await _repo.obtenerModulos();
@@ -57,8 +55,8 @@ class _AdminResumenPanelState extends State<AdminResumenPanel> {
       switch (resultado) {
         case Success(value: final lista):
           _modulos = lista;
-        case Failure(error: final fallo):
-          _error = fallo.message;
+        case Failure():
+          _modulos = const [];
       }
     });
   }
