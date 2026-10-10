@@ -1,0 +1,105 @@
+# Compila el bundle de Flutter Web **para producción** y lo publica como
+# artefacto, listo para `wrangler pages deploy`.
+#
+# POR QUÉ EXISTE
+# --------------
+# 1. `flutter build web` **no arranca** en el equipo de desarrollo de Windows: el
+#    CLI muere al lanzar el subproceso de `dart2js` (`ERROR_PIPE_BUSY`,
+#    `CreateFile failed 231`; medido el 2026-10-10 en cinco intentos seguidos).
+#    El `build/web` local se queda congelado en la última vez que alguien pudo
+#    compilarlo, y publicar ese bundle es publicar código que ya no existe.
+#
+# 2. `e2e.yml` **sí** compila, pero con `API_BASE_URL=http://127.0.0.1:3001` —el
+#    backend del runner—, y `docs/PROCEDIMIENTO_DESPLIEGUE_PRODUCCION.md` prohíbe
+#    publicar un bundle que apunte a una API local. Este flujo compila el MISMO
+#    código con la API real, que es lo único que cambia.
+#
+# 3. Las credenciales de Supabase ya existen como secretos del repositorio (los
+#    usa la CI de E2E). **No se añade ningún secreto nuevo.**
+#
+# La validación del artefacto es la del procedimiento (§5.1): los tres archivos
+# presentes, la API de producción dentro del bundle y `localhost` ausente. Se
+# hace aquí, antes de publicar el artefacto, para que nadie descargue un bundle
+# que no pasaría el control.
+
+name: Web bundle de producción
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  API_PRODUCCION: https://inces-lms-api.onrender.com
+
+jobs:
+  bundle:
+    name: Compilar y validar el bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Traer el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Flutter 3.47.0
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.0
+          channel: stable
+          cache: true
+
+      - name: Resolver dependencias
+        run: flutter pub get
+
+      # `.env.json` está en .gitignore y no puede estar en el repositorio, pero
+      # Flutter resuelve `String.fromEnvironment()` **al compilar**: sin esto la
+      # app se construye con la URL de Supabase vacía y falla al iniciar sesión
+      # con un error que no menciona la causa.
+      - name: Escribir .env.json desde los secretos
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error title=Faltan secretos::El bundle de producción necesita SUPABASE_URL y SUPABASE_ANON_KEY en Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          cat > .env.json <<JSON
+          {
+            "_comentario": "Generado por .github/workflows/web_bundle.yml. No se edita a mano.",
+            "SUPABASE_URL": "${SUPABASE_URL}",
+            "SUPABASE_ANON_KEY": "${SUPABASE_ANON_KEY}",
+            "API_BASE_URL": "${API_PRODUCCION}"
+          }
+          JSON
+
+      - name: Compilar para producción
+        run: |
+          flutter build web --release --no-wasm-dry-run \
+            --dart-define-from-file=.env.json \
+            --dart-define=API_BASE_URL="$API_PRODUCCION"
+
+      # El override `--dart-define` prevalece sobre `.env.json`: es lo que hace
+      # que este flujo no dependa de que el archivo generado traiga la URL buena.
+      - name: Validar el artefacto (procedimiento §5.1)
+        run: |
+          test -f build/web/index.html   || { echo "::error::Falta build/web/index.html"; exit 1; }
+          test -f build/web/main.dart.js || { echo "::error::Falta build/web/main.dart.js"; exit 1; }
+          test -f build/web/_headers     || { echo "::error::Falta build/web/_headers"; exit 1; }
+          grep -q "$API_PRODUCCION" build/web/main.dart.js \
+            || { echo "::error::El bundle no contiene la API de producción"; exit 1; }
+          if grep -q "localhost:3001" build/web/main.dart.js; then
+            echo "::error::El bundle contiene una API local; se cancela la publicación"
+            exit 1
+          fi
+          ls -la build/web/index.html build/web/main.dart.js build/web/_headers
+
+      - name: Publicar el bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-produccion
+          path: build/web
+          retention-days: 7
+          if-no-files-found: error
