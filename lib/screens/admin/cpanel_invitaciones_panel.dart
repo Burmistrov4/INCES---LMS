@@ -176,12 +176,22 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
     // oscuro. Medido el 2026-09-30.
     final parError = PaletaInces.de(context).etiquetaDe(TonoEstado.error);
 
-    // Raíz desplazable, igual que los paneles de módulos y parámetros:
-    // `ContenidoSeccion` entrega una altura acotada y este panel crece con su
-    // contenido —aviso, formulario y, cuando el correo no sale, la tarjeta del
-    // enlace—, así que en una ventana baja el final quedaría recortado.
-    return ListView(
-      padding: EdgeInsets.zero,
+    // Raíz que **crece con su contenido**, no un `ListView`.
+    //
+    // Este panel no vive en `ContenidoSeccion` sino dentro de
+    // `ExpansionTile.children` (`cpanel_usuarios_roles_panel.dart`), que es una
+    // `Column` de altura NO acotada. Un `ListView` con `shrinkWrap: false` ahí
+    // lanza «Vertical viewport was given unbounded height» al desplegar el
+    // acordeón; en `--release` eso se pinta como un recuadro gris y el usuario
+    // sólo ve que «Invitar docente» no hace nada.
+    //
+    // Es el mismo contrato que `ContenidoSeccion` documenta para un panel que
+    // crece con su contenido. El scroll lo pone el `ListView` de Usuarios y
+    // Roles, que es el padre real — igual que en `_SeccionGrupo`, cuyos hijos de
+    // `ExpansionTile` tampoco son desplazables.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
         TituloSeccion(
           'Invitación de docentes',
