@@ -22,12 +22,10 @@ import 'package:inces_lms_app/widgets/andamiaje.dart';
 /// la lección que el propio `ContenidoSeccion` dejó escrita: «el layout se
 /// prueba montando el panel donde vive».
 void main() {
-  Future<void> montar(
-    WidgetTester tester,
-    Widget hijo, [
-    Size tamano = const Size(1280, 2400),
-  ]) async {
-    tester.view.physicalSize = tamano;
+  Future<void> montar(WidgetTester tester, Widget hijo) async {
+    // Ventana ancha y alta a propósito: el acordeón vive dentro de una lista y
+    // hay que llegar hasta él.
+    tester.view.physicalSize = const Size(1280, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -87,30 +85,9 @@ void main() {
     },
   );
 
-  // TEMPORAL: imprime qué `RenderFlex` desborda a 375 px dentro de esta sección.
-  // Se retira en cuanto se conozca el widget culpable.
-  testWidgets('DIAGNOSTICO · desborde a 375 px', (tester) async {
-    final capturados = <FlutterErrorDetails>[];
-    final previo = FlutterError.onError;
-    FlutterError.onError = capturados.add;
-    addTearDown(() => FlutterError.onError = previo);
-
-    await montar(
-      tester,
-      CpanelUsuariosRolesPanel(repo: _RepoUsuariosVacio()),
-      const Size(375, 2400),
-    );
-
-    debugPrint('DIAG>>> capturados=${capturados.length}');
-    for (final d in capturados) {
-      final e = d.exception;
-      debugPrint(
-        'DIAG>>> ${e is FlutterError ? e.toStringDeep() : e.toString()}',
-      );
-    }
-
-    await tester.pumpWidget(const SizedBox());
-  });
+  // El barrido responsive (`barrido_responsive_test.dart`) ya cubre este panel a
+  // 375, 768, 1024, 1280 y 1440 px. Aquí no se duplica: este archivo existe para
+  // el contrato de layout del acordeón, no para el barrido de anchos.
 }
 
 /// Doble de [UsuariosAdminRepository] con un listado vacío.
