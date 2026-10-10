@@ -82,11 +82,23 @@ function consultaFalsa(
   respuesta: RespuestaFalsa,
   alEscribir: (metodo: string) => void,
   alFiltrar: (metodo: string, valor: string) => void,
+  alFiltrarCampo: (metodo: string, columna: string, valor: unknown) => void = () => {},
 ) {
   const builder: Record<string, unknown> = {};
 
-  for (const metodo of ['select', 'eq', 'in', 'order', 'limit', 'range']) {
+  for (const metodo of ['select', 'order', 'limit', 'range']) {
     builder[metodo] = () => builder;
+  }
+
+  // `eq` e `in` se registran ADEMÁS de devolver el builder. Son los filtros que
+  // el recuento y la página tienen que compartir para que el total corresponda
+  // a las filas, y hasta ahora no había forma de observarlos. Se guardan en un
+  // registro aparte para no alterar la prueba que ya cuenta llamadas a `.or(...)`.
+  for (const metodo of ['eq', 'in']) {
+    builder[metodo] = (columna: string, valor: unknown) => {
+      alFiltrarCampo(metodo, columna, valor);
+      return builder;
+    };
   }
 
   for (const metodo of ['insert', 'update']) {
@@ -116,10 +128,19 @@ function consultaFalsa(
 function montarCliente(comportamiento: {
   rpc?: (funcion: string, argumentos: Record<string, unknown>) => RespuestaFalsa;
   tablas?: Record<string, RespuestaFalsa>;
+  /**
+   * Respuestas por llamada sucesiva a `from(tabla)`. Permite que el recuento y
+   * la página —que ahora van en paralelo— reciban respuestas distintas: es lo
+   * único que permite reproducir el 416 de PostgREST sin red.
+   */
+  secuencias?: Record<string, RespuestaFalsa[]>;
 }) {
   const rpcLlamadas: { funcion: string; argumentos: Record<string, unknown> }[] = [];
   const escriturasDirectas: string[] = [];
   const filtros: { metodo: string; valor: string; tabla: string }[] = [];
+  /** Una entrada por `from(tabla)`, con los filtros `eq`/`in` que recibió. */
+  const consultas: { tabla: string; filtros: string[] }[] = [];
+  const usos = new Map<string, number>();
 
   const cliente = {
     rpc: async (funcion: string, argumentos: Record<string, unknown>) => {
@@ -127,7 +148,19 @@ function montarCliente(comportamiento: {
       return comportamiento.rpc?.(funcion, argumentos) ?? { data: null, error: null };
     },
     from: (tabla: string) => {
-      const respuesta = comportamiento.tablas?.[tabla] ?? { data: [], error: null };
+      const secuencia = comportamiento.secuencias?.[tabla];
+      let respuesta: RespuestaFalsa;
+      if (secuencia) {
+        const i = usos.get(tabla) ?? 0;
+        respuesta = secuencia[Math.min(i, secuencia.length - 1)]!;
+        usos.set(tabla, i + 1);
+      } else {
+        respuesta = comportamiento.tablas?.[tabla] ?? { data: [], error: null };
+      }
+
+      const registro = { tabla, filtros: [] as string[] };
+      consultas.push(registro);
+
       return consultaFalsa(
         respuesta,
         (metodo) => {
@@ -136,11 +169,14 @@ function montarCliente(comportamiento: {
         (metodo, valor) => {
           filtros.push({ metodo, valor, tabla });
         },
+        (metodo, columna, valor) => {
+          registro.filtros.push(`${metodo}:${columna}=${JSON.stringify(valor)}`);
+        },
       );
     },
   } as unknown as SupabaseClient;
 
-  return { cliente, rpcLlamadas, escriturasDirectas, filtros };
+  return { cliente, rpcLlamadas, escriturasDirectas, filtros, consultas };
 }
 
 /**
@@ -246,13 +282,17 @@ describe('la búsqueda se escapa para PostgREST', () => {
       desplazamiento: 0,
     });
 
-    expect(filtros).toHaveLength(1);
-    expect(filtros[0]).toMatchObject({
-      metodo: 'or',
-      tabla: 'programs',
-      valor: 'code.ilike."o,o",name.ilike."o,o"',
-    });
-    expect(filtros[0]?.valor.startsWith('(')).toBe(false);
+    // El listado y el recuento se ejecutan en paralelo; ambos deben aplicar
+    // exactamente el mismo filtro para que el total corresponda a las filas.
+    expect(filtros).toHaveLength(2);
+    for (const filtro of filtros) {
+      expect(filtro).toMatchObject({
+        metodo: 'or',
+        tabla: 'programs',
+        valor: 'code.ilike."o,o",name.ilike."o,o"',
+      });
+      expect(filtro.valor.startsWith('(')).toBe(false);
+    }
   });
 
   it('una comilla doble dentro del texto se neutraliza duplicándola', async () => {
@@ -267,6 +307,101 @@ describe('la búsqueda se escapa para PostgREST', () => {
     });
 
     expect(filtros[0]?.valor).toBe('code.ilike."o""brien",name.ilike."o""brien"');
+  });
+});
+
+describe('contrato del listado paginado', () => {
+  it('el recuento y la página aplican LOS MISMOS filtros', async () => {
+    // Es la invariante de la que depende que «1 a 25 de N» sea verdad: si el
+    // recuento filtrara distinto que la página, el total no correspondería a las
+    // filas. Desde que ambos van en paralelo, además, hay que comprobar que
+    // siguen construyéndose con los mismos `eq`/`or`.
+    const { cliente, consultas } = montarCliente({
+      tablas: { programs: { data: [], error: null, count: 0 } },
+    });
+
+    await crearRepositorios(cliente).curriculo.listarProgramas({
+      tipo: 'CARRERA',
+      activo: true,
+      busqueda: 'sis',
+      limite: 25,
+      desplazamiento: 0,
+    });
+
+    const deProgramas = consultas.filter((c) => c.tabla === 'programs');
+    expect(deProgramas).toHaveLength(2);
+    // Mismos filtros en las dos consultas, en el mismo orden.
+    expect(deProgramas[0]!.filtros).toEqual(deProgramas[1]!.filtros);
+    expect(deProgramas[0]!.filtros).toEqual([
+      'eq:type="CARRERA"',
+      'eq:is_active=true',
+    ]);
+  });
+
+  it('un desplazamiento más allá del total devuelve página vacía con el total, no un error', async () => {
+    const { cliente } = montarCliente({
+      tablas: { programs: { data: null, error: null, count: 3 } },
+    });
+
+    const pagina = await crearRepositorios(cliente).curriculo.listarProgramas({
+      limite: 25,
+      desplazamiento: 100,
+    });
+
+    expect(pagina.programas).toEqual([]);
+    expect(pagina.total).toBe(3);
+  });
+
+  it('si la página responde 416 con el desplazamiento DENTRO del total, degrada a página vacía', async () => {
+    // La carrera real: el recuento ve 3 filas y, antes de que llegue la página,
+    // alguien borra filas y el rango queda fuera. PostgREST responde 416
+    // («Requested range not satisfiable»). El contrato es página vacía con el
+    // total —nunca un 500—, y es la rama que quedó como ÚNICA guarda cuando el
+    // recuento dejó de pedirse por adelantado para poder paralelizarlo.
+    //
+    // `desplazamiento: 2` es menor que el total (3), así que NO lo atrapa la
+    // guarda de desplazamiento: tiene que atraparlo el reconocimiento del 416.
+    const { cliente } = montarCliente({
+      secuencias: {
+        programs: [
+          { data: null, error: null, count: 3 }, // recuento
+          {
+            data: null,
+            error: { status: 416, message: 'Requested range not satisfiable' },
+          }, // página
+          { data: null, error: null, count: 3 }, // recuento de respaldo
+        ],
+      },
+    });
+
+    const pagina = await crearRepositorios(cliente).curriculo.listarProgramas({
+      limite: 25,
+      desplazamiento: 2,
+    });
+
+    expect(pagina.programas).toEqual([]);
+    expect(pagina.total).toBe(3);
+  });
+
+  it('control negativo: un error de página que NO es 416 sí se propaga', async () => {
+    // Sin esto, la prueba de arriba no demostraría que el 416 se reconoce: podría
+    // pasar porque el repositorio se traga CUALQUIER error de la página. Aquí un
+    // fallo distinto tiene que seguir saliendo.
+    const { cliente } = montarCliente({
+      secuencias: {
+        programs: [
+          { data: null, error: null, count: 3 },
+          { data: null, error: { code: 'XX000', message: 'fallo interno del motor' } },
+        ],
+      },
+    });
+
+    await expect(
+      crearRepositorios(cliente).curriculo.listarProgramas({
+        limite: 25,
+        desplazamiento: 0,
+      }),
+    ).rejects.toThrow();
   });
 });
 

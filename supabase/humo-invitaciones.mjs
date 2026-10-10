@@ -90,6 +90,27 @@ async function pedir(ruta, { metodo = 'GET', cuerpo, clave, token, extra = {} } 
   return { estado: r.status, datos };
 }
 
+/**
+ * Petición a Fastify (la API propia). **Sólo declara `Content-Type: application/
+ * json` si hay cuerpo**, igual que `ApiClient.post` del cliente Dart: un POST sin
+ * cuerpo con esa cabecera dispara en Fastify `FST_ERR_CTP_EMPTY_JSON_BODY` y la
+ * app lo traduce a 400. Imitar al cliente real evita medir un fallo inexistente.
+ */
+async function apiFastify(ruta, { metodo = 'GET', cuerpo, token } = {}) {
+  const cabeceras = {};
+  if (cuerpo !== undefined) cabeceras['Content-Type'] = 'application/json';
+  if (token) cabeceras.Authorization = `Bearer ${token}`;
+  const r = await fetch(`${API}${ruta}`, {
+    method: metodo,
+    headers: cabeceras,
+    body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
+  });
+  const texto = await r.text();
+  let datos = null;
+  try { datos = texto.length > 0 ? JSON.parse(texto) : null; } catch { datos = texto; }
+  return { estado: r.status, datos };
+}
+
 if (!URL_BASE || !CLAVE_SERVICIO || !CLAVE_ANON) {
   console.error('\n  Faltan SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY o SUPABASE_ANON_KEY.');
   console.error('  Están en backend/.env; este script los lee de ahí si no vienen del entorno.\n');
@@ -103,6 +124,7 @@ const CLAVE = `Humo!${randomBytes(12).toString('base64url')}`;
 
 let idAdmin = null;
 let idDocente = null;
+let idDocenteRenovado = null;
 
 console.log(`\n  Proyecto : ${URL_BASE}`);
 console.log(`  Backend  : ${API}`);
@@ -117,6 +139,7 @@ if (!CONFIRMAR) {
 
 /** Purga todo lo que cree este script. Se ejecuta siempre, también al fallar. */
 async function purgar() {
+  if (idDocenteRenovado) await pedir(`/auth/v1/admin/users/${idDocenteRenovado}`, { metodo: 'DELETE' });
   if (idDocente) await pedir(`/auth/v1/admin/users/${idDocente}`, { metodo: 'DELETE' });
   if (idAdmin) await pedir(`/auth/v1/admin/users/${idAdmin}`, { metodo: 'DELETE' });
   // Por prefijo, no por valor exacto: una corrida anterior puede dejar residuo.
@@ -256,6 +279,101 @@ try {
       const filas = Array.isArray(comoDocente.datos) ? comoDocente.datos.length : -1;
       comprobar('un docente NO ve invitaciones (RLS por is_admin)', filas === 0, `filas=${filas}`);
     }
+
+    // --- 5. Ciclo de vida: revocar y renovar ------------------------------
+    // Lo que la prueba de arriba NO cubre: que una invitación anulada (por
+    // revocación directa o por renovación) deje de activar cuentas, y que el
+    // panel vea el estado coherente con lo que decide el endpoint de activación.
+    console.log('\n  5. Ciclo de vida: revocar y renovar\n');
+
+    const CORREO_REVOCADA = `humo-rev-${marca}@ejemplo.invalid`;
+    const CORREO_RENOVADA = `humo-ren-${marca}@ejemplo.invalid`;
+
+    /** Busca en el listado del panel la invitación de un correo. */
+    const enListado = async (correo) => {
+      const lista = await apiFastify('/api/v1/admin/usuarios/invitaciones?limite=200', { token: tokenAdmin });
+      const filas = lista.datos?.invitaciones ?? [];
+      return { estado: lista.estado, fila: filas.find((i) => i.email === correo) ?? null };
+    };
+    const tokenDe = (respuesta) => {
+      const enlace = respuesta.datos?.enlaceActivacion ?? '';
+      return enlace.includes('token=') ? enlace.split('token=')[1] : '';
+    };
+
+    // --- 5a. Revocar una invitación sin usar -------------------------------
+    const creadaRev = await apiFastify('/api/v1/admin/usuarios/invitaciones', {
+      metodo: 'POST', token: tokenAdmin,
+      cuerpo: { email: CORREO_REVOCADA, nombres: 'Rev', apellidos: 'Ocada' },
+    });
+    const tokenRev = tokenDe(creadaRev);
+    comprobar('crear una invitación para revocar', tokenRev.length > 0, `estado=${creadaRev.estado}`);
+
+    const listadoRev = await enListado(CORREO_REVOCADA);
+    comprobar('el listado del panel la muestra como «valida»', listadoRev.fila?.estado === 'valida', JSON.stringify(listadoRev.fila));
+    comprobar(
+      'el listado NO expone el hash del token',
+      listadoRev.fila !== null && !('tokenHash' in listadoRev.fila) && !('token_hash' in listadoRev.fila),
+      JSON.stringify(Object.keys(listadoRev.fila ?? {})),
+    );
+
+    const idRev = listadoRev.fila?.id;
+    const revocada = await apiFastify(`/api/v1/admin/usuarios/invitaciones/${idRev}/revocar`, {
+      metodo: 'POST', token: tokenAdmin,
+    });
+    comprobar('POST .../revocar responde 2xx', revocada.estado < 300, `estado=${revocada.estado}`);
+
+    const listadoRev2 = await enListado(CORREO_REVOCADA);
+    comprobar('tras revocar, el estado del panel pasa a «revocada»', listadoRev2.fila?.estado === 'revocada', String(listadoRev2.fila?.estado));
+
+    const activarRevocada = await apiFastify('/api/v1/auth/activar', {
+      metodo: 'POST', cuerpo: { token: tokenRev, password: CLAVE },
+    });
+    comprobar('un token revocado NO activa (403)', activarRevocada.estado === 403, `estado=${activarRevocada.estado}`);
+
+    const perfilesRev = await pedir(`/rest/v1/profiles?email=eq.${CORREO_REVOCADA}&select=id`);
+    comprobar('y NO creó ninguna cuenta', (perfilesRev.datos ?? []).length === 0, `perfiles=${(perfilesRev.datos ?? []).length}`);
+
+    const revocarOtraVez = await apiFastify(`/api/v1/admin/usuarios/invitaciones/${idRev}/revocar`, {
+      metodo: 'POST', token: tokenAdmin,
+    });
+    comprobar('revocar dos veces se rechaza (409, no idempotente silencioso)', revocarOtraVez.estado === 409, `estado=${revocarOtraVez.estado}`);
+
+    // --- 5b. Renovar: la vieja muere, la nueva activa ----------------------
+    const creadaRen = await apiFastify('/api/v1/admin/usuarios/invitaciones', {
+      metodo: 'POST', token: tokenAdmin,
+      cuerpo: { email: CORREO_RENOVADA, nombres: 'Ren', apellidos: 'Ovada' },
+    });
+    const tokenRenViejo = tokenDe(creadaRen);
+    const listadoRen = await enListado(CORREO_RENOVADA);
+    const idRen = listadoRen.fila?.id;
+
+    const renovada = await apiFastify(`/api/v1/admin/usuarios/invitaciones/${idRen}/renovar`, {
+      metodo: 'POST', token: tokenAdmin,
+    });
+    const tokenRenNuevo = tokenDe(renovada);
+    comprobar('POST .../renovar responde 2xx', renovada.estado < 300, `estado=${renovada.estado}`);
+    comprobar('renovar indica a quién reemplaza', renovada.datos?.reemplazaA === idRen, String(renovada.datos?.reemplazaA));
+
+    const listadoRen2 = await enListado(CORREO_RENOVADA);
+    // Tras renovar hay DOS filas para ese correo: la vieja (revocada) y la nueva
+    // (válida). Se busca la vieja por su id, no por correo: `find` devolvería la
+    // más reciente y mediría la fila equivocada.
+    const filaViejaRen = (await apiFastify('/api/v1/admin/usuarios/invitaciones?limite=200', { token: tokenAdmin }))
+      .datos?.invitaciones?.find((i) => i.id === idRen) ?? null;
+    comprobar('tras renovar, la invitación vieja queda «revocada»', filaViejaRen?.estado === 'revocada', String(filaViejaRen?.estado));
+    comprobar('y la nueva queda «valida»', listadoRen2.fila?.estado === 'valida', String(listadoRen2.fila?.estado));
+
+    const activarRenViejo = await apiFastify('/api/v1/auth/activar', {
+      metodo: 'POST', cuerpo: { token: tokenRenViejo, password: CLAVE },
+    });
+    comprobar('el token viejo tras renovar NO activa (403)', activarRenViejo.estado === 403, `estado=${activarRenViejo.estado}`);
+
+    const activarRenNuevo = await apiFastify('/api/v1/auth/activar', {
+      metodo: 'POST', cuerpo: { token: tokenRenNuevo, password: CLAVE },
+    });
+    comprobar('el token renovado SÍ activa (2xx)', activarRenNuevo.estado < 300, `estado=${activarRenNuevo.estado}`);
+    comprobar('y crea el docente con el rol correcto', activarRenNuevo.datos?.perfil?.rol === 'docente', String(activarRenNuevo.datos?.perfil?.rol));
+    idDocenteRenovado = activarRenNuevo.datos?.perfil?.id ?? null;
   }
 } catch (error) {
   fallos += 1;

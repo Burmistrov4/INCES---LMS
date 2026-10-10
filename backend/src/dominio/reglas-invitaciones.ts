@@ -11,15 +11,21 @@ import type { EstadoInvitacion, InvitacionDocente } from './tipos.js';
 /**
  * Decide si una invitación sigue usable.
  *
- * El orden importa: una invitación usada no "revive" aunque haya caducado;
- * por eso se comprueba `isUsed` antes que la fecha. Devuelve un valor y no lanza:
- * quien llama elige el código de error, porque el 409 (usada) y el 410 (caducada)
- * son distintos y el profesor debe saber cuál es su caso.
+ * **El orden importa y es una decisión de negocio:** revocada > usada >
+ * caducada > válida. Una invitación revocada **no revive** aunque después se
+ * marque usada o su fecha siga en el futuro; una usada sigue siendo usada aunque
+ * además haya caducado. Devuelve un valor y no lanza: quien llama elige el
+ * código de error, porque 409 (usada), 410 (caducada) y 403 (revocada) son
+ * distintos y el profesor debe saber cuál es su caso.
  */
 export function estadoDeInvitacion(
-  invitacion: Pick<InvitacionDocente, 'isUsed' | 'expiresAt'>,
+  invitacion: Pick<InvitacionDocente, 'isUsed' | 'expiresAt' | 'revokedAt'>,
   ahora: Date = new Date(),
 ): EstadoInvitacion {
+  if (invitacion.revokedAt !== null && invitacion.revokedAt !== undefined) {
+    return 'revocada';
+  }
+
   if (invitacion.isUsed) return 'usada';
 
   // `expires_at` es el instante en que deja de servir. Si ya pasó, caducada.

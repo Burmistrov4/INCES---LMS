@@ -29,6 +29,33 @@ export function extraerToken(cabecera: string | undefined): string | null {
 }
 
 /**
+ * Lee el `sub` del token **sin verificar la firma**.
+ *
+ * Existe sólo para poder empezar la lectura del perfil **en paralelo** con la
+ * verificación del token, que es la que manda. No autoriza nada por sí sola:
+ *
+ *   · el perfil se lee con el cliente del propio token, así que PostgREST
+ *     valida la firma y aplica RLS antes de devolver una fila;
+ *   · el resultado **sólo se usa si coincide con la identidad que devuelve la
+ *     verificación autoritativa**; si no coincide, se relee con el id verificado.
+ *
+ * Un `sub` inventado no abre ninguna puerta: la consulta que lo usa va firmada
+ * con el mismo token, y un token inválido muere en PostgREST.
+ */
+export function subDeclaradoDelToken(token: string): string | null {
+  const partes = token.split('.');
+  if (partes.length !== 3) return null;
+  try {
+    const carga = JSON.parse(Buffer.from(partes[1]!, 'base64url').toString('utf8')) as {
+      sub?: unknown;
+    };
+    return typeof carga.sub === 'string' && carga.sub.length > 0 ? carga.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resuelve la identidad de cada petición.
  *
  * Un token inválido o ausente NO es un error: deja `request.usuario` en `null` y
@@ -53,13 +80,47 @@ export function registrarAutenticacion(
       return;
     }
 
-    const identidad = await opciones.verificarToken(token);
+    // **Los dos viajes de red van en paralelo.** Verificar el token (GoTrue) y
+    // leer el perfil (PostgREST) eran secuenciales, y cada uno cuesta ~200 ms de
+    // ida y vuelta al proyecto: ~420 ms de coste fijo en CADA petición
+    // autenticada, antes de que el manejador haga nada. Medido el 2026-10-09:
+    // `GET /api/v1/yo` (que no consulta nada por su cuenta) tardaba 421 ms.
+    //
+    // La dependencia que los encadenaba era aparente: el perfil se lee por el
+    // `sub`, y el `sub` ya está en el token. Se lee sin verificar (ver
+    // `subDeclaradoDelToken`) y **el resultado sólo se acepta si coincide con la
+    // identidad verificada**; si no coincidiera, se relee con el id de confianza.
+    // Un token inválido sigue muriendo en la verificación.
+    const sub = subDeclaradoDelToken(token);
+    const [verificacion, lecturaPerfil] = await Promise.allSettled([
+      opciones.verificarToken(token),
+      sub === null ? Promise.resolve(null) : request.repos.perfiles.porId(sub),
+    ]);
+
+    // Un fallo de la verificación se propaga (500), como antes: un servicio de
+    // identidad caído no es «no tienes sesión». Sólo un resultado nulo —token
+    // inválido o expirado— deja la petición sin usuario.
+    if (verificacion.status === 'rejected') throw verificacion.reason;
+
+    const identidad = verificacion.value;
     if (!identidad) {
       request.usuario = null;
       return;
     }
 
-    const perfil = await request.repos.perfiles.porId(identidad.id);
+    // El token es válido, así que el perfil tiene que haberse podido leer. Si su
+    // lectura falló se propaga —igual que antes— en vez de degradar el rol en
+    // silencio, que convertiría un fallo transitorio de la base en un 403
+    // inexplicable para el usuario.
+    if (lecturaPerfil.status === 'rejected') throw lecturaPerfil.reason;
+
+    const perfil =
+      sub === identidad.id
+        ? lecturaPerfil.value
+        : // Defensivo y en la práctica inalcanzable: para un token válido, `sub`
+          // y el id verificado son el mismo. Si algún día no lo fueran, manda la
+          // verificación y se relee por el id de confianza.
+          await request.repos.perfiles.porId(identidad.id);
 
     // Sin perfil no se puede saber el rol. En vez de expulsar al usuario (lo que
     // dejaría fuera a cuentas creadas antes del trigger de onboarding), se asume

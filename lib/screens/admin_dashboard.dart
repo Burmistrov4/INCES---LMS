@@ -13,7 +13,7 @@ import 'admin/cpanel_auditoria_accesos_panel.dart';
 import 'admin/cpanel_auditoria_panel.dart';
 import 'admin/cpanel_modulos_panel.dart';
 import 'admin/cpanel_parametros_panel.dart';
-import 'admin/cpanel_invitaciones_panel.dart';
+import 'admin/cpanel_usuarios_roles_panel.dart';
 import 'admin/cpanel_programas_panel.dart';
 // Los cuatro paneles de M3, juntos: aulas y lapsos son **prerrequisitos** del
 // cuadrante, y guardias comparte su rejilla. Se importan los tres últimos
@@ -341,7 +341,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       case 'Usuarios y Roles':
         return const ContenidoSeccion(
           migas: ['Inicio', 'Administración del sistema', 'Usuarios y Roles'],
-          child: CpanelInvitacionesPanel(),
+          child: CpanelUsuariosRolesPanel(),
         );
       case 'Programas Académicos':
         return const ContenidoSeccion(

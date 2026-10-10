@@ -12,6 +12,7 @@ import '../repositories/inscripcion_repository.dart';
 import '../repositories/modulo_repository.dart';
 import '../services/auth_service.dart';
 import '../services/aula_service.dart';
+import '../services/planilla_pdf_service.dart';
 import '../theme/inces_theme.dart';
 import '../widgets/andamiaje.dart';
 import '../widgets/comunes.dart';
@@ -43,6 +44,7 @@ class AspiranteDashboardScreen extends StatefulWidget {
     this.aulaGateway,
     this.aulasPropias,
     this.modulos,
+    this.planillaService,
   });
 
   final AspiranteRepository? repositorio;
@@ -55,6 +57,10 @@ class AspiranteDashboardScreen extends StatefulWidget {
   /// lee por PostgREST. Ver `lib/widgets/modulos_del_menu.dart` para por qué esa
   /// lectura la puede hacer un aprendiz y no sólo un administrador.
   final ModuloRepository? modulos;
+
+  /// Servicio de descarga de la planilla propia. Se puede inyectar en pruebas;
+  /// en producción usa el backend autenticado y el selector del navegador.
+  final PlanillaPdfService? planillaService;
 
   /// La puerta del **contenido** del Aula Virtual (M6).
   ///
@@ -90,6 +96,8 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
   @override
   ModuloRepository get repositorioDeModulos => _modulosRepo;
   late final AuthService _auth = widget.auth ?? AuthService();
+  late final PlanillaPdfService _planillaService =
+      widget.planillaService ?? PlanillaPdfService();
   final InscripcionesRepository _inscripciones = InscripcionesRepository();
 
   /// El listado de aulas de «Mis aulas».
@@ -112,6 +120,7 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
   );
 
   bool _cargando = true;
+  bool _descargandoPlanilla = false;
   AspiranteModel? _aspirante;
   String? _error;
 
@@ -226,6 +235,38 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
           _error = fallo.message;
       }
     });
+  }
+
+  Future<void> _descargarPlanilla() async {
+    if (_descargandoPlanilla) return;
+    setState(() => _descargandoPlanilla = true);
+
+    final resultado = await _planillaService.descargarPlanillaPropia();
+    if (!mounted) return;
+    setState(() => _descargandoPlanilla = false);
+
+    switch (resultado) {
+      case PlanillaDescargada(:final nombreArchivo):
+        mostrarAviso(
+          context,
+          'Tu planilla oficial se descargó ($nombreArchivo). Ya puedes abrirla o imprimirla.',
+          exito: true,
+        );
+      case SinFichaDeAspirante():
+        mostrarAviso(
+          context,
+          'No encontramos una ficha de inscripción para generar la planilla.',
+          error: true,
+        );
+      case ConsultaFallida(:final mensaje):
+        mostrarAviso(context, mensaje, error: true);
+      case DescargaFallida():
+        mostrarAviso(
+          context,
+          'No pudimos entregar el PDF al navegador. Inténtalo de nuevo.',
+          error: true,
+        );
+    }
   }
 
   Future<void> _cerrarSesion() async {
@@ -567,6 +608,45 @@ class _AspiranteDashboardScreenState extends State<AspiranteDashboardScreen>
             ),
           ),
         ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const TituloSeccion('Planilla oficial de inscripción'),
+                const SizedBox(height: 6),
+                Text(
+                  'Descarga la planilla institucional con los datos de tu ficha, lista para revisar e imprimir.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const ValueKey('descargar-planilla-oficial'),
+                    onPressed: _descargandoPlanilla ? null : _descargarPlanilla,
+                    icon: _descargandoPlanilla
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: Text(
+                      _descargandoPlanilla
+                          ? 'Generando PDF…'
+                          : 'Descargar planilla oficial (PDF)',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -730,10 +810,7 @@ class _PanelOfertasState extends State<PanelOfertas> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    titulo,
-                    style: theme.textTheme.titleSmall,
-                  ),
+                  Text(titulo, style: theme.textTheme.titleSmall),
                   const SizedBox(height: 4),
                   Text(
                     [
@@ -799,11 +876,11 @@ class _PanelOfertasState extends State<PanelOfertas> {
 
 /// Etiqueta en español de un estado, para los avisos de acción.
 String _etiquetaEstado(EstadoInscripcion estado) => switch (estado) {
-      EstadoInscripcion.enrolled => 'Matriculado',
-      EstadoInscripcion.waitlisted => 'En lista de espera',
-      EstadoInscripcion.pendingBid => 'Oferta en el aire',
-      EstadoInscripcion.dropped => 'Renunciado',
-    };
+  EstadoInscripcion.enrolled => 'Matriculado',
+  EstadoInscripcion.waitlisted => 'En lista de espera',
+  EstadoInscripcion.pendingBid => 'Oferta en el aire',
+  EstadoInscripcion.dropped => 'Renunciado',
+};
 
 /// Fila de dato etiqueta/valor.
 class _FilaDato extends StatelessWidget {

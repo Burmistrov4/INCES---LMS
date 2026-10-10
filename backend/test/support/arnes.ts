@@ -16,6 +16,7 @@ import type {
   PuertaCurriculo,
   PuertaInscripciones,
   PuertaInvitacionesDocente,
+  PuertaRecuperacionPassword,
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
@@ -55,6 +56,7 @@ import type {
   EstadoArchivo,
   EstadoAnuncio,
   EstadoEntrega,
+  CodigoRecuperacion,
   EstadoInscripcion,
   EstadoTarea,
   Guardia,
@@ -1157,6 +1159,12 @@ export interface EstadoFalso {
   parametros: ParametroSistema[];
   auditoria: EntradaAuditoria[];
   invitaciones: InvitacionDocente[];
+  /** Códigos de recuperación emitidos (sólo su huella, como en la base). */
+  recuperaciones: CodigoRecuperacion[];
+  /** Contraseñas fijadas por el camino de recuperación: usuario y longitud. */
+  passwordsCambiadas: { userId: string; largo: number }[];
+  /** Usuarios a los que se les cerraron las sesiones. */
+  sesionesRevocadas: string[];
   acceso: EntradaAcceso[];
   correos: { para: string; asunto: string }[];
   programas: Programa[];
@@ -1576,6 +1584,9 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     parametros: opciones.parametros ?? [...PARAMETROS_POR_DEFECTO],
     auditoria: opciones.auditoria ?? [],
     invitaciones: [],
+    recuperaciones: [],
+    passwordsCambiadas: [],
+    sesionesRevocadas: [],
     acceso: opciones.acceso ?? [],
     correos: [],
     programas: opciones.programas ?? [...PROGRAMAS_POR_DEFECTO],
@@ -1756,8 +1767,13 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
   const invitaciones: PuertaInvitacionesDocente = {
     async crear(entrada) {
       revisar('invitaciones.crear');
+      // Id **con forma de UUID**, no `inv-1`: las rutas de revocar y renovar
+      // validan el parámetro con `z.string().uuid()` —igual que la base, que
+      // genera `gen_random_uuid()`—, y un id de fantasía haría fallar esas rutas
+      // con un 400 que parecería un problema del endpoint y no del doble.
+      const sufijo = String(estado.invitaciones.length + 1).padStart(12, '0');
       const invitacion: InvitacionDocente = {
-        id: `inv-${estado.invitaciones.length + 1}`,
+        id: `11111111-1111-4111-8111-${sufijo}`,
         email: entrada.email,
         nombres: entrada.nombres,
         apellidos: entrada.apellidos,
@@ -1765,6 +1781,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
         isUsed: false,
         createdAt: new Date().toISOString(),
         expiresAt: entrada.expiresAt,
+        revokedAt: null,
       };
       estado.invitaciones = [...estado.invitaciones, invitacion];
       return invitacion;
@@ -1773,11 +1790,45 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       revisar('invitaciones.porTokenHash');
       return estado.invitaciones.find((i) => i.tokenHash === tokenHash) ?? null;
     },
-    async marcarUsada(id) {
-      revisar('invitaciones.marcarUsada');
+    async porId(id) {
+      revisar('invitaciones.porId');
+      return estado.invitaciones.find((i) => i.id === id) ?? null;
+    },
+    /**
+     * Reclamo atómico. En el doble no hay concurrencia real —Node ejecuta el
+     * cuerpo hasta el primer `await`—, pero sí se comprueba lo que importa: que
+     * una invitación revocada o ya usada NO se pueda reclamar, que es la
+     * condición que el endpoint necesita para no crear dos cuentas.
+     */
+    async consumirSiValida(id) {
+      revisar('invitaciones.consumirSiValida');
+      const actual = estado.invitaciones.find((i) => i.id === id);
+      if (!actual || actual.isUsed || actual.revokedAt !== null) return false;
       estado.invitaciones = estado.invitaciones.map((i) =>
         i.id === id ? { ...i, isUsed: true } : i,
       );
+      return true;
+    },
+    async liberar(id) {
+      revisar('invitaciones.liberar');
+      estado.invitaciones = estado.invitaciones.map((i) =>
+        i.id === id && i.revokedAt === null ? { ...i, isUsed: false } : i,
+      );
+    },
+    async revocar(id, _porUsuarioId) {
+      revisar('invitaciones.revocar');
+      const actual = estado.invitaciones.find((i) => i.id === id);
+      if (!actual || actual.revokedAt !== null) return false;
+      estado.invitaciones = estado.invitaciones.map((i) =>
+        i.id === id ? { ...i, revokedAt: new Date().toISOString() } : i,
+      );
+      return true;
+    },
+    async listar(opciones) {
+      revisar('invitaciones.listar');
+      return [...estado.invitaciones]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, opciones.limite);
     },
     async crearUsuarioDocente(email, _password, nombres, apellidos) {
       revisar('invitaciones.crearUsuarioDocente');
@@ -1793,6 +1844,72 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
       };
       estado.perfiles = [...estado.perfiles, perfil];
       return id;
+    },
+  };
+
+  const recuperacion: PuertaRecuperacionPassword = {
+    async emitir(entrada) {
+      revisar('recuperacion.emitir');
+      // Igual que el repositorio real: emitir anula los códigos vivos del
+      // usuario, para que nunca haya dos válidos a la vez.
+      estado.recuperaciones = estado.recuperaciones.map((c) =>
+        c.userId === entrada.userId && c.usedAt === null && c.revokedAt === null
+          ? { ...c, revokedAt: new Date().toISOString() }
+          : c,
+      );
+      const codigo: CodigoRecuperacion = {
+        id: `rec-${estado.recuperaciones.length + 1}`,
+        userId: entrada.userId,
+        codeHash: entrada.codeHash,
+        createdBy: entrada.createdBy,
+        createdAt: new Date().toISOString(),
+        expiresAt: entrada.expiresAt,
+        usedAt: null,
+        revokedAt: null,
+      };
+      estado.recuperaciones = [...estado.recuperaciones, codigo];
+      return codigo;
+    },
+    async porCodeHash(codeHash) {
+      revisar('recuperacion.porCodeHash');
+      return estado.recuperaciones.find((c) => c.codeHash === codeHash) ?? null;
+    },
+    async consumirSiValido(id) {
+      revisar('recuperacion.consumirSiValido');
+      const actual = estado.recuperaciones.find((c) => c.id === id);
+      if (!actual || actual.usedAt !== null || actual.revokedAt !== null) return false;
+      estado.recuperaciones = estado.recuperaciones.map((c) =>
+        c.id === id ? { ...c, usedAt: new Date().toISOString() } : c,
+      );
+      return true;
+    },
+    async liberar(id) {
+      revisar('recuperacion.liberar');
+      estado.recuperaciones = estado.recuperaciones.map((c) =>
+        c.id === id && c.revokedAt === null ? { ...c, usedAt: null } : c,
+      );
+    },
+    async listarPorUsuario(userId, limite) {
+      revisar('recuperacion.listarPorUsuario');
+      return estado.recuperaciones.filter((c) => c.userId === userId).slice(0, limite);
+    },
+    /**
+     * El doble **no guarda la contraseña**, sólo su longitud: lo que hay que
+     * poder afirmar es «se llamó al proveedor con la contraseña nueva para este
+     * usuario», y guardar el secreto en memoria de prueba no aporta nada a esa
+     * afirmación. La prueba de que la contraseña *sirve* es el login real.
+     */
+    async cambiarPassword(userId, password) {
+      revisar('recuperacion.cambiarPassword');
+      estado.passwordsCambiadas = [
+        ...estado.passwordsCambiadas,
+        { userId, largo: password.length },
+      ];
+    },
+    async revocarSesiones(userId) {
+      revisar('recuperacion.revocarSesiones');
+      estado.sesionesRevocadas = [...estado.sesionesRevocadas, userId];
+      return 1;
     },
   };
 
@@ -3279,10 +3396,11 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
   /**
    * El id del llamante, leído de la última petición autenticada.
    *
-   * El doble no tiene sesión propia: `reposDePeticion` devuelve siempre el mismo
-   * objeto, así que el actor se resuelve desde `estado.usuarioActual`, que el
-   * arnés fija por petición. Es el precio de montar la API entera en memoria y es
-   * preferible a fingir un cliente de Supabase con JWT.
+   * El doble no tiene sesión propia: `reposDePeticion` devuelve siempre la misma
+   * vista (`reposDeUsuario`, ver el montaje del arnés), así que el actor se
+   * resuelve desde `estado.usuarioActual`, que el arnés fija por petición. Es el
+   * precio de montar la API entera en memoria y es preferible a fingir un cliente
+   * de Supabase con JWT.
    */
   function usuarioActual(): string {
     return estado.usuarioActual ?? ID_ALUMNO;
@@ -4361,6 +4479,7 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     parametros,
     auditoria,
     invitaciones,
+    recuperacion,
     acceso,
     curriculo,
     cuadrante,
@@ -4475,6 +4594,23 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     ...(opciones.identidades ?? {}),
   };
 
+  // Vista del repositorio atada al llamante. Idéntica a `repos` salvo en un
+  // punto: `password_resets` no acepta escrituras del cliente del usuario (en la
+  // base sólo tiene GRANT de SELECT y ninguna política de escritura). Si una ruta
+  // intenta emitir un código por esta vía, falla aquí igual que fallaría contra
+  // Postgres, en vez de pasar la prueba y romper en producción.
+  const reposDeUsuario = {
+    ...repos,
+    recuperacion: {
+      ...repos.recuperacion,
+      emitir: async () => {
+        throw new Error(
+          'password_resets no acepta escrituras del cliente del usuario: usa reposAdmin (service_role).',
+        );
+      },
+    },
+  };
+
   const app = construirApp(env, {
     verificarToken: async (token) => {
       const id = identidades[token];
@@ -4485,9 +4621,19 @@ export function crearArnés(opciones: OpcionesArnés = {}): Arnés {
     reposAdmin: repos,
     // Fija «quién llama» antes de que corra el manejador: es el sustituto del
     // `auth.uid()` que en producción resuelve Postgres desde el JWT.
+    //
+    // **No devuelve `repos`, sino una vista con la escritura de `password_resets`
+    // bloqueada.** En producción el cliente de la petición lleva el JWT del
+    // usuario y Postgres le aplica RLS: `password_resets` sólo concede `SELECT`,
+    // así que un `update`/`insert` desde ahí muere con 42501. El doble no tiene
+    // cliente, y hasta el 2026-10-09 devolvía el mismo objeto para ambos roles,
+    // lo que **ocultaba un defecto real**: la ruta de emisión de códigos escribía
+    // por la vía del usuario y sólo fallaba contra la nube. Esta vista hace que
+    // ese error reviente también en la prueba, en vez de pasar en silencio.
+    // `reposAdmin` (service_role) conserva el camino completo.
     reposDePeticion: (token) => {
       estado.usuarioActual = token ? (identidades[token] ?? null) : null;
-      return repos;
+      return reposDeUsuario;
     },
     enviarCorreo,
     // El arnés inyecta el almacén en vez de dejar que `construirApp` lo derive de

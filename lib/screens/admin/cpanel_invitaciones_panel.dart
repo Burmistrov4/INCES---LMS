@@ -36,8 +36,87 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
   final _emailFocus = FocusNode();
 
   bool _isLoading = false;
+  bool _cargandoListado = true;
   String? _error;
   InvitacionDocente? _invitacion;
+  List<InvitacionListada> _invitaciones = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarListado();
+  }
+
+  /// Trae el listado con los estados ya resueltos por el backend.
+  Future<void> _cargarListado() async {
+    if (mounted) setState(() => _cargandoListado = true);
+    final resultado = await _repo.listarInvitaciones();
+    if (!mounted) return;
+    resultado.when(
+      success: (lista) => setState(() {
+        _invitaciones = lista;
+        _cargandoListado = false;
+      }),
+      // Un fallo del listado no borra el formulario: se muestra el aviso y el
+      // administrador puede seguir invitando. Que la lista no cargue no debe
+      // impedir la operación principal del panel.
+      failure: (fallo) => setState(() {
+        _cargandoListado = false;
+        _error = fallo.message;
+      }),
+    );
+  }
+
+  /// Anula una invitación. Pide confirmación porque es irreversible desde la UI:
+  /// una invitación revocada no se puede "des-revocar", hay que renovarla.
+  Future<void> _revocar(InvitacionListada invitacion) async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (contexto) => AlertDialog(
+        title: const Text('Anular invitación'),
+        content: Text(
+          'El enlace de ${invitacion.nombreCompleto} dejará de funcionar de '
+          'inmediato. Si más adelante lo necesitas, podrás emitir uno nuevo con '
+          '«Renovar».',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexto).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(contexto).pop(true),
+            child: const Text('Anular'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true || !mounted) return;
+
+    final resultado = await _repo.revocarInvitacion(invitacion.id);
+    if (!mounted) return;
+    resultado.when(
+      success: (_) {
+        mostrarAviso(context, 'Invitación anulada.', exito: true);
+        _cargarListado();
+      },
+      failure: (fallo) => mostrarAviso(context, fallo.message),
+    );
+  }
+
+  /// Emite un enlace nuevo y anula el anterior.
+  Future<void> _renovar(InvitacionListada invitacion) async {
+    final resultado = await _repo.renovarInvitacion(invitacion.id);
+    if (!mounted) return;
+    resultado.when(
+      success: (nueva) {
+        setState(() => _invitacion = nueva);
+        mostrarAviso(context, 'Invitación renovada. El enlace anterior ya no sirve.', exito: true);
+        _cargarListado();
+      },
+      failure: (fallo) => mostrarAviso(context, fallo.message),
+    );
+  }
 
   @override
   void dispose() {
@@ -74,7 +153,16 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
     resultado.when(
       success: (invitacion) {
         setState(() => _invitacion = invitacion);
-        mostrarAviso(context, 'Invitación enviada.', exito: true);
+        // **El aviso no dice «enviada».** El correo puede no haber salido (Resend
+        // sin dominio verificado) y afirmar una entrega que no ocurrió es
+        // exactamente el error que este panel existe para no cometer. El estado
+        // real de entrega lo muestra la tarjeta del enlace.
+        mostrarAviso(
+          context,
+          'Invitación creada. El enlace está listo para entregar.',
+          exito: true,
+        );
+        _cargarListado();
       },
       failure: (fallo) => setState(() => _error = fallo.message),
     );
@@ -240,7 +328,177 @@ class _CpanelInvitacionesPanelState extends State<CpanelInvitacionesPanel> {
           ),
         ],
         if (_invitacion != null) _EnlaceActivacion(invitacion: _invitacion!),
+        const SizedBox(height: 32),
+        _ListadoInvitaciones(
+          cargando: _cargandoListado,
+          invitaciones: _invitaciones,
+          onRevocar: _revocar,
+          onRenovar: _renovar,
+          onActualizar: _cargarListado,
+        ),
       ],
+    );
+  }
+}
+
+/// Listado de invitaciones con su estado real y sus acciones.
+///
+/// Los estados que muestra son los que **resuelve el backend**, no una
+/// interpretación del cliente: «Pendiente de entrega» sólo aparece si el enlace
+/// todavía sirve. No hay un estado «enviada» a propósito, porque el sistema no
+/// puede comprobar que el correo llegó.
+class _ListadoInvitaciones extends StatelessWidget {
+  const _ListadoInvitaciones({
+    required this.cargando,
+    required this.invitaciones,
+    required this.onRevocar,
+    required this.onRenovar,
+    required this.onActualizar,
+  });
+
+  final bool cargando;
+  final List<InvitacionListada> invitaciones;
+  final Future<void> Function(InvitacionListada) onRevocar;
+  final Future<void> Function(InvitacionListada) onRenovar;
+  final Future<void> Function() onActualizar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Invitaciones emitidas',
+                  style: theme.textTheme.titleSmall),
+            ),
+            IconButton(
+              tooltip: 'Actualizar',
+              onPressed: cargando ? null : onActualizar,
+              icon: const Icon(Icons.refresh_outlined, size: 20),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (cargando)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              ),
+            ),
+          )
+        else if (invitaciones.isEmpty)
+          Text(
+            'Todavía no se ha emitido ninguna invitación.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (var i = 0; i < invitaciones.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  _FilaInvitacion(
+                    invitacion: invitaciones[i],
+                    onRevocar: onRevocar,
+                    onRenovar: onRenovar,
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _FilaInvitacion extends StatelessWidget {
+  const _FilaInvitacion({
+    required this.invitacion,
+    required this.onRevocar,
+    required this.onRenovar,
+  });
+
+  final InvitacionListada invitacion;
+  final Future<void> Function(InvitacionListada) onRevocar;
+  final Future<void> Function(InvitacionListada) onRenovar;
+
+  /// Tono del chip según el estado. Un enlace que sirve se pinta como éxito; lo
+  /// demás como aviso o neutro, nunca como éxito: el panel no debe sugerir que
+  /// una invitación caducada o revocada todavía vale.
+  TonoEstado get _tono => switch (invitacion.estado) {
+        EstadoInvitacion.valida => TonoEstado.exito,
+        EstadoInvitacion.usada => TonoEstado.info,
+        EstadoInvitacion.expirada => TonoEstado.advertencia,
+        EstadoInvitacion.revocada => TonoEstado.error,
+        EstadoInvitacion.desconocido => TonoEstado.neutro,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final par = PaletaInces.de(context).etiquetaDe(_tono);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(invitacion.nombreCompleto, style: theme.textTheme.bodyMedium),
+                const SizedBox(height: 2),
+                Text(
+                  invitacion.email,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: par.fondo,
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              invitacion.estado.etiqueta,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: par.texto,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Renovar sirve para cualquier estado: es la forma de volver a emitir
+          // un enlace cuando el anterior caducó, se perdió o se anuló.
+          IconButton(
+            tooltip: 'Renovar',
+            onPressed: () => onRenovar(invitacion),
+            icon: const Icon(Icons.autorenew_outlined, size: 20),
+          ),
+          // Anular sólo tiene sentido si el enlace todavía sirve.
+          IconButton(
+            tooltip: 'Anular',
+            onPressed:
+                invitacion.estado.sirve ? () => onRevocar(invitacion) : null,
+            icon: const Icon(Icons.block_outlined, size: 20),
+          ),
+        ],
+      ),
     );
   }
 }

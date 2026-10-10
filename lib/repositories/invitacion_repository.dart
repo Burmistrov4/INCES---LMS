@@ -52,4 +52,19 @@ class InvitacionRepository {
       () => _gateway.activarCuenta(token: token, password: password),
     );
   }
+
+  Future<Result<List<InvitacionListada>>> listarInvitaciones() {
+    return Result.guard(() => _gateway.listarInvitaciones());
+  }
+
+  Future<Result<bool>> revocarInvitacion(String id) {
+    return Result.guard(() async {
+      await _gateway.revocarInvitacion(id);
+      return true;
+    });
+  }
+
+  Future<Result<InvitacionDocente>> renovarInvitacion(String id) {
+    return Result.guard(() => _gateway.renovarInvitacion(id));
+  }
 }

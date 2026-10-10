@@ -254,4 +254,16 @@ class _InvitacionSinUso implements InvitacionGateway {
     required String password,
   }) =>
       throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<List<InvitacionListada>> listarInvitaciones() =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<void> revocarInvitacion(String id) =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<InvitacionDocente> renovarInvitacion(String id) =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
 }

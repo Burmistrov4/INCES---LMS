@@ -186,6 +186,7 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
       isUsed: false,
       createdAt: new Date(Date.now() - 49 * 3600 * 1000).toISOString(),
       expiresAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+      revokedAt: null,
     });
 
     const respuesta = await arnés.app.inject({
@@ -199,14 +200,196 @@ describe('activación de la invitación — profesor (ruta pública)', () => {
 });
 
 describe('reglas puras de invitación', () => {
-  it('deriva el estado correcto según uso y caducidad', () => {
+  it('deriva el estado correcto según uso, caducidad y revocación', () => {
     const futuro = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
     const pasado = new Date(Date.now() - 3600 * 1000).toISOString();
+    const ahora = new Date().toISOString();
 
-    expect(estadoDeInvitacion({ isUsed: false, expiresAt: futuro })).toBe('valida');
-    expect(estadoDeInvitacion({ isUsed: true, expiresAt: futuro })).toBe('usada');
-    expect(estadoDeInvitacion({ isUsed: false, expiresAt: pasado })).toBe('expirada');
-    // Una usada sigue "usada" aunque además haya caducado: se comprueba primero.
-    expect(estadoDeInvitacion({ isUsed: true, expiresAt: pasado })).toBe('usada');
+    expect(estadoDeInvitacion({ isUsed: false, expiresAt: futuro, revokedAt: null })).toBe('valida');
+    expect(estadoDeInvitacion({ isUsed: true, expiresAt: futuro, revokedAt: null })).toBe('usada');
+    expect(estadoDeInvitacion({ isUsed: false, expiresAt: pasado, revokedAt: null })).toBe('expirada');
+    // Una usada sigue "usada" aunque además haya caducado: se comprueba antes.
+    expect(estadoDeInvitacion({ isUsed: true, expiresAt: pasado, revokedAt: null })).toBe('usada');
+
+    // La revocación gana a todo: una invitación anulada no revive aunque su
+    // fecha siga en el futuro ni aunque después alguien la marque usada.
+    expect(estadoDeInvitacion({ isUsed: false, expiresAt: futuro, revokedAt: ahora })).toBe('revocada');
+    expect(estadoDeInvitacion({ isUsed: true, expiresAt: futuro, revokedAt: ahora })).toBe('revocada');
+    expect(estadoDeInvitacion({ isUsed: false, expiresAt: pasado, revokedAt: ahora })).toBe('revocada');
+  });
+});
+
+describe('ciclo de vida de la invitación — revocación y renovación', () => {
+  it('el admin revoca una invitación y su token deja de activar (403)', async () => {
+    arnés = crearArnés();
+    const perfilesAntes = arnés.estado.perfiles.length;
+    const creada = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+      payload: { email: 'revoca@inces.test', nombres: 'Revoca', apellidos: 'Prueba' },
+    });
+    const token = tokenDelEnlace(
+      (creada.json() as { enlaceActivacion: string }).enlaceActivacion,
+    );
+    const id = arnés.estado.invitaciones[0]!.id;
+
+    const revocacion = await arnés.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/usuarios/invitaciones/${id}/revocar`,
+      headers: conToken(TOKEN_ADMIN),
+    });
+    expect(revocacion.statusCode).toBe(200);
+    expect(arnés.estado.invitaciones[0]?.revokedAt).not.toBeNull();
+
+    // El token, que era válido, ya no activa nada.
+    const activacion = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/activar',
+      payload: { token, password: 'secreto123' },
+    });
+    expect(activacion.statusCode).toBe(403);
+    expect((activacion.json() as { error: { codigo: string } }).error.codigo).toBe(
+      'INVITACION_REVOCADA',
+    );
+    // Y no se creó ninguna cuenta nueva.
+    expect(arnés.estado.perfiles).toHaveLength(perfilesAntes);
+  });
+
+  it('revocar dos veces da 409 y un no-admin da 403', async () => {
+    arnés = crearArnés();
+    await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+      payload: { email: 'doble@inces.test', nombres: 'Doble', apellidos: 'Revoca' },
+    });
+    const id = arnés.estado.invitaciones[0]!.id;
+
+    const prohibido = await arnés.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/usuarios/invitaciones/${id}/revocar`,
+      headers: conToken(TOKEN_ALUMNO),
+    });
+    expect(prohibido.statusCode).toBe(403);
+    expect(arnés.estado.invitaciones[0]?.revokedAt).toBeNull();
+
+    await arnés.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/usuarios/invitaciones/${id}/revocar`,
+      headers: conToken(TOKEN_ADMIN),
+    });
+    const segunda = await arnés.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/usuarios/invitaciones/${id}/revocar`,
+      headers: conToken(TOKEN_ADMIN),
+    });
+    expect(segunda.statusCode).toBe(409);
+  });
+
+  it('renovar revoca la anterior y emite una nueva que sí activa', async () => {
+    arnés = crearArnés();
+    const creada = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+      payload: { email: 'renueva@inces.test', nombres: 'Renueva', apellidos: 'Prueba' },
+    });
+    const tokenViejo = tokenDelEnlace(
+      (creada.json() as { enlaceActivacion: string }).enlaceActivacion,
+    );
+    const id = arnés.estado.invitaciones[0]!.id;
+
+    const renovada = await arnés.app.inject({
+      method: 'POST',
+      url: `/api/v1/admin/usuarios/invitaciones/${id}/renovar`,
+      headers: conToken(TOKEN_ADMIN),
+    });
+    expect(renovada.statusCode).toBe(200);
+    const cuerpo = renovada.json() as { enlaceActivacion: string; reemplazaA: string };
+    expect(cuerpo.reemplazaA).toBe(id);
+
+    // **Dos tokens, un solo válido.** La anterior quedó revocada…
+    expect(arnés.estado.invitaciones).toHaveLength(2);
+    expect(arnés.estado.invitaciones[0]?.revokedAt).not.toBeNull();
+
+    const conViejo = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/activar',
+      payload: { token: tokenViejo, password: 'secreto123' },
+    });
+    expect(conViejo.statusCode).toBe(403);
+
+    // …y la nueva sí activa, conservando el nombre de la anterior.
+    const tokenNuevo = tokenDelEnlace(cuerpo.enlaceActivacion);
+    const conNuevo = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/activar',
+      payload: { token: tokenNuevo, password: 'secreto123' },
+    });
+    expect(conNuevo.statusCode).toBe(200);
+    expect(arnés.estado.perfiles.at(-1)?.nombres).toBe('Renueva');
+  });
+
+  it('el listado devuelve el estado ya resuelto por el dominio', async () => {
+    arnés = crearArnés();
+    await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+      payload: { email: 'estado@inces.test', nombres: 'Estado', apellidos: 'Prueba' },
+    });
+
+    const listado = await arnés.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+    });
+    expect(listado.statusCode).toBe(200);
+    const { invitaciones } = listado.json() as {
+      invitaciones: { email: string; estado: string }[];
+    };
+    expect(invitaciones).toHaveLength(1);
+    expect(invitaciones[0]?.estado).toBe('valida');
+
+    const sinToken = await arnés.app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/usuarios/invitaciones',
+    });
+    expect(sinToken.statusCode).toBe(401);
+  });
+
+  it('dos activaciones simultáneas del mismo token: exactamente una crea la cuenta', async () => {
+    arnés = crearArnés();
+    const perfilesAntes = arnés.estado.perfiles.length;
+    const creada = await arnés.app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/usuarios/invitaciones',
+      headers: conToken(TOKEN_ADMIN),
+      payload: { email: 'carrera@inces.test', nombres: 'Carrera', apellidos: 'Prueba' },
+    });
+    const token = tokenDelEnlace(
+      (creada.json() as { enlaceActivacion: string }).enlaceActivacion,
+    );
+
+    // Las dos leen la invitación como válida; sólo una gana el reclamo atómico.
+    // Sin el reclamo antes de crear el usuario, las dos llegarían a
+    // `crearUsuarioDocente` y quedarían DOS cuentas para el mismo correo.
+    const [a, b] = await Promise.all([
+      arnés.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/activar',
+        payload: { token, password: 'secreto123' },
+      }),
+      arnés.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/activar',
+        payload: { token, password: 'secreto123' },
+      }),
+    ]);
+
+    expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([200, 409]);
+    // Exactamente UNA cuenta nueva, no dos.
+    expect(arnés.estado.perfiles).toHaveLength(perfilesAntes + 1);
   });
 });

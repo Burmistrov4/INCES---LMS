@@ -157,6 +157,45 @@ export const esquemaActivarCuenta = z
   })
   .strict();
 
+/** Identificador de una invitación. */
+export const esquemaIdInvitacion = z.string().uuid({
+  message: 'El identificador de la invitación debe ser un UUID válido.',
+});
+
+/**
+ * Listado de invitaciones del cPanel.
+ *
+ * `limite` acotado a 200: la lista completa son decenas (una por docente del
+ * centro), y un tope evita que un cliente pida la tabla entera.
+ */
+export const esquemaListadoInvitaciones = z.object({
+  limite: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+/**
+ * Canje del código de recuperación: el código que el administrador entregó y la
+ * contraseña NUEVA que elige el titular.
+ *
+ * El código se normaliza (sin guiones, sin espacios, en mayúsculas) porque lo
+ * teclea una persona que lo leyó de una pantalla o lo recibió dictado: exigirle
+ * los guiones exactos sería una fricción sin ninguna ganancia de seguridad. La
+ * normalización es la misma que usa el backend para calcular el hash, así que
+ * ambas partes coinciden sin duplicar la regla.
+ *
+ * La longitud mínima de 8 coincide con la del resto del sistema; el tope de 40
+ * deja sitio a guiones y espacios tecleados de más sin aceptar un cuerpo enorme.
+ */
+export const esquemaCanjearCodigo = z
+  .object({
+    codigo: z
+      .string()
+      .trim()
+      .min(8, 'El código de recuperación no es válido.')
+      .max(40, 'El código de recuperación no es válido.'),
+    password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres.'),
+  })
+  .strict();
+
 export type CambiosModuloEntrada = z.infer<typeof esquemaCambiosModulo>;
 export type ValorParametroEntrada = z.infer<typeof esquemaValorParametro>;
 export type CambioRolEntrada = z.infer<typeof esquemaCambioRol>;

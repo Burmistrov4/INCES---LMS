@@ -119,6 +119,44 @@ gestor de descargas del navegador, **no** de la aplicación y **no** del
 `revokeObjectURL`. Un `timeout` de 5 s, que es el que uno escribiría por defecto,
 haría fallar la suite por el sitio equivocado.
 
+## Suite por defecto y pruebas que mutan datos
+
+La regresión predeterminada **excluye** los archivos `_*.spec.ts` (sondas temporales de diagnóstico) y `aula_virtual_ciclo.spec.ts`. Este último crea y publica una tarea, hace que un alumno la entregue y que el docente la califique y devuelva; no hay una ruta HTTP de borrado de tareas, así que deja datos persistentes. No debe ejecutarse contra la sección compartida de demostración ni en el cron sin aislamiento y limpieza verificable.
+
+Sólo se permite incluir ese ciclo de forma explícita cuando `E2E_SECCION` y las cuentas pertenecen a un conjunto de prueba desechable y hay limpieza verificada:
+
+```powershell
+$env:E2E_PERMITIR_CICLO_MUTANTE = '1'
+npx playwright test tests/aula_virtual_ciclo.spec.ts
+```
+
+**Limpieza verificada (añadida el 2026-10-09).** El spec crea una tarea y una entrega, y no hay ruta HTTP de borrado. `supabase/limpiar-ciclo-aula.mjs` borra **sólo** las tareas del ciclo creadas dentro de una ventana temporal (por defecto, la última hora) y comprueba que no quedan entregas huérfanas:
+
+```bash
+node supabase/limpiar-ciclo-aula.mjs                       # lista, no borra
+node supabase/limpiar-ciclo-aula.mjs --confirmar           # borra la última hora
+node supabase/limpiar-ciclo-aula.mjs --confirmar --desde "2026-10-09T12:45:00Z"
+```
+
+Medido el 2026-10-09 (última corrida): el ciclo pasa **7/7, 0 flaky**, exit 0, contra el bundle local fresco. C7 verifica el título real `Calificaciones`. La limpieza acotada devuelve los conteos a la línea base previa a esta corrida: tareas 77 → 76, entregas 228 → 225, 0 huérfanas. Este resultado supersede la medición histórica anterior de 6/7 + 1 flaky. **Advertencia:** esa corrida puntual utilizó la sección compartida `SA` porque se verificó el cleanup por ventana y la restauración exacta de conteos; no debe convertirse en ejecución habitual. Antes de repetir el ciclo, preferir una sección aislada y cuentas dedicadas.
+
+No configures `E2E_PERMITIR_CICLO_MUTANTE` en el flujo nocturno normal. La opción habilita el test; el aislamiento y la limpieza son responsabilidad de quien lo lanza.
+
+## Flujos de identidad — instrumentos fuera de esta suite
+
+La invitación de docentes y la recuperación de contraseña se verifican **contra el motor real**
+(PostgREST + RLS + Fastify + GoTrue), que es justo lo que los dobles en memoria no pueden probar.
+Son dos scripts en `supabase/`, **fuera de CI a propósito** porque escriben en la base real:
+
+```bash
+node supabase/humo-invitaciones.mjs --confirmar   # 34 OK / 0 fallos
+node supabase/humo-recuperacion.mjs --confirmar   # 27 OK / 0 fallos
+```
+
+Ambos crean cuentas desechables (`humo-*@ejemplo.invalid`), operan sólo sobre ellas y **purgan por
+prefijo**; imprimen el residuo al final y salen con código distinto de cero si algo queda. No tocan
+cuentas reales ni datos compartidos. Medido el 2026-10-09: residuo `0/0/0` en los dos.
+
 ## Ejecutar
 
 ### En local
@@ -160,15 +198,27 @@ Fastify y sin él no hay tarjetas. Si ya lo tienes corriendo a mano:
 E2E_ARRANCAR_BACKEND=0 npm test
 ```
 
-En **Windows con sandbox**, el paso 1 no funciona: el CLI de Flutter muere al
-lanzar su primer proceso hijo (`ERROR_PIPE_BUSY`, `CreateFile failed 231`), así
-que `flutter build web` y `flutter run` no arrancan. Ahí la compilación va en CI
-y en local sólo se sirve un bundle ya compilado:
+En **Windows con sandbox**, según el entorno, el CLI de Flutter puede morir al
+lanzar su primer proceso hijo (`ERROR_PIPE_BUSY`, `CreateFile failed 231`), en
+cuyo caso `flutter build web` y `flutter run` no arrancan y hay que compilar en
+CI y servir un bundle ya compilado en local:
 
 ```bash
 node serve.mjs build/web 8090     # en una terminal
 E2E_ARRANCAR_BACKEND=0 npm test   # en otra; reutiliza el servidor
 ```
+
+> **Medido el 2026-10-09 (sesión 2): el `231` no apareció.** `flutter build web
+> --release --dart-define-from-file=.env.json` terminó en `√ Built build\web` y
+> `flutter test --no-pub` corrió **974 pruebas, todas verdes**. Es una limitación
+> **del sandbox de la sesión**, no del proyecto: si el comando funciona, úsalo.
+> Si vuelve el `231`, mide antes de citarlo.
+
+**Nunca certifiques código nuevo con un bundle viejo.** Si el bundle se compiló
+con `dart-define.example.json` (la plantilla), `playwright.config.ts` **falla de
+inmediato con la causa escrita**: el artefacto apuntaría a
+`https://<project-ref>.supabase.co` y el login fallaría antes de emitir ninguna
+petición.
 
 Para usar el Chrome del sistema en vez del Chromium de Playwright:
 `E2E_CANAL=chrome npm test`.

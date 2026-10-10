@@ -23,4 +23,13 @@ abstract interface class InvitacionGateway {
     required String token,
     required String password,
   });
+
+  /// Listado de invitaciones con su **estado ya resuelto por el backend**.
+  Future<List<InvitacionListada>> listarInvitaciones();
+
+  /// Anula una invitación para que su enlace deje de activar.
+  Future<void> revocarInvitacion(String id);
+
+  /// Emite una invitación nueva y anula la anterior, conservando correo y nombre.
+  Future<InvitacionDocente> renovarInvitacion(String id);
 }

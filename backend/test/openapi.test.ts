@@ -229,6 +229,12 @@ describe('documento OpenAPI generado (D6)', () => {
     // sin sesión, y `campos` es lo que permite dibujar el formulario de
     // inscripción —el que crea la cuenta— sin conocer los campos de antemano.
     // Exigir token en cualquiera de las dos invertiría el orden.
+    //
+    // `restablecer-codigo` se añade el 2026-10-09 por el mismo motivo que
+    // `activar`: quien olvidó su contraseña **no puede iniciar sesión**, así que
+    // exigirle un JWT haría imposible el propio restablecimiento. Su barrera es
+    // el código temporal de un solo uso —y el límite de intentos por IP—, no un
+    // token de sesión.
     const documento = construirDocumentoOpenApi();
     const publicas: string[] = [];
     for (const [ruta, operaciones] of Object.entries(documento.paths ?? {})) {
@@ -244,6 +250,7 @@ describe('documento OpenAPI generado (D6)', () => {
         'get /salud',
         'get /salud/profundo',
         'post /api/v1/auth/activar',
+        'post /api/v1/auth/restablecer-codigo',
       ].sort(),
     );
   });

@@ -11,11 +11,14 @@ import 'package:inces_lms_app/repositories/archivos_repository.dart';
 import 'package:inces_lms_app/repositories/aspirante_repository.dart';
 import 'package:inces_lms_app/repositories/cuadrante_repository.dart';
 import 'package:inces_lms_app/repositories/inscripcion_repository.dart';
+import 'package:inces_lms_app/core/result.dart';
 import 'package:inces_lms_app/repositories/invitacion_repository.dart';
+import 'package:inces_lms_app/models/usuario_admin.dart';
 import 'package:inces_lms_app/repositories/modulo_repository.dart';
 import 'package:inces_lms_app/repositories/planilla_admin_repository.dart';
 import 'package:inces_lms_app/repositories/planilla_repository.dart';
 import 'package:inces_lms_app/repositories/secciones_repository.dart';
+import 'package:inces_lms_app/repositories/usuario_admin_repository.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_aulas_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_guardias_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_inscripcion_campos_panel.dart';
@@ -23,9 +26,11 @@ import 'package:inces_lms_app/screens/admin/cpanel_invitaciones_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_lapsos_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_parametros_panel.dart';
 import 'package:inces_lms_app/screens/admin/cpanel_secciones_panel.dart';
+import 'package:inces_lms_app/screens/admin/cpanel_usuarios_roles_panel.dart';
 import 'package:inces_lms_app/screens/aspirante_dashboard.dart';
 import 'package:inces_lms_app/screens/aspirante_form_screen.dart';
 import 'package:inces_lms_app/screens/gestor_documental_panel.dart';
+import 'package:inces_lms_app/screens/login_screen.dart';
 import 'package:inces_lms_app/screens/mis_inscripciones_panel.dart';
 import 'package:inces_lms_app/services/auth_service.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
@@ -80,8 +85,9 @@ void main() {
   /// **Desmonta el árbol antes de devolver**, para cancelar los auto-refrescos.
   /// Consecuencia: después de llamar aquí ya no se puede consultar el árbol con
   /// `find.*` — no queda nada montado. Esta auditoría mide desbordes, no pinta.
-  Future<Object?> medir(WidgetTester tester, Widget panel) async {
-    tester.view.physicalSize = movil;
+  Future<Object?> medir(WidgetTester tester, Widget panel, [double ancho = 375]) async {
+    final tamano = Size(ancho, 2400);
+    tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -118,8 +124,9 @@ void main() {
   /// da un ancho que no tienen en producción, así que se mediría un layout que no
   /// existe — el mismo error que medir un panel en un `Scaffold` pelado, al
   /// revés.
-  Future<Object?> medirPantalla(WidgetTester tester, Widget pantalla) async {
-    tester.view.physicalSize = movil;
+  Future<Object?> medirPantalla(WidgetTester tester, Widget pantalla, [double ancho = 375]) async {
+    final tamano = Size(ancho, 2400);
+    tester.view.physicalSize = tamano;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -135,29 +142,46 @@ void main() {
     return error;
   }
 
-  void sinDesbordes(Object? error, String pantalla) {
+  void sinDesbordes(Object? error, String pantalla, [double ancho = 375]) {
     expect(
       error,
       isNull,
-      reason: '$pantalla desborda a ${movil.width.toInt()} px de ancho.\n'
+      reason: '$pantalla desborda a ${ancho.toInt()} px de ancho.\n'
           'Excepción capturada: $error',
     );
   }
 
-  group('cPanel · a 375 px, en su padre real', () {
-    testWidgets('Invitaciones (campo de correo + «Enviar invitación»)',
+  group('cPanel · auditoría de desbordes y adaptabilidad', () {
+    testWidgets('Invitaciones (campo de correo + «Enviar invitación») · multi-ancho',
         (tester) async {
-      final error = await medir(
-        tester,
-        CpanelInvitacionesPanel(
-          repositorio: InvitacionRepository(gateway: _InvitacionSinUso()),
-        ),
-      );
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        final error = await medir(
+          tester,
+          CpanelInvitacionesPanel(
+            repositorio: InvitacionRepository(gateway: _InvitacionSinUso()),
+          ),
+          ancho,
+        );
 
-      sinDesbordes(error, 'CpanelInvitacionesPanel');
+        sinDesbordes(error, 'CpanelInvitacionesPanel', ancho);
+      }
     });
 
-    testWidgets('Parámetros (campo + botón «Guardar»)', (tester) async {
+    testWidgets('Usuarios y Roles · auditoría multi-ancho (375, 768, 1024, 1280, 1440 px)',
+        (tester) async {
+      final repo = _FakeUsuariosAdminRepo();
+
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        final error = await medir(
+          tester,
+          CpanelUsuariosRolesPanel(repo: repo),
+          ancho,
+        );
+        sinDesbordes(error, 'CpanelUsuariosRolesPanel', ancho);
+      }
+    });
+
+    testWidgets('Parámetros (campo + botón «Guardar») · multi-ancho', (tester) async {
       final fake = FakeGateway()
         ..listaSettings = const [
           SystemSetting(
@@ -175,12 +199,15 @@ void main() {
           ),
         ];
 
-      final error = await medir(
-        tester,
-        CpanelParametrosPanel(repositorio: ModuloRepository(gateway: fake)),
-      );
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        final error = await medir(
+          tester,
+          CpanelParametrosPanel(repositorio: ModuloRepository(gateway: fake)),
+          ancho,
+        );
 
-      sinDesbordes(error, 'CpanelParametrosPanel');
+        sinDesbordes(error, 'CpanelParametrosPanel', ancho);
+      }
     });
 
     testWidgets('Lapsos (fila de lapso)', (tester) async {
@@ -346,24 +373,27 @@ void main() {
       sinDesbordes(error, 'CpanelLapsosPanel · diálogo de alta');
     });
 
-    testWidgets('Tarjeta de módulo con el botón «Roles»', (tester) async {
+    testWidgets('Tarjeta de módulo con el botón «Roles» · multi-ancho', (tester) async {
       // El hueco `onEditarRoles` es opcional: sin él la `Row` candidata ni
       // siquiera se pinta. Es el mismo caso que el encabezado institucional —
       // una trampa latente que sólo despierta cuando alguien usa el hueco.
-      final error = await medir(
-        tester,
-        TarjetaModulo(
-          titulo: 'Gestión de usuarios y roles del sistema',
-          descripcion: 'Invita docentes, asigna roles y controla el acceso.',
-          estado: EstadoModulo.activo,
-          icono: Icons.people_outline,
-          rolesEtiquetas: const ['admin', 'docente', 'estudiante'],
-          onAlternar: (_) {},
-          onEditarRoles: () {},
-        ),
-      );
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        final error = await medir(
+          tester,
+          TarjetaModulo(
+            titulo: 'Gestión de usuarios y roles del sistema',
+            descripcion: 'Invita docentes, asigna roles y controla el acceso.',
+            estado: EstadoModulo.activo,
+            icono: Icons.people_outline,
+            rolesEtiquetas: const ['admin', 'docente', 'estudiante'],
+            onAlternar: (_) {},
+            onEditarRoles: () {},
+          ),
+          ancho,
+        );
 
-      sinDesbordes(error, 'TarjetaModulo');
+        sinDesbordes(error, 'TarjetaModulo', ancho);
+      }
     });
 
     testWidgets('Campos de inscripción (fila de campo)', (tester) async {
@@ -593,13 +623,134 @@ void main() {
       expect(arnes.planilla.llamadas, contains('campos'));
     });
   });
+
+  group('Estructura y autenticación · auditoría multi-ancho (375, 768, 1024, 1280, 1440 px)', () {
+    testWidgets('AndamiajeApp · adaptación de navegación (cajón en móvil/tablet, menú fijo en escritorio)',
+        (tester) async {
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        tester.view.physicalSize = Size(ancho, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: IncesTheme.claro(),
+            home: AndamiajeApp(
+              items: const [
+                ItemNavegacion(
+                  icono: Icons.dashboard_outlined,
+                  titulo: 'Inicio',
+                  categoria: 'Principal',
+                ),
+                ItemNavegacion(
+                  icono: Icons.people_outline,
+                  titulo: 'Usuarios',
+                  categoria: 'Administración',
+                ),
+              ],
+              seleccionado: 0,
+              onSeleccionar: (_) {},
+              rolEtiqueta: 'Administrador',
+              contenido: const Center(child: Text('Panel central')),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final error = tester.takeException();
+        sinDesbordes(error, 'AndamiajeApp', ancho);
+
+        final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+        if (ancho < 900) {
+          expect(scaffold.drawer, isNotNull,
+              reason: 'A $ancho px debe proveer Drawer lateral');
+        } else {
+          expect(scaffold.drawer, isNull,
+              reason: 'A $ancho px el menú lateral debe ser fijo, sin Drawer');
+        }
+
+        await tester.pumpWidget(const SizedBox());
+      }
+    });
+
+    testWidgets('LoginScreen · adaptación responsive (tarjeta centrada en móvil/tablet, panel de marca en escritorio)',
+        (tester) async {
+      for (final ancho in [375.0, 768.0, 1024.0, 1280.0, 1440.0]) {
+        tester.view.physicalSize = Size(ancho, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: IncesTheme.claro(),
+            home: const LoginScreen(),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final error = tester.takeException();
+        sinDesbordes(error, 'LoginScreen', ancho);
+
+        if (ancho < 900) {
+          expect(find.text('Sistema de Gestión\nAcadémica'), findsNothing,
+              reason: 'A $ancho px el panel lateral de marca debe estar oculto');
+          expect(find.text('La Isabelica'), findsOneWidget,
+              reason: 'A $ancho px debe mostrar la insignia del centro en el formulario');
+        } else {
+          expect(find.text('Sistema de Gestión\nAcadémica'), findsOneWidget,
+              reason: 'A $ancho px el panel lateral de marca debe estar visible');
+        }
+
+        await tester.pumpWidget(const SizedBox());
+      }
+    });
+  });
+}
+
+class _FakeUsuariosAdminRepo extends UsuariosAdminRepository {
+  PaginaUsuarios pagina = const PaginaUsuarios(
+    usuarios: [
+      UsuarioAdmin(
+        id: 'u1',
+        email: 'docente.soldadura@inces.test',
+        cedula: 'V12345678',
+        nombres: 'Pedro',
+        apellidos: 'Pérez',
+        rol: 'docente',
+        activo: true,
+      ),
+      UsuarioAdmin(
+        id: 'u2',
+        email: 'admin.maestro@inces.test',
+        cedula: 'V87654321',
+        nombres: 'María',
+        apellidos: 'Rodríguez',
+        rol: 'admin',
+        activo: true,
+      ),
+    ],
+    total: 2,
+    limite: 25,
+    desplazamiento: 0,
+  );
+
+  @override
+  Future<Result<PaginaUsuarios>> listar({
+    String? rol,
+    bool? activo,
+    String? busqueda,
+    int limite = 25,
+    int desplazamiento = 0,
+  }) async {
+    return Success(pagina);
+  }
 }
 
 /// Doble de [InvitacionGateway] cuyos métodos no se llegan a usar.
-///
-/// La prueba es de layout: el panel no llama al gateway hasta que alguien envía
-/// una invitación. Lanzar en vez de devolver algo inventado deja claro que si
-/// algún día se llamara, la prueba lo diría en vez de fingir que funciona.
 class _InvitacionSinUso implements InvitacionGateway {
   @override
   Future<InvitacionDocente> invitarDocente(
@@ -615,4 +766,18 @@ class _InvitacionSinUso implements InvitacionGateway {
     required String password,
   }) =>
       throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<List<InvitacionListada>> listarInvitaciones() =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<void> revocarInvitacion(String id) =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
+
+  @override
+  Future<InvitacionDocente> renovarInvitacion(String id) =>
+      throw UnimplementedError('No se usa en una prueba de layout.');
 }
+
+

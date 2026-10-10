@@ -87,7 +87,9 @@ const servidor = createServer(async (peticion, respuesta) => {
   }
 });
 
-servidor.listen(PUERTO, '127.0.0.1', () => {
+const HOST = process.env.HOST ?? '0.0.0.0';
+
+servidor.listen(PUERTO, HOST, () => {
   console.log(`sirviendo ${RAIZ}`);
-  console.log(`en http://127.0.0.1:${PUERTO}`);
+  console.log(`en http://${HOST}:${PUERTO}`);
 });

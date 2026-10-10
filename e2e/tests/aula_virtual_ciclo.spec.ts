@@ -233,9 +233,9 @@ test.describe.serial('Ciclo de la Tarea — docente y aprendiz', () => {
     await aula.app.pulsarReal('Calificar', { ignorarMayusculas: true });
 
     await expect
-      .poll(async () => await aula.cuantos('LIBRO DE CALIFICACIONES'), {
+      .poll(async () => await aula.cuantos('Calificaciones'), {
         timeout: 30_000,
-        message: `el libro no abrió.\\n${await aula.diagnostico()}`,
+        message: `el libro no abrió o no mostró su título real «Calificaciones».\\n${await aula.diagnostico()}`,
       })
       .toBeGreaterThan(0);
 

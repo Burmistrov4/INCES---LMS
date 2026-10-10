@@ -64,7 +64,7 @@ test.describe.serial('Aula Virtual del aprendiz', () => {
     await login.entrar(ALUMNO, CLAVE, SENAL_DE_SESION_ALUMNO);
 
     const aula = new AulaVirtualPage(pagina);
-    await aula.irAMisAulas();
+    await aula.irAMisAulas(SECCION);
     tarjetasDelListado = await aula.contarTarjetas(SECCION);
     await aula.abrirAula(SECCION);
     await aula.esperarAula();

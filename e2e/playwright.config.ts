@@ -70,6 +70,41 @@ const BACKEND_URL = process.env.E2E_BACKEND_URL ?? 'http://127.0.0.1:3001';
 /** El directorio del bundle ya compilado. */
 const DIRECTORIO_WEB = process.env.E2E_WEB_DIR ?? 'build/web';
 
+// --- Guardia de configuración del bundle -------------------------------------
+//
+// El bundle se compila con `--dart-define-from-file=.env.json`. Si se compila con
+// `dart-define.example.json` (la PLANTILLA), la app queda apuntando a
+// `https://<project-ref>.supabase.co` con la clave `<clave-publicable>`. Y el
+// síntoma es de los peores: **la app arranca, pinta el login, y al pulsar
+// «Ingresar al sistema» no pasa nada** — ni error visible, ni una sola petición
+// en la pestaña de red, porque el SDK construye una URL inválida y lanza antes de
+// tocar la red. `AppConfig.validate()` no lo detecta: sólo comprueba que no esté
+// vacío. Medido el 2026-10-09: costó nueve sondas encontrarlo.
+//
+// Esta guardia convierte ese fallo silencioso en uno inmediato y con la causa
+// escrita. En CI no dispara: allí el bundle se compila con los secretos reales.
+{
+  const bundle = resolve(process.cwd(), DIRECTORIO_WEB, 'main.dart.js');
+  if (existsSync(bundle)) {
+    const js = readFileSync(bundle, 'utf8');
+    if (
+      js.includes('https://<project-ref>.supabase.co') ||
+      js.includes('<clave-publicable>')
+    ) {
+      throw new Error(
+        `\n  El bundle de «${DIRECTORIO_WEB}» se compiló con la PLANTILLA, no con .env.json.\n` +
+          '  Contiene los marcadores `<project-ref>` / `<clave-publicable>`, así que la app\n' +
+          '  apunta a una URL inválida y el login falla ANTES de hacer ninguna petición\n' +
+          '  (síntoma: el formulario se envía y no pasa nada).\n\n' +
+          '  Recompílalo con:\n' +
+          '    flutter build web --release --dart-define-from-file=.env.json\n' +
+          '  O descarga el artefacto `web-bundle` de la última corrida verde de e2e.yml:\n' +
+          '    gh run download <run-id> -n web-bundle -D <dir>  y apunta E2E_WEB_DIR ahí.\n',
+      );
+    }
+  }
+}
+
 /**
  * Si hay que levantar el backend.
  *
@@ -135,6 +170,23 @@ if (process.env.GITHUB_ACTIONS) reporteros.push(['github']);
 
 export default defineConfig({
   testDir: './tests',
+
+  // Los archivos `_*.spec.ts` son sondas de diagnóstico temporales, no regresión.
+  // `aula_virtual_ciclo.spec.ts` crea/publica una tarea, entrega, califica y
+  // devuelve datos persistentes en la sección E2E. No debe entrar en la suite
+  // normal ni en el cron hasta que use fixtures aislados y limpieza verificable.
+  // Su ejecución requiere opt-in explícito: E2E_PERMITIR_CICLO_MUTANTE=1.
+  // `performance_baseline.spec.ts` es de sólo lectura y también requiere opt-in:
+  // E2E_MEDIR_PERFORMANCE=1; sus métricas no forman parte de la regresión normal.
+  testIgnore: [
+    '**/_*.spec.ts',
+    ...(process.env.E2E_PERMITIR_CICLO_MUTANTE === '1'
+      ? []
+      : ['**/aula_virtual_ciclo.spec.ts']),
+    ...(process.env.E2E_MEDIR_PERFORMANCE === '1'
+      ? []
+      : ['**/performance_baseline.spec.ts']),
+  ],
 
   // El motor de Flutter, un inicio de sesión real y una descarga: 3 minutos dan
   // margen sin esconder un cuelgue.

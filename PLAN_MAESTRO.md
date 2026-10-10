@@ -7,9 +7,9 @@
 > **Fecha:** 2026-10-02 · **Autor del levantamiento:** sesión de trabajo sobre el
 > repositorio `github.com/Burmistrov4/INCES---LMS` (rama `main`, `a76116b`).
 
-## ESTADO DE EJECUCIÓN VIGENTE — 2026-10-08
+## ESTADO DE EJECUCIÓN VIGENTE — 2026-10-09
 
-**Fase activa: PERFORMANCE.** F1 (correo/password recovery con Resend) está DEFERIDA por decisión de producto. El orden vigente es: Performance → Responsive (375/768/1024/1280/1440) → UI/UX global → 3D/animaciones con presupuesto de rendimiento → Android → regresión/auditoría final.
+**Fase activa: PERFORMANCE, con frente de identidad reordenado por decisión de producto (2026-10-09).** Recuperación de contraseña e invitación/activación docente deben ser internas y no depender de Resend, SMTP, correo ni SMS. Resend HTTP 401 sólo afecta notificaciones externas opcionales. El orden vigente mantiene los gates: ciclo funcional/seguridad → build y regresión verificables → Performance → Responsive (375/768/1024/1280/1440) → UI/UX/accesibilidad → motion/3D con presupuesto de rendimiento → Android si sigue en alcance → regresión/auditoría final.
 
 **Evidencia de cierre funcional reciente:** Aula Virtual real 7/7 PASS; batería Flutter focalizada 84/84 PASS; backend verify 658/658 PASS; invitaciones 19/19 PASS; R2 52/52 PASS; F2 Planilla VERDE/CERRADA. Producción Pages HTTP 200, API Render HTTP 200 después de cold start y CORS correcto.
 

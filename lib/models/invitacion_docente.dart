@@ -40,3 +40,82 @@ class ActivacionCuenta {
     );
   }
 }
+
+/// Estado de una invitación, tal como lo resuelve el **dominio del backend**.
+///
+/// El cliente no lo deduce: lo recibe calculado. Así el panel no puede pintar un
+/// estado distinto del que decide el endpoint de activación, que es la única
+/// fuente de verdad sobre si un enlace sirve o no.
+enum EstadoInvitacion {
+  valida,
+  usada,
+  expirada,
+  revocada,
+  desconocido;
+
+  static EstadoInvitacion desde(String? valor) {
+    return switch (valor) {
+      'valida' => EstadoInvitacion.valida,
+      'usada' => EstadoInvitacion.usada,
+      'expirada' => EstadoInvitacion.expirada,
+      'revocada' => EstadoInvitacion.revocada,
+      _ => EstadoInvitacion.desconocido,
+    };
+  }
+
+  /// Etiqueta para el panel, en el idioma del usuario.
+  String get etiqueta => switch (this) {
+        EstadoInvitacion.valida => 'Pendiente de entrega',
+        EstadoInvitacion.usada => 'Activada',
+        EstadoInvitacion.expirada => 'Caducada',
+        EstadoInvitacion.revocada => 'Revocada',
+        EstadoInvitacion.desconocido => 'Desconocido',
+      };
+
+  /// Si el enlace todavía sirve. Sólo una invitación válida se puede entregar.
+  bool get sirve => this == EstadoInvitacion.valida;
+}
+
+/// Una invitación en el listado del cPanel, con su estado ya resuelto.
+class InvitacionListada {
+  final String id;
+  final String email;
+  final String nombres;
+  final String apellidos;
+  final bool isUsed;
+  final String createdAt;
+  final String expiresAt;
+  final String? revokedAt;
+  final EstadoInvitacion estado;
+
+  const InvitacionListada({
+    required this.id,
+    required this.email,
+    required this.nombres,
+    required this.apellidos,
+    required this.isUsed,
+    required this.createdAt,
+    required this.expiresAt,
+    required this.revokedAt,
+    required this.estado,
+  });
+
+  String get nombreCompleto {
+    final n = '$nombres $apellidos'.trim();
+    return n.isEmpty ? email : n;
+  }
+
+  factory InvitacionListada.fromJson(Map<String, dynamic> json) {
+    return InvitacionListada(
+      id: (json['id'] as String?) ?? '',
+      email: (json['email'] as String?) ?? '',
+      nombres: (json['nombres'] as String?) ?? '',
+      apellidos: (json['apellidos'] as String?) ?? '',
+      isUsed: (json['isUsed'] as bool?) ?? false,
+      createdAt: (json['createdAt'] as String?) ?? '',
+      expiresAt: (json['expiresAt'] as String?) ?? '',
+      revokedAt: json['revokedAt'] as String?,
+      estado: EstadoInvitacion.desde(json['estado'] as String?),
+    );
+  }
+}

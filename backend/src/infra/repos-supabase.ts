@@ -46,6 +46,7 @@ import type {
   PuertaCurriculo,
   PuertaInscripciones,
   PuertaInvitacionesDocente,
+  PuertaRecuperacionPassword,
   PuertaModulos,
   PuertaParametros,
   PuertaPerfiles,
@@ -94,6 +95,7 @@ import {
   type Aula,
   type CambiosModulo,
   type CampoInscripcion,
+  type CodigoRecuperacion,
   type ClaseCuadrante,
   type DetallePrograma,
   type DocenteResumen,
@@ -285,6 +287,21 @@ function aInvitacion(fila: Fila): InvitacionDocente {
     isUsed: booleano(fila.is_used, false),
     createdAt: textoObligatorio(fila.created_at),
     expiresAt: textoObligatorio(fila.expires_at),
+    revokedAt: texto(fila.revoked_at),
+  };
+}
+
+/** Fila de `password_resets` -> modelo de dominio. */
+function aCodigoRecuperacion(fila: Fila): CodigoRecuperacion {
+  return {
+    id: textoObligatorio(fila.id),
+    userId: textoObligatorio(fila.user_id),
+    codeHash: textoObligatorio(fila.code_hash),
+    createdBy: texto(fila.created_by),
+    createdAt: textoObligatorio(fila.created_at),
+    expiresAt: textoObligatorio(fila.expires_at),
+    usedAt: texto(fila.used_at),
+    revokedAt: texto(fila.revoked_at),
   };
 }
 
@@ -869,6 +886,7 @@ const TABLA_MODULOS = 'system_modules';
 const TABLA_PARAMETROS = 'system_settings';
 const TABLA_AUDITORIA = 'config_audit_log';
 const TABLA_INVITACIONES = 'teacher_invitations';
+const TABLA_RECUPERACION = 'password_resets';
 const TABLA_ACCESO = 'auth_logs';
 const TABLA_PROGRAMAS = 'programs';
 const TABLA_MATERIAS = 'subjects';
@@ -1146,59 +1164,53 @@ class PerfilesSupabase implements PuertaPerfiles {
   }
 
   async listar(opciones: OpcionesListadoUsuarios): Promise<PaginaUsuarios> {
-    // El total se pide PRIMERO, y no es un lujo: es lo que hace que la petición
-    // de la página nunca salga de rango. PostgREST responde 416 («Requested
-    // range not satisfiable») cuando el `range()` empieza más allá de la última
-    // fila, y **en ese caso no devuelve ni `data` ni `count`** — comprobado
-    // contra la base real. Sin el total por adelantado, un `?desplazamiento=…`
-    // que se pase un día (o la página que un cliente tenga cacheada cuando otra
-    // persona borra usuarios) saldría como `500` con la petición siendo
-    // perfectamente válida.
+    // **El recuento y la página se piden EN PARALELO.** Son dos lecturas
+    // independientes con los mismos filtros, y encadenarlas sumaba dos latencias
+    // de PostgREST —~190 ms cada una— a la apertura del panel. Medido el
+    // 2026-10-09: `GET /api/v1/admin/usuarios` tardaba 1.462 ms con tres viajes
+    // en serie (perfil del hook + recuento + página).
     //
-    // Es una consulta `head: true` más por pantalla. Se acepta a cambio de que
-    // «pedir una página de más» sea una página vacía y no un error.
-    const total = await this.contarUsuarios(opciones);
-
-    // Si el desplazamiento ya se pasó del final, no hay nada que pedir: una
-    // página vacía con el total correcto es la respuesta. Se resuelve sin ir a
-    // la base, porque pedirla sería justo lo que provoca el 416.
-    if (opciones.desplazamiento >= total) {
-      return { usuarios: [], total };
-    }
-
+    // El `range()` ya **no** se recorta contra `total`, porque el total todavía
+    // no se conoce. Eso no cambia la respuesta: PostgREST devuelve las filas que
+    // existan aunque el final del rango se pase, y sólo responde 416 («Requested
+    // range not satisfiable») si el **inicio** queda más allá de la última fila
+    // —y en ese caso no devuelve ni `data` ni `count`, comprobado contra la base
+    // real—. Ese caso sigue tratándose abajo igual: página vacía con el total.
+    //
     // Orden estable y con sentido para una lista de personas. El `id` desempata
     // apellidos idénticos: sin él, dos homónimos podrían intercambiar posiciones
     // entre páginas y uno saldría dos veces mientras el otro no aparece. El
     // orden lo aplica la base con SU colación (`en_US.UTF-8` en la nube, que
     // ordena «Administradora» antes que «Aguilar»), no el cliente.
-    //
-    // El `min` del final recorta la última página: si quedan 3 filas y se piden
-    // 25, el rango termina en la última que existe y no más allá. Pedir 24
-    // filas de más no es peligroso, pero sí innecesario, y deja el rango dentro
-    // de los límites que la base conoce.
-    const respuesta = await this.consultaDeUsuarios(opciones)
-      .order('apellidos', { ascending: true })
-      .order('nombres', { ascending: true })
-      .order('id', { ascending: true })
-      .range(
-        opciones.desplazamiento,
-        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
-      );
+    const [total, pagina] = await Promise.all([
+      this.contarUsuarios(opciones),
+      this.consultaDeUsuarios(opciones)
+        .order('apellidos', { ascending: true })
+        .order('nombres', { ascending: true })
+        .order('id', { ascending: true })
+        .range(opciones.desplazamiento, opciones.desplazamiento + opciones.limite - 1),
+    ]);
 
-    if (respuesta.error) {
-      // Defensa en profundidad. Con el total pedido por adelantado el rango no
-      // debería salirse nunca, pero entre el recuento y la página hay una
-      // ventana: si otra persona borra usuarios en ese hueco, el `range()`
-      // puede quedar fuera otra vez. Degradar a página vacía es mejor que un
-      // `500` por una carrera que el administrador no puede ni entender.
-      if (esRangoNoSatisfacible(respuesta.error)) {
-        return { usuarios: [], total: await this.contarUsuarios(opciones) };
-      }
-
-      throw traducirError(respuesta.error, 'listar usuarios');
+    // Un desplazamiento más allá del final es una página vacía, no un error: la
+    // consulta de la página habría respondido 416 y no hay filas que pintar.
+    if (opciones.desplazamiento >= total) {
+      return { usuarios: [], total };
     }
 
-    const filas = (respuesta.data ?? []) as Fila[];
+    if (pagina.error) {
+      // Defensa en profundidad. Con el rango sin recortar, la única forma de
+      // salirse es que el desplazamiento quede más allá del final —incluida la
+      // carrera de que otra persona borre usuarios entre las dos lecturas—.
+      // Degradar a página vacía es mejor que un `500` por una carrera que el
+      // administrador no puede ni entender.
+      if (esRangoNoSatisfacible(pagina.error)) {
+        return { usuarios: [], total };
+      }
+
+      throw traducirError(pagina.error, 'listar usuarios');
+    }
+
+    const filas = (pagina.data ?? []) as Fila[];
 
     return { usuarios: filas.map(aPerfil), total };
   }
@@ -1438,13 +1450,68 @@ class InvitacionesSupabase implements PuertaInvitacionesDocente {
     return aInvitacion(respuesta.data as Fila);
   }
 
-  async marcarUsada(id: string): Promise<void> {
+  async porId(id: string): Promise<InvitacionDocente | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_INVITACIONES)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer invitación');
+    if (!respuesta.data) return null;
+    return aInvitacion(respuesta.data as Fila);
+  }
+
+  /**
+   * Consumo atómico. El `select('id')` es la pieza que hace que esto sea una
+   * reclamación y no un `update` a ciegas: PostgREST devuelve **sólo las filas
+   * que el filtro dejó tocar**, así que un array vacío significa «otro llegó
+   * antes» y no «se actualizó algo».
+   */
+  async consumirSiValida(id: string): Promise<boolean> {
     const respuesta = await this.cliente
       .from(TABLA_INVITACIONES)
       .update({ is_used: true })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('is_used', false)
+      .is('revoked_at', null)
+      .select('id');
 
-    if (respuesta.error) throw traducirError(respuesta.error, 'marcar invitación usada');
+    if (respuesta.error) throw traducirError(respuesta.error, 'consumir invitación');
+    return (respuesta.data?.length ?? 0) > 0;
+  }
+
+  async liberar(id: string): Promise<void> {
+    const respuesta = await this.cliente
+      .from(TABLA_INVITACIONES)
+      .update({ is_used: false })
+      .eq('id', id)
+      .is('revoked_at', null);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'liberar invitación');
+  }
+
+  async revocar(id: string, porUsuarioId: string | null): Promise<boolean> {
+    const respuesta = await this.cliente
+      .from(TABLA_INVITACIONES)
+      .update({ revoked_at: new Date().toISOString(), revoked_by: porUsuarioId })
+      .eq('id', id)
+      .is('revoked_at', null)
+      .select('id');
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'revocar invitación');
+    return (respuesta.data?.length ?? 0) > 0;
+  }
+
+  async listar(opciones: { limite: number }): Promise<InvitacionDocente[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_INVITACIONES)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(opciones.limite);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'listar invitaciones');
+    return (respuesta.data ?? []).map((f) => aInvitacion(f as Fila));
   }
 
   async crearUsuarioDocente(
@@ -1485,6 +1552,125 @@ class InvitacionesSupabase implements PuertaInvitacionesDocente {
   }
 }
 
+class RecuperacionSupabase implements PuertaRecuperacionPassword {
+  constructor(private readonly cliente: SupabaseClient) {}
+
+  /**
+   * Emite un código nuevo. **Primero anula los que siguieran vivos** para que
+   * nunca haya dos códigos válidos para la misma cuenta: si el administrador
+   * emite uno nuevo porque el anterior se perdió, el perdido deja de servir en
+   * el mismo instante.
+   */
+  async emitir(entrada: {
+    userId: string;
+    codeHash: string;
+    expiresAt: string;
+    createdBy: string | null;
+  }): Promise<CodigoRecuperacion> {
+    const revocacion = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('user_id', entrada.userId)
+      .is('used_at', null)
+      .is('revoked_at', null);
+
+    if (revocacion.error) throw traducirError(revocacion.error, 'anular códigos previos');
+
+    const respuesta = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .insert({
+        user_id: entrada.userId,
+        code_hash: entrada.codeHash,
+        created_by: entrada.createdBy,
+        expires_at: entrada.expiresAt,
+      })
+      .select('*')
+      .single();
+
+    return aCodigoRecuperacion(desenvolver(respuesta, 'emitir código de recuperación') as Fila);
+  }
+
+  async porCodeHash(codeHash: string): Promise<CodigoRecuperacion | null> {
+    const respuesta = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .select('*')
+      .eq('code_hash', codeHash)
+      .maybeSingle();
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'leer código de recuperación');
+    if (!respuesta.data) return null;
+    return aCodigoRecuperacion(respuesta.data as Fila);
+  }
+
+  /** Canje atómico: sólo gana quien consigue que el `update` toque la fila. */
+  async consumirSiValido(id: string): Promise<boolean> {
+    const respuesta = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('used_at', null)
+      .is('revoked_at', null)
+      .select('id');
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'canjear código de recuperación');
+    return (respuesta.data?.length ?? 0) > 0;
+  }
+
+  async liberar(id: string): Promise<void> {
+    const respuesta = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .update({ used_at: null })
+      .eq('id', id)
+      .is('revoked_at', null);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'liberar código de recuperación');
+  }
+
+  async listarPorUsuario(userId: string, limite: number): Promise<CodigoRecuperacion[]> {
+    const respuesta = await this.cliente
+      .from(TABLA_RECUPERACION)
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limite);
+
+    if (respuesta.error) throw traducirError(respuesta.error, 'listar códigos de recuperación');
+    return (respuesta.data ?? []).map((f) => aCodigoRecuperacion(f as Fila));
+  }
+
+  /**
+   * Fija la contraseña contra GoTrue con el cliente de service_role.
+   *
+   * No se registra la contraseña en ningún sitio —ni en logs ni en auditoría—:
+   * viaja del formulario al proveedor de identidad y se olvida.
+   */
+  async cambiarPassword(userId: string, password: string): Promise<void> {
+    const { error } = await this.cliente.auth.admin.updateUserById(userId, { password });
+
+    if (error) {
+      throw ErrorApi.interno(`No se pudo fijar la contraseña: ${error.message}`);
+    }
+  }
+
+  /**
+   * Cierra las sesiones del usuario invocando la función SQL
+   * `revocar_sesiones_usuario` (security definer, EXECUTE sólo para
+   * service_role). Cambiar la contraseña no invalida por sí solo los refresh
+   * tokens ya emitidos, así que sin esto una sesión robada seguiría dentro.
+   */
+  async revocarSesiones(userId: string): Promise<number> {
+    const { data, error } = await this.cliente.rpc('revocar_sesiones_usuario', {
+      p_user_id: userId,
+    });
+
+    if (error) {
+      throw ErrorApi.interno(`No se pudieron revocar las sesiones: ${error.message}`);
+    }
+
+    return typeof data === 'number' ? data : 0;
+  }
+}
+
 class AuditoriaAccesoSupabase implements PuertaAuditoriaAcceso {
   constructor(private readonly cliente: SupabaseClient) {}
 
@@ -1505,32 +1691,23 @@ class AuditoriaAccesoSupabase implements PuertaAuditoriaAcceso {
   }
 
   async listar(opciones: OpcionesListadoAcceso): Promise<PaginaAcceso> {
-    // El total se pide PRIMERO, igual que en `PerfilesSupabase.listar`: evita el
-    // 416 de PostgREST cuando el `range()` empieza más allá de la última fila, y
-    // permite que el panel pinte «1 a 25 de 340» sin una consulta adicional.
-    const total = await this.contar(opciones);
+    // El recuento y la página son lecturas independientes con filtros idénticos.
+    // Ejecutarlos en paralelo reduce un viaje secuencial a PostgREST.
+    let pagina = this.cliente.from(TABLA_ACCESO).select('*');
+    if (opciones.estado) pagina = pagina.eq('estado', opciones.estado);
+    if (opciones.email) pagina = pagina.eq('email', opciones.email);
+    if (opciones.userId) pagina = pagina.eq('user_id', opciones.userId);
 
-    // Si el desplazamiento ya se pasó del final, página vacía con el total
-    // correcto. Pedir la página de todos modos provocaría el 416.
-    if (opciones.desplazamiento >= total) {
-      return { entradas: [], total };
-    }
+    const [total, respuesta] = await Promise.all([
+      this.contar(opciones),
+      pagina
+        .order('created_at', { ascending: false })
+        .range(opciones.desplazamiento, opciones.desplazamiento + opciones.limite - 1),
+    ]);
 
-    let consulta = this.cliente.from(TABLA_ACCESO).select('*');
-    if (opciones.estado) consulta = consulta.eq('estado', opciones.estado);
-    if (opciones.email) consulta = consulta.eq('email', opciones.email);
-    if (opciones.userId) consulta = consulta.eq('user_id', opciones.userId);
-
-    const respuesta = await consulta
-      .order('created_at', { ascending: false })
-      .range(
-        opciones.desplazamiento,
-        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
-      );
+    if (opciones.desplazamiento >= total) return { entradas: [], total };
 
     if (respuesta.error) {
-      // Defensa en profundidad ante una carrera que deje el rango fuera tras el
-      // recuento: mejor página vacía que un 500 por una petición válida.
       if (esRangoNoSatisfacible(respuesta.error)) {
         return { entradas: [], total: await this.contar(opciones) };
       }
@@ -1579,25 +1756,20 @@ class CurriculoSupabase implements PuertaCurriculo {
   // --- Programas ------------------------------------------------------------
 
   async listarProgramas(opciones: OpcionesListadoProgramas): Promise<PaginaProgramas> {
-    // El total primero, como en `PerfilesSupabase.listar`: es lo que permite
-    // recortar el rango y no llegar nunca al 416 de PostgREST, y lo que deja
-    // que la pantalla diga «1 a 25 de 12».
-    const total = await this.contarProgramas(opciones);
+    // El recuento y la página aplican los mismos filtros, pero son independientes:
+    // pedirlos en paralelo evita sumar dos viajes a PostgREST. Si el desplazamiento
+    // cae fuera del total, se conserva la respuesta contractual de página vacía.
+    const [total, respuesta] = await Promise.all([
+      this.contarProgramas(opciones),
+      this.consultaDeProgramas(opciones)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(opciones.desplazamiento, opciones.desplazamiento + opciones.limite - 1),
+    ]);
 
-    if (opciones.desplazamiento >= total) {
-      return { programas: [], total };
-    }
-
-    const respuesta = await this.consultaDeProgramas(opciones)
-      .order('name', { ascending: true })
-      .order('id', { ascending: true })
-      .range(
-        opciones.desplazamiento,
-        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
-      );
+    if (opciones.desplazamiento >= total) return { programas: [], total };
 
     if (respuesta.error) {
-      // Defensa en profundidad ante una carrera entre el recuento y la página.
       if (esRangoNoSatisfacible(respuesta.error)) {
         return { programas: [], total: await this.contarProgramas(opciones) };
       }
@@ -1975,25 +2147,19 @@ class CuadranteSupabase implements PuertaCuadrante {
   // --- Aulas ----------------------------------------------------------------
 
   async listarAulas(opciones: OpcionesListadoAulas): Promise<PaginaAulas> {
-    // El total primero, como en todo el proyecto: es lo que permite recortar el
-    // rango y no llegar nunca al 416 de PostgREST, y lo que deja que la pantalla
-    // diga «1 a 25 de 9» sin una consulta de más.
-    const total = await this.contarAulas(opciones);
+    // Recuento y página no dependen uno del otro; se ejecutan en paralelo.
+    // Se mantiene el contrato de página vacía si el desplazamiento supera el total.
+    const [total, respuesta] = await Promise.all([
+      this.contarAulas(opciones),
+      this.consultaDeAulas(opciones)
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(opciones.desplazamiento, opciones.desplazamiento + opciones.limite - 1),
+    ]);
 
-    if (opciones.desplazamiento >= total) {
-      return { aulas: [], total };
-    }
-
-    const respuesta = await this.consultaDeAulas(opciones)
-      .order('name', { ascending: true })
-      .order('id', { ascending: true })
-      .range(
-        opciones.desplazamiento,
-        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
-      );
+    if (opciones.desplazamiento >= total) return { aulas: [], total };
 
     if (respuesta.error) {
-      // Defensa en profundidad ante una carrera entre el recuento y la página.
       if (esRangoNoSatisfacible(respuesta.error)) {
         return { aulas: [], total: await this.contarAulas(opciones) };
       }
@@ -2326,13 +2492,10 @@ class CuadranteSupabase implements PuertaCuadrante {
   // --- Cuadrante ------------------------------------------------------------
 
   async rejilla(opciones: OpcionesRejilla): Promise<RejillaCuadrante> {
-    const periodo = opciones.periodo ?? (await this.leerPeriodoVigente());
-
-    // Las aulas y los docentes no dependen del lapso, así que se piden siempre
-    // —también cuando no hay ninguno vigente—. Con eso la pantalla puede mostrar
-    // el catálogo y decir «no hay lapso vigente» en vez de quedarse en blanco,
-    // que es indistinguible de «no hay nada configurado».
-    const [aulas, docentes] = await Promise.all([
+    // El período, el catálogo de aulas y la lista de docentes son lecturas
+    // independientes. Leer el período primero añadía un viaje secuencial innecesario.
+    const [periodo, aulas, docentes] = await Promise.all([
+      opciones.periodo ?? this.leerPeriodoVigente(),
       this.listarTodasLasAulas(),
       this.listarDocentes(),
     ]);
@@ -2348,7 +2511,6 @@ class CuadranteSupabase implements PuertaCuadrante {
 
     return { periodo, clases, guardias, aulas, docentes };
   }
-
   private async clasesDeRejilla(
     periodo: string,
     opciones: OpcionesRejilla,
@@ -2511,32 +2673,43 @@ class CuadranteSupabase implements PuertaCuadrante {
 
     if (rol === 'docente') consultaClases = consultaClases.eq('teacher_id', usuarioId);
 
-    const clases = (
-      desenvolver(
-        await consultaClases.order('day_of_week').order('block').order('id'),
-        'leer el horario de clases',
-      ) as Fila[]
-    ).map(aClaseCuadrante);
+    const consultaOrdenadaClases = consultaClases
+      .order('day_of_week')
+      .order('block')
+      .order('id');
 
     // Un estudiante no tiene guardias: `teacher_duties` no tiene política para su
     // rol, así que la consulta devolvería cero filas de todos modos. Se responde
     // sin ir a la base para que «siempre vacío» sea una decisión del contrato y
     // no una consecuencia de la RLS.
     if (rol === 'estudiante') {
+      const clases = (
+        desenvolver(await consultaOrdenadaClases, 'leer el horario de clases') as Fila[]
+      ).map(aClaseCuadrante);
       return { rol, periodo: lapso, clases, guardias: [] };
     }
 
-    const respuesta = await this.cliente
-      .from(TABLA_GUARDIAS)
-      .select(COLUMNAS_GUARDIA)
-      .eq('period_code', lapso)
-      .eq('teacher_id', usuarioId)
-      .order('day_of_week')
-      .order('block')
-      .order('id');
+    // Para el docente, clases y guardias son lecturas independientes del mismo
+    // lapso. Ejecutarlas en paralelo evita sumar ambas latencias de PostgREST a
+    // la de leer el período vigente. La autorización/RLS y las proyecciones no
+    // cambian; sólo se elimina la espera secuencial entre las dos lecturas.
+    const [respuestaClases, respuestaGuardias] = await Promise.all([
+      consultaOrdenadaClases,
+      this.cliente
+        .from(TABLA_GUARDIAS)
+        .select(COLUMNAS_GUARDIA)
+        .eq('period_code', lapso)
+        .eq('teacher_id', usuarioId)
+        .order('day_of_week')
+        .order('block')
+        .order('id'),
+    ]);
 
+    const clases = (
+      desenvolver(respuestaClases, 'leer el horario de clases') as Fila[]
+    ).map(aClaseCuadrante);
     const guardias = (
-      desenvolver(respuesta, 'leer el horario de guardias') as Fila[]
+      desenvolver(respuestaGuardias, 'leer el horario de guardias') as Fila[]
     ).map(aGuardia);
 
     return { rol, periodo: lapso, clases, guardias };
@@ -2804,22 +2977,29 @@ class InscripcionesSupabase implements PuertaInscripciones {
     opciones: OpcionesListadoOfertas,
     soloActivas: boolean,
   ): Promise<PaginaOcupacion> {
-    const total = await this.contarOcupacion(opciones, soloActivas);
+    // Mismo criterio que `PerfilesSupabase.listar`: el recuento y la página son
+    // dos lecturas independientes con los mismos filtros, así que se piden en
+    // paralelo en vez de encadenarlas. Medido el 2026-10-09: `GET
+    // /api/v1/admin/ocupacion` tardaba 992 ms con los viajes en serie.
+    //
+    // El `range()` no se recorta contra `total` (todavía no se conoce); ver la
+    // nota larga en `PerfilesSupabase.listar`: PostgREST sólo responde 416 si el
+    // INICIO del rango queda más allá de la última fila, y ese caso se trata
+    // abajo igual —página vacía con el total—.
+    const [total, respuesta] = await Promise.all([
+      this.contarOcupacion(opciones, soloActivas),
+      this.consultaDeOcupacion(opciones, soloActivas)
+        .order('period_code', { ascending: false })
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(opciones.desplazamiento, opciones.desplazamiento + opciones.limite - 1),
+    ]);
 
     if (opciones.desplazamiento >= total) return { secciones: [], total };
 
-    const respuesta = await this.consultaDeOcupacion(opciones, soloActivas)
-      .order('period_code', { ascending: false })
-      .order('name', { ascending: true })
-      .order('id', { ascending: true })
-      .range(
-        opciones.desplazamiento,
-        Math.min(opciones.desplazamiento + opciones.limite - 1, total - 1),
-      );
-
     if (respuesta.error) {
       if (esRangoNoSatisfacible(respuesta.error)) {
-        return { secciones: [], total: await this.contarOcupacion(opciones, soloActivas) };
+        return { secciones: [], total };
       }
       throw traducirError(respuesta.error, 'listar la ocupación de las secciones');
     }
@@ -2968,28 +3148,37 @@ class InscripcionesSupabase implements PuertaInscripciones {
 
     const seccionIds = [...new Set(inscripciones.map((i) => i.seccionId))];
 
-    const seccionesRespuesta = await this.cliente
-      .from(TABLA_SECCIONES)
-      .select('id,program_id,subject_id,period_code,name')
-      .in('id', seccionIds);
+    // **Las tres lecturas independientes van en paralelo.** Sólo `resolverNombres`
+    // necesita el resultado de las secciones; la cola y los estudiantes no
+    // dependen de nada. Encadenadas eran cuatro viajes a PostgREST en serie
+    // —~190 ms cada uno— y `GET /admin/secciones/:id/inscripciones` tardaba
+    // 1.349 ms (medido el 2026-10-09). En paralelo quedan dos esperas.
+    const [seccionesRespuesta, colaRespuesta, estudiantes] = await Promise.all([
+      this.cliente
+        .from(TABLA_SECCIONES)
+        .select('id,program_id,subject_id,period_code,name')
+        .in('id', seccionIds),
+      // La posición en la cola se calcula contra la cola COMPLETA de cada sección,
+      // no contra el subconjunto recibido: si se calculara sobre lo recibido, la
+      // pantalla de un estudiante le diría que es el primero de la cola aunque
+      // haya veinte delante.
+      this.cliente
+        .from(TABLA_INSCRIPCIONES)
+        .select('id,section_id')
+        .in('section_id', seccionIds)
+        .eq('status', 'WAITLISTED')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }),
+      conEstudiante
+        ? this.resolverEstudiantes(inscripciones.map((i) => i.estudianteId))
+        : Promise.resolve(new Map<string, { nombre: string; email: string | null }>()),
+    ]);
 
     const secciones = new Map(
       (desenvolver(seccionesRespuesta, 'leer las secciones de las inscripciones') as Fila[]).map(
         (fila) => [textoObligatorio(fila.id), fila],
       ),
     );
-
-    // La posición en la cola se calcula contra la cola COMPLETA de cada sección,
-    // no contra el subconjunto recibido: si se calculara sobre lo recibido, la
-    // pantalla de un estudiante le diría que es el primero de la cola aunque haya
-    // veinte delante.
-    const colaRespuesta = await this.cliente
-      .from(TABLA_INSCRIPCIONES)
-      .select('id,section_id')
-      .in('section_id', seccionIds)
-      .eq('status', 'WAITLISTED')
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true });
 
     const cola = desenvolver(colaRespuesta, 'leer las colas de las secciones') as Fila[];
     const posiciones = new Map<string, number>();
@@ -3008,9 +3197,8 @@ class InscripcionesSupabase implements PuertaInscripciones {
       })),
     );
 
-    const estudiantes = conEstudiante
-      ? await this.resolverEstudiantes(inscripciones.map((i) => i.estudianteId))
-      : new Map<string, { nombre: string; email: string | null }>();
+    // `estudiantes` ya se leyó en el `Promise.all` de arriba, junto a las
+    // secciones y la cola.
 
     return inscripciones.map((inscripcion) => {
       const seccion = secciones.get(inscripcion.seccionId);
@@ -4063,6 +4251,7 @@ export function crearRepositorios(cliente: SupabaseClient): Repositorios {
     parametros: new ParametrosSupabase(cliente),
     auditoria: new AuditoriaSupabase(cliente),
     invitaciones: new InvitacionesSupabase(cliente),
+    recuperacion: new RecuperacionSupabase(cliente),
     acceso: new AuditoriaAccesoSupabase(cliente),
     curriculo: new CurriculoSupabase(cliente),
     cuadrante: new CuadranteSupabase(cliente),

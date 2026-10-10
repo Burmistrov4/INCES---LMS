@@ -88,10 +88,37 @@ export interface InvitacionDocente {
   createdAt: string;
   /** Instante ISO tras el cual la invitación ya no sirve (48 h desde su creación). */
   expiresAt: string;
+  /**
+   * Instante ISO en que el administrador la anuló, o `null` si sigue vigente.
+   *
+   * Revocar **no borra** la fila: el administrador necesita ver «revocada» en el
+   * panel y el sistema necesita la traza de que esa invitación existió.
+   */
+  revokedAt: string | null;
 }
 
 /** Resultado de comprobar si una invitación sigue usable. */
-export type EstadoInvitacion = 'valida' | 'usada' | 'expirada';
+export type EstadoInvitacion = 'valida' | 'usada' | 'expirada' | 'revocada';
+
+/**
+ * Código temporal de restablecimiento de contraseña (recuperación interna).
+ *
+ * El código en claro **nunca** se guarda: sólo su SHA-256. Tampoco se guarda la
+ * contraseña en ninguna parte; la fija el backend contra el proveedor de
+ * identidad y se olvida.
+ */
+export interface CodigoRecuperacion {
+  id: string;
+  userId: string;
+  /** SHA-256 del código. */
+  codeHash: string;
+  /** Perfil del administrador que lo emitió (auditoría mínima). */
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+}
 
 export type EstadoAcceso = 'SUCCESS' | 'FAILED';
 

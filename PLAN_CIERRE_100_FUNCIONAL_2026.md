@@ -1,6 +1,8 @@
 # PLAN DE CIERRE 100% FUNCIONAL — INCES LMS
 ## Documento operativo para ARIA / Work Buddy
 
+> **DECISIÓN VIGENTE DE PRODUCTO — 2026-10-09:** tanto la recuperación de contraseñas como la invitación/activación docente deben funcionar sin Resend, SMTP, correo externo ni SMS. Los apartados históricos que mencionan reparar Resend para cerrar recovery/invitaciones quedan supersedidos como estrategia principal; consérvalos como evidencia histórica, pero no los ejecutes como requisito previo. Implementar flujos internos seguros, con verificación de identidad, tokens de un solo uso almacenados como hash, caducidad/revocación, autorización backend, auditoría y E2E real. El correo externo queda como canal opcional de notificaciones. Ver el megaprompt operativo `PROMPT_MAESTRO_CONTINUACION_CIERRE_INTEGRAL_2026-10-09.md`.
+
 **Regla principal:** NO iniciar Android ni el rediseño visual final hasta cerrar funcionalidad, seguridad, producción, resiliencia y pruebas E2E.
 
 **Objetivo:** llevar INCES LMS desde “funciona por módulos” a “todos los flujos institucionales funcionan de punta a punta, con evidencia reproducible”.

@@ -91,30 +91,46 @@ export class AulaVirtualPage {
   private readonly page: Page;
 
   /**
-   * Entra a «Mis aulas» y espera la respuesta del listado.
+   * Entra a «Mis aulas» y espera la respuesta o la tarjeta ya montada.
    *
    * El listener se registra **antes** de pulsar: si se registra después, una
    * respuesta rápida llega antes que él y la espera se agota sin que nada esté
    * mal —un fallo que apunta al menú cuando el problema es el orden de dos
    * líneas—.
    */
-  async irAMisAulas(): Promise<Response | null> {
+  async irAMisAulas(seccion?: string): Promise<Response | null> {
+    // Si el login ya dejó el listado montado, no pulses el elemento seleccionado
+    // ni esperes una petición que no va a repetirse. Este caso se observó en la
+    // medición de rendimiento: la API había respondido, pero el helper esperaba
+    // 30 s porque la respuesta ocurrió antes de registrar el listener.
+    if (seccion && (await this.cuantos(seccion)) > 0) return null;
+
     const respuesta = this.page.waitForResponse((r) => r.url().includes(RUTA_LISTADO), {
       timeout: 30_000,
     });
     await this.app.pulsar('Mis aulas');
 
     try {
-      return await respuesta;
+      if (!seccion) return await respuesta;
+
+      // Con sección conocida, cualquiera de estas señales es suficiente: la
+      // respuesta de red confirma la consulta, y la tarjeta confirma que el
+      // panel ya está usable. Así no se paga el timeout completo si el listado
+      // ya se cargó durante el login.
+      const tarjeta = expect
+        .poll(async () => await this.cuantos(seccion), {
+          timeout: 30_000,
+          message: `la tarjeta «${seccion}» no apareció en «Mis aulas».\\n${await this.diagnostico()}`,
+        })
+        .toBeGreaterThan(0)
+        .then(() => null);
+      return await Promise.race([respuesta, tarjeta]);
     } catch (error) {
-      // Tras un login con la señal «Mis aulas», Flutter puede dejar la pantalla
-      // ya montada y no emitir otra petición al pulsar el elemento que ya está
-      // seleccionado. En ese caso no hay una respuesta nueva que esperar; la
-      // prueba de navegación real ocurre inmediatamente después en abrirAula,
-      // que exige que la tarjeta de la sección exista y no sólo que el menú diga
-      // «Mis aulas». No ocultamos otros fallos: si no hay ningún rastro del panel,
-      // se vuelve a lanzar el timeout original.
-      const panelMontado = (await this.cuantos('Mis aulas')) > 0;
+      // Sin sección conocida conservamos la señal histórica del menú; con sección
+      // conocida, sólo se acepta el fallback si la tarjeta real está montada.
+      const panelMontado = seccion
+        ? (await this.cuantos(seccion)) > 0
+        : (await this.cuantos('Mis aulas')) > 0;
       if (panelMontado) return null;
       throw error;
     }

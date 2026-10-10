@@ -41,6 +41,21 @@ export class ErrorApi extends Error {
   }
 
   /**
+   * Demasiados intentos en poco tiempo.
+   *
+   * **429 y no 401 ni 404**, y la diferencia es de diagnóstico: un 401 dice «tu
+   * credencial no sirve» y un 404 «eso no existe»; los dos invitan a seguir
+   * probando. Un 429 dice «deja de probar», que es exactamente lo que hay que
+   * comunicar a quien está haciendo fuerza bruta contra un código temporal. El
+   * mensaje es genérico a propósito: no revela si el intento acertó.
+   */
+  static demasiadasPeticiones(
+    mensaje = 'Demasiados intentos seguidos. Espera unos minutos e inténtalo de nuevo.',
+  ) {
+    return new ErrorApi(429, 'DEMASIADOS_INTENTOS', mensaje);
+  }
+
+  /**
    * El archivo pesa más de lo permitido.
    *
    * **413 y no 400**, y la distinción es la razón de que esta fábrica exista: la

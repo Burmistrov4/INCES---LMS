@@ -297,7 +297,7 @@ console.log('\n  4. Semillas del cPanel\n');
 const modulos = await consultar(
   'select clave, habilitado, orden from public.system_modules order by orden;',
 );
-comprobar('módulos sembrados', modulos.length === 11, `${modulos.length} filas`);
+comprobar('módulos sembrados', modulos.length === 10, `${modulos.length} filas`);
 comprobar(
   'm0_cpanel arranca habilitado',
   modulos.some((m) => m.clave === 'm0_cpanel' && m.habilitado === true),
@@ -327,7 +327,7 @@ const habilitados = modulos
   .map((m) => m.clave)
   .sort();
 comprobar(
-  'm0…m7 habilitados; apagados sólo m6_asistencia, m7_calificaciones y m8_pasantias',
+  'm0…m7 habilitados; apagados sólo m7_calificaciones y m8_pasantias',
   JSON.stringify(habilitados) ===
     JSON.stringify([
       'm0_cpanel',
@@ -340,15 +340,15 @@ comprobar(
       'm7_asistencia',
     ]) &&
     // La lista de APAGADOS es explícita, no un `m[7-8]_` por expresión regular.
-    // La regular daba por hecho que todo lo apagado era M7 o M8, y `m6_asistencia`
-    // —reservado por la semilla para la asistencia, todavía sin construir— la
-    // rompió en cuanto el control se corrió contra una nube al día.
+    // El placeholder histórico `m6_asistencia` se retira en la migración
+    // `202610080001`; la asistencia funcional vive en `m7_asistencia`. Este control
+    // valida el catálogo definitivo, sin exigir el placeholder ya retirado.
     JSON.stringify(
       modulos
         .filter((m) => !m.habilitado)
         .map((m) => m.clave)
         .sort(),
-    ) === JSON.stringify(['m6_asistencia', 'm7_calificaciones', 'm8_pasantias']),
+    ) === JSON.stringify(['m7_calificaciones', 'm8_pasantias']),
   `habilitados: ${habilitados.join(', ')}`,
 );
 const ajustes = await consultar('select count(*)::int as n from public.system_settings;');

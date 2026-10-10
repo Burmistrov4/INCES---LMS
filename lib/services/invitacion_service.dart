@@ -46,4 +46,37 @@ class BackendInvitacionGateway implements InvitacionGateway {
     );
     return ActivacionCuenta.fromJson(respuesta);
   }
+
+  @override
+  Future<List<InvitacionListada>> listarInvitaciones() async {
+    final respuesta = await _api.get(
+      '/api/v1/admin/usuarios/invitaciones',
+      token: _tokenSesion,
+    );
+    final crudas = respuesta['invitaciones'] as List<dynamic>? ?? const [];
+    return crudas
+        .whereType<Map<String, dynamic>>()
+        .map(InvitacionListada.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> revocarInvitacion(String id) async {
+    // **Sin `cuerpo`**: la ruta no lee body y mandar `{}` con
+    // `Content-Type: application/json` haría que Fastify respondiera 500
+    // (`FST_ERR_CTP_EMPTY_JSON_BODY`).
+    await _api.post(
+      '/api/v1/admin/usuarios/invitaciones/$id/revocar',
+      token: _tokenSesion,
+    );
+  }
+
+  @override
+  Future<InvitacionDocente> renovarInvitacion(String id) async {
+    final respuesta = await _api.post(
+      '/api/v1/admin/usuarios/invitaciones/$id/renovar',
+      token: _tokenSesion,
+    );
+    return InvitacionDocente.fromJson(respuesta);
+  }
 }

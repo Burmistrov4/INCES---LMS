@@ -117,85 +117,238 @@ class _LandingPageState extends State<LandingPage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _construirMarca(),
-                const SizedBox(height: 32),
-                Text(
-                  'Sistema de Gestión\nAcadémica',
-                  style: GoogleFonts.inter(
-                    fontSize: 40,
-                    height: 1.18,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: -0.8,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                // Acento rojo institucional: la misma franja que ya usa el
-                // panel de marca del login, para que la Landing y el acceso se
-                // lean como el mismo producto.
-                Container(
-                  width: 48,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: IncesTheme.rojoInces,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'CFS Nacional de Soldadura\n«Rafael Urdaneta»',
-                  style: GoogleFonts.inter(
-                    fontSize: 17,
-                    height: 1.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.95),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'INCES La Isabelica',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    color: Colors.white.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: 36),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 64),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final esEscritorio = constraints.maxWidth > 850;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    FilledButton.icon(
-                      onPressed: _irAInscripcion,
-                      icon: const Icon(Icons.assignment_outlined, size: 18),
-                      label: const Text('Inscribirse'),
-                      // Sobre el degradado azul, el botón primario del tema
-                      // (azul) se perdería. Se invierte: blanco con texto azul.
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: IncesTheme.azulPrimario,
+                    Expanded(
+                      flex: esEscritorio ? 6 : 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _construirMarca(),
+                          const SizedBox(height: 32),
+                          Text(
+                            'Formación Técnica y\nGestión Académica',
+                            style: GoogleFonts.inter(
+                              fontSize: esEscritorio ? 44 : 34,
+                              height: 1.15,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: -1.0,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          // Franja tricolor institucional estilizada
+                          Row(
+                            children: [
+                              Container(
+                                width: 28,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: IncesTheme.advertencia, // Oro institucional
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                width: 28,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: IncesTheme.azulSecundario,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                width: 28,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: IncesTheme.rojoInces,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'CFS Nacional de Soldadura «Rafael Urdaneta»',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              height: 1.4,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withValues(alpha: 0.95),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'INCES La Isabelica',
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withValues(alpha: 0.8),
+                            ),
+                          ),
+                          Text(
+                            'Carabobo, Venezuela',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.white.withValues(alpha: 0.65),
+                            ),
+                          ),
+                          const SizedBox(height: 36),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: _irAInscripcion,
+                                icon: const Icon(Icons.assignment_outlined, size: 18),
+                                label: const Text('Inscribirse'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: IncesTheme.azulPrimario,
+                                  elevation: 2,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 22,
+                                    vertical: 14,
+                                  ),
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: _irAlPortalAcademico,
+                                icon: const Icon(Icons.login, size: 18),
+                                label: const Text('Portal Académico'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                    width: 1.5,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _irAlPortalAcademico,
-                      icon: const Icon(Icons.login, size: 18),
-                      label: const Text('Portal Académico'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.6),
+                    if (esEscritorio) ...[
+                      const SizedBox(width: 32),
+                      Expanded(
+                        flex: 5,
+                        child: Center(
+                          child: _construirInsigniaIndustrial3D(),
                         ),
                       ),
-                    ),
+                    ],
                   ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _construirInsigniaIndustrial3D() {
+    return Container(
+      width: 340,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.22),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 30,
+            offset: const Offset(0, 15),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.25),
+                  Colors.white.withValues(alpha: 0.05),
+                ],
+              ),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.4),
+                width: 2,
+              ),
+            ),
+            child: const Icon(
+              Icons.precision_manufacturing_rounded,
+              color: Colors.white,
+              size: 42,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'CFS Soldadura Industrial',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Capacitación técnica productiva homologada bajo normas industriales.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: Colors.white.withValues(alpha: 0.8),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.verified_rounded,
+                  color: IncesTheme.advertencia,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Certificación INCES Valedera',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
               ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -245,8 +398,8 @@ class _LandingPageState extends State<LandingPage> {
     final pilares = [
       (
         icono: Icons.computer_outlined,
-        titulo: 'Aula Virtual Especializada',
-        modulo: 'Módulo 6',
+        titulo: 'Aula Virtual y Talleres Prácticos',
+        modulo: 'Formación',
         descripcion:
             'Tablón de clase interactivo, asignaciones técnicas de soldadura '
             'y calificaciones formativas continuas.',
@@ -254,7 +407,7 @@ class _LandingPageState extends State<LandingPage> {
       (
         icono: Icons.qr_code_scanner_rounded,
         titulo: 'Asistencia Segura con QR',
-        modulo: 'Módulo 7',
+        modulo: 'Talleres',
         descripcion:
             'Registro de presencialidad en talleres con códigos dinámicos efímeros '
             'y verificación presencial de guardias.',
@@ -262,15 +415,15 @@ class _LandingPageState extends State<LandingPage> {
       (
         icono: Icons.how_to_reg_outlined,
         titulo: 'Asignación Transparente de Cupos',
-        modulo: 'Módulo 4',
+        modulo: 'Admisión',
         descripcion:
             'Postulación en línea con asignación automática por orden de llegada (FIFO) '
             'y aforo controlado por taller.',
       ),
       (
         icono: Icons.cloud_done_outlined,
-        titulo: 'Almacenamiento Cloudflare R2',
-        modulo: 'Módulo 5',
+        titulo: 'Biblioteca Digital de Planos y Guías',
+        modulo: 'Recursos',
         descripcion:
             'Biblioteca de manuales técnicos, planos y guías de seguridad industrial '
             'disponibles 24/7 sin límite de transferencia.',
@@ -451,12 +604,12 @@ class _LandingPageState extends State<LandingPage> {
         ],
       ),
       (
-        rol: 'Coordinación y Administración',
+        rol: 'Coordinación y Dirección',
         icono: Icons.admin_panel_settings_outlined,
         ventajas: [
-          'Command Center con switches M0-M8',
-          'Programación del cuadrante y talleres',
-          'Trazabilidad y auditoría inmutable',
+          'Panel de control centralizado del centro',
+          'Planificación integral de horarios y talleres',
+          'Monitoreo en tiempo real y reportes oficiales',
         ],
       ),
     ];

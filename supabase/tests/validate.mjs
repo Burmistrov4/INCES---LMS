@@ -76,7 +76,7 @@ async function como(rol, sub, fn) {
 }
 
 async function aplicar(archivo) {
-  const sql = fs.readFileSync(archivo, 'utf8');
+  const sql = fs.readFileSync(archivo, 'utf8').replace(/^\uFEFF/, '');
   await db.exec(sql);
 }
 
@@ -120,10 +120,10 @@ async function main() {
   // que declara la migración (`202609260002`), no el número del nombre.
   const esperados = [
     'm0_cpanel', 'm7_asistencia', 'm1_onboarding', 'm2_curriculo', 'm3_cuadrante',
-    'm4_inscripciones', 'm5_archivos', 'm6_aula_virtual', 'm6_asistencia',
+    'm4_inscripciones', 'm5_archivos', 'm6_aula_virtual',
     'm7_calificaciones', 'm8_pasantias',
   ];
-  check('hay 11 módulos sembrados', modulos.length === 11, `hay ${modulos.length}`);
+  check('hay 10 módulos sembrados', modulos.length === 10, `hay ${modulos.length}`);
   check(
     'los códigos coinciden con el ROADMAP',
     JSON.stringify(modulos.map((m) => m.clave)) === JSON.stringify(esperados),
@@ -269,7 +269,7 @@ async function main() {
 
   // ------------------------------------------------------- 6. idempotencia
   seccion('6. Idempotencia de la semilla');
-  await db.exec("update public.system_modules set habilitado = false where clave = 'm6_asistencia'");
+  await db.exec("update public.system_modules set habilitado = false where clave = 'm2_curriculo'");
   // La semilla de 202609120002 fija periodo_activo = '2026-1' de forma literal.
   // Tras la migración 202609180003 ese lapso se renombró a 'SA26-2' y ya no
   // existe en academic_periods, así que reaplicar la semilla tal cual dispara la
@@ -284,10 +284,11 @@ async function main() {
     .split('-- 11.')[0]
     .replaceAll('2026-1', periodoVigente);
   await db.exec(semillaSql);
-  const m6 = (await db.query("select habilitado from public.system_modules where clave = 'm6_asistencia'")).rows[0];
+  await aplicar(path.join(SUPABASE, 'migrations', '202610080001_remove_legacy_m6_asistencia.sql'));
+  const m2Reaplicado = (await db.query("select habilitado from public.system_modules where clave = 'm2_curriculo'")).rows[0];
   const totalModulos = (await db.query('select count(*)::int as n from public.system_modules')).rows[0].n;
-  check('reaplicar la semilla NO revive un módulo apagado a mano', m6.habilitado === false);
-  check('reaplicar la semilla NO duplica filas', totalModulos === 11, `hay ${totalModulos}`);
+  check('reaplicar la semilla NO revive un módulo apagado a mano', m2Reaplicado.habilitado === false);
+  check('reaplicar la semilla NO duplica filas', totalModulos === 10, `hay ${totalModulos}`);
 
   // ------------------------------------------------------------ 7. usuarios
   seccion('7. Onboarding atómico (Fase 1) y datos de prueba');
@@ -332,7 +333,7 @@ async function main() {
   const alumnoVe = await como('authenticated', ALUMNO_ID, () =>
     db.query('select count(*)::int as n from public.system_modules'),
   );
-  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 11);
+  check('puede leer el catálogo de módulos (lo necesita el menú)', alumnoVe.rows[0].n === 10);
 
   await como('authenticated', ALUMNO_ID, () =>
     db.exec("update public.system_modules set orden = 999 where clave = 'm1_onboarding'"),
@@ -4422,6 +4423,151 @@ async function main() {
     'sin auth.uid() el veredicto es SIN_SESION, no un OK por defecto',
     sinIdentidad?.estado === 'SIN_SESION',
     JSON.stringify(sinIdentidad),
+  );
+
+  // ------------------------------------------- 2026-10-09 · recuperación interna
+  // Ciclo de vida de la invitación (revocación) y restablecimiento interno de
+  // contraseña. Lo que se comprueba aquí es lo que NO se puede comprobar con
+  // dobles en el backend: la forma del esquema, los permisos reales de la
+  // función `security definer` y que la revocación de sesiones BORRA de verdad.
+  seccion('2026-10-09 · invitación (revocación) y recuperación interna');
+
+  const columnasInvitacion = (
+    await db.query(
+      "select column_name from information_schema.columns " +
+        "where table_schema='public' and table_name='teacher_invitations'",
+    )
+  ).rows.map((r) => r.column_name);
+  check(
+    'teacher_invitations tiene revoked_at y revoked_by',
+    columnasInvitacion.includes('revoked_at') && columnasInvitacion.includes('revoked_by'),
+    JSON.stringify(columnasInvitacion),
+  );
+
+  const tablaResets = (
+    await db.query(
+      "select count(*)::int as n from information_schema.tables " +
+        "where table_schema='public' and table_name='password_resets'",
+    )
+  ).rows[0].n;
+  check('existe public.password_resets', tablaResets === 1);
+
+  const rlsResets = (
+    await db.query(
+      "select relrowsecurity from pg_class where oid = 'public.password_resets'::regclass",
+    )
+  ).rows[0].relrowsecurity;
+  check('password_resets tiene RLS encendida', rlsResets === true);
+
+  // El administrador lee; nadie escribe desde el cliente. La escritura sólo
+  // entra por el backend con service_role.
+  const lecturaAdmin = await como('authenticated', ADMIN_ID, () =>
+    db.query('select count(*)::int as n from public.password_resets'),
+  );
+  check('el admin puede leer password_resets (RLS)', lecturaAdmin.rows[0].n === 0);
+
+  const escrituraAlumno = await esperaError('un alumno no puede insertar en password_resets', () =>
+    como('authenticated', ALUMNO_ID, () =>
+      db.query(
+        "insert into public.password_resets (user_id, code_hash, expires_at) " +
+          `values ('${ALUMNO_ID}', 'hash-de-prueba', now() + interval '30 minutes')`,
+      ),
+    ),
+  );
+  check(
+    'la escritura del alumno se rechaza por privilegios (42501)',
+    escrituraAlumno?.code === '42501',
+    `código ${escrituraAlumno?.code}`,
+  );
+
+  // --- la función de revocación de sesiones ---------------------------------
+  const defRevoca = (
+    await db.query(
+      "select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
+        "where n.nspname='public' and p.proname='revocar_sesiones_usuario'",
+    )
+  ).rows[0];
+  check('revocar_sesiones_usuario existe y es security definer', defRevoca?.prosecdef === true);
+
+  const permisos = (
+    await db.query(
+      "select has_function_privilege('anon', 'public.revocar_sesiones_usuario(uuid)', 'EXECUTE') as anon, " +
+        "has_function_privilege('authenticated', 'public.revocar_sesiones_usuario(uuid)', 'EXECUTE') as auth, " +
+        "has_function_privilege('service_role', 'public.revocar_sesiones_usuario(uuid)', 'EXECUTE') as svc",
+    )
+  ).rows[0];
+  check(
+    'el EXECUTE queda revocado de anon y authenticated (no pueden cerrar sesiones ajenas)',
+    permisos.anon === false && permisos.auth === false,
+    JSON.stringify(permisos),
+  );
+  check('service_role SÍ puede ejecutarla', permisos.svc === true);
+
+  const anonRevoca = await esperaError('anon no puede invocar la revocación', () =>
+    como('anon', null, () => db.query(`select public.revocar_sesiones_usuario('${ADMIN_ID}')`)),
+  );
+  check(
+    'el rechazo de anon es de privilegios (42501)',
+    anonRevoca?.code === '42501',
+    `código ${anonRevoca?.code}`,
+  );
+
+  // Camino real: dos sesiones del usuario, con sus refresh tokens. La función
+  // debe borrarlas y devolver cuántas borró.
+  await db.exec(
+    `insert into auth.sessions (user_id) values ('${ADMIN_ID}'), ('${ADMIN_ID}');`,
+  );
+  await db.exec(
+    `insert into auth.refresh_tokens (user_id, session_id) ` +
+      `select '${ADMIN_ID}', id from auth.sessions where user_id = '${ADMIN_ID}';`,
+  );
+  const antes = (
+    await db.query(`select count(*)::int as n from auth.sessions where user_id = '${ADMIN_ID}'`)
+  ).rows[0].n;
+  check('hay 2 sesiones de prueba antes de revocar', antes === 2, `hay ${antes}`);
+
+  const borradas = (
+    await como('service_role', null, () =>
+      db.query(`select public.revocar_sesiones_usuario('${ADMIN_ID}') as n`),
+    )
+  ).rows[0].n;
+  check('la función devuelve 2 sesiones borradas', borradas === 2, `devolvió ${borradas}`);
+
+  const despues = (
+    await db.query(`select count(*)::int as n from auth.sessions where user_id = '${ADMIN_ID}'`)
+  ).rows[0].n;
+  check('las sesiones del usuario quedaron borradas', despues === 0, `quedan ${despues}`);
+
+  const tokensVivos = (
+    await db.query(
+      `select count(*)::int as n from auth.refresh_tokens ` +
+        `where user_id = '${ADMIN_ID}' and revoked = false`,
+    )
+  ).rows[0].n;
+  check(
+    'los refresh tokens quedaron revocados (la cascada o el update los cubrió)',
+    tokensVivos === 0,
+    `vivos ${tokensVivos}`,
+  );
+
+  // Una invitación revocada sigue siendo consultable: revocar no borra la fila.
+  await db.exec(
+    "insert into public.teacher_invitations (email, token_hash, expires_at) " +
+      "values ('revocada@inces.test', 'hash-revocada', now() + interval '48 hours');",
+  );
+  await db.exec(
+    "update public.teacher_invitations set revoked_at = now(), revoked_by = " +
+      `'${ADMIN_ID}' where token_hash = 'hash-revocada';`,
+  );
+  const revocada = (
+    await db.query(
+      "select revoked_at, revoked_by from public.teacher_invitations where token_hash = 'hash-revocada'",
+    )
+  ).rows[0];
+  check(
+    'revocar conserva la fila y anota actor y fecha',
+    revocada.revoked_at !== null && revocada.revoked_by === ADMIN_ID,
+    JSON.stringify(revocada),
   );
 
   // ---------------------------------------------------------------- resumen

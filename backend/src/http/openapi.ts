@@ -292,6 +292,101 @@ const RespuestaActivacion = z
   })
   .openapi('RespuestaActivacion');
 
+// --- ciclo de vida de la invitación y recuperación interna (2026-10-09) -----
+
+const EstadoInvitacion = z
+  .enum(['valida', 'usada', 'expirada', 'revocada'])
+  .openapi('EstadoInvitacion');
+
+const ParametroIdInvitacion = z.object({
+  id: z.string().uuid().openapi({
+    param: { name: 'id', in: 'path' },
+    example: '9f1d3c2a-6b7e-4a51-9d0c-8f2b1e4a7c33',
+    description:
+      'UUID de la invitación. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.',
+  }),
+});
+
+const parametrosListadoInvitaciones = z.object({
+  limite: z.coerce.number().int().min(1).max(200).optional().openapi({
+    param: { name: 'limite', in: 'query' },
+    description: 'Máximo de invitaciones a devolver. Por defecto 50.',
+  }),
+});
+
+const InvitacionListada = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string().email(),
+    nombres: z.string(),
+    apellidos: z.string(),
+    isUsed: z.boolean(),
+    createdAt: z.string(),
+    expiresAt: z.string(),
+    revokedAt: z.string().nullable().openapi({
+      description: 'Instante de anulación, o null si sigue vigente. Revocar no borra la fila.',
+    }),
+    estado: EstadoInvitacion,
+  })
+  .openapi('InvitacionListada');
+
+const RespuestaListadoInvitaciones = z
+  .object({ invitaciones: z.array(InvitacionListada) })
+  .openapi('RespuestaListadoInvitaciones');
+
+const RespuestaRevocacion = z
+  .object({ id: z.string().uuid(), estado: EstadoInvitacion })
+  .openapi('RespuestaRevocacion');
+
+const RespuestaRenovacion = z
+  .object({
+    email: z.string().email(),
+    expiraEn: z.string(),
+    enlaceActivacion: z.string(),
+    correoEnviado: z.boolean(),
+    reemplazaA: z.string().uuid().openapi({
+      description: 'Id de la invitación que quedó revocada al renovar.',
+    }),
+  })
+  .openapi('RespuestaRenovacion');
+
+const CuerpoCanjearCodigo = z
+  .object({
+    codigo: z.string().min(8).max(40).openapi({
+      description:
+        'Código temporal entregado por el administrador. Se acepta con guiones, espacios y minúsculas: se normaliza.',
+    }),
+    password: z.string().min(8).openapi({
+      description: 'Contraseña NUEVA que elige el titular. El administrador nunca la ve.',
+    }),
+  })
+  .strict()
+  .openapi('CuerpoCanjearCodigo');
+
+const RespuestaCodigoRecuperacion = z
+  .object({
+    email: z.string().email().openapi({
+      description: 'Usuario al que pertenece el código, para confirmar a quién se entrega.',
+    }),
+    codigo: z.string().openapi({
+      description:
+        'Código en claro. Se devuelve UNA SOLA VEZ y no se guarda: el administrador lo entrega por el canal institucional.',
+    }),
+    expiraEn: z.string().openapi({ description: 'Caducidad (30 minutos).' }),
+    entrega: z.literal('manual').openapi({
+      description: 'La entrega es presencial o por canal interno. No se envía por correo.',
+    }),
+  })
+  .openapi('RespuestaCodigoRecuperacion');
+
+const RespuestaCanje = z
+  .object({
+    email: z.string().email().nullable().openapi({
+      description: 'Correo del usuario cuyo restablecimiento se completó.',
+    }),
+  })
+  .openapi('RespuestaCanje');
+
 // --------------------------------------------------------------- módulo 2 ---
 
 const TipoPrograma = z.enum(['CARRERA', 'CURSO_LIBRE']).openapi('TipoPrograma');
@@ -817,8 +912,7 @@ const parametroLimiteAuditoria = z.object({
   limite: z.coerce.number().int().min(1).max(200).optional().openapi({
     param: { name: 'limite', in: 'query' },
     description: 'Máximo de entradas a devolver. Por defecto 50.',
-  }),
-});
+  }),});
 
 const parametrosListadoUsuarios = z.object({
   rol: rolSchema.optional().openapi({
@@ -2042,6 +2136,105 @@ export function construirRegistro(): OpenAPIRegistry {
   });
 
   registro.registerPath({
+    ...admin,
+    method: 'get',
+    path: '/api/v1/admin/usuarios/invitaciones',
+    summary: 'Listado de invitaciones con su estado real',
+    description:
+      'El estado (revocada > usada > caducada > válida) lo resuelve el dominio, no el ' +
+      'cliente: el panel lo recibe calculado y no puede pintar algo distinto de lo que ' +
+      'decide el endpoint de activación. Sin paginación a propósito: las invitaciones ' +
+      'son decenas (una por docente), no miles.',
+    security: [{ bearerAuth: [] }],
+    request: { query: parametrosListadoInvitaciones },
+    responses: {
+      200: {
+        description: 'Las invitaciones más recientes primero.',
+        content: { 'application/json': { schema: RespuestaListadoInvitaciones } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
+    method: 'post',
+    path: '/api/v1/admin/usuarios/invitaciones/{id}/revocar',
+    summary: 'Anula una invitación para que su enlace deje de activar',
+    description:
+      'No borra la fila: el panel sigue mostrándola como revocada y el sistema conserva ' +
+      'la traza de que existió. Un token revocado responde 403 INVITACION_REVOCADA en ' +
+      'la activación. Revocar dos veces devuelve 409.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdInvitacion },
+    responses: {
+      200: {
+        description: 'Invitación revocada.',
+        content: { 'application/json': { schema: RespuestaRevocacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('La invitación no existe (INVITACION_INEXISTENTE).'),
+      409: error('INVITACION_YA_REVOCADA.'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
+    method: 'post',
+    path: '/api/v1/admin/usuarios/invitaciones/{id}/renovar',
+    summary: 'Emite una invitación nueva y anula la anterior',
+    description:
+      'Revocar es parte de renovar: si sólo se emitiera un token nuevo, el viejo seguiría ' +
+      'activando la misma cuenta y habría dos credenciales válidas circulando. Conserva ' +
+      'el correo y el nombre de la invitación original.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdInvitacion },
+    responses: {
+      200: {
+        description: 'Invitación nueva emitida; la anterior quedó revocada.',
+        content: { 'application/json': { schema: RespuestaRenovacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('La invitación no existe (INVITACION_INEXISTENTE).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
+    ...admin,
+    method: 'post',
+    path: '/api/v1/admin/usuarios/{id}/restablecer',
+    summary: 'Emite un código temporal para restablecer la contraseña (sin correo)',
+    description:
+      'Recuperación interna: el administrador verifica la identidad por el procedimiento ' +
+      'institucional, emite este código y lo entrega por el canal aprobado. El código se ' +
+      'devuelve UNA SOLA VEZ, se guarda sólo su SHA-256, caduca en 30 minutos, es de un ' +
+      'solo uso y emitir uno nuevo anula los anteriores. **El administrador nunca ve ni ' +
+      'elige la contraseña.** No se envía por correo: la entrega es manual.',
+    security: [{ bearerAuth: [] }],
+    request: { params: ParametroIdPerfil },
+    responses: {
+      200: {
+        description: 'Código emitido.',
+        content: { 'application/json': { schema: RespuestaCodigoRecuperacion } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      401: RESPUESTAS_ERROR[401],
+      403: RESPUESTAS_ERROR[403],
+      404: error('El usuario no existe (PERFIL_INEXISTENTE).'),
+      503: RESPUESTAS_ERROR[503],
+    },
+  });
+
+  registro.registerPath({
     method: 'post',
     path: '/api/v1/auth/activar',
     tags: ['Sesión'],
@@ -2065,6 +2258,36 @@ export function construirRegistro(): OpenAPIRegistry {
       404: error('El token no corresponde a ninguna invitación válida.'),
       409: error('INVITACION_YA_USADA: el token ya fue consumido.'),
       410: error('La invitación caducó (48 h).'),
+      500: RESPUESTAS_ERROR[500],
+    },
+  });
+
+  registro.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/restablecer-codigo',
+    tags: ['Sesión'],
+    summary: 'Canjea el código de recuperación y fija la contraseña nueva',
+    description:
+      'Ruta PÚBLICA: el titular aún no tiene sesión; la barrera es el código temporal, ' +
+      'no un JWT. Al canjearlo se fija la contraseña contra el proveedor de identidad y ' +
+      'se **cierran todas las sesiones** del usuario: cambiar la contraseña no invalida ' +
+      'por sí solo los refresh tokens ya emitidos. Un código inexistente, caducado, ' +
+      'revocado o ya usado responden lo mismo (404 CODIGO_INVALIDO) para no revelar si ' +
+      'se acertó uno. Hay límite de intentos por IP: al superarlo, 429.',
+    request: {
+      body: {
+        required: true,
+        content: { 'application/json': { schema: CuerpoCanjearCodigo } },
+      },
+    },
+    responses: {
+      200: {
+        description: 'Contraseña restablecida y sesiones cerradas.',
+        content: { 'application/json': { schema: RespuestaCanje } },
+      },
+      400: RESPUESTAS_ERROR[400],
+      404: error('CODIGO_INVALIDO: no existe, caducó, fue revocado o ya se usó.'),
+      429: error('DEMASIADOS_INTENTOS: se superó el límite de intentos por IP.'),
       500: RESPUESTAS_ERROR[500],
     },
   });

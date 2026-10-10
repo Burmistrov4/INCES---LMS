@@ -14,6 +14,7 @@ import type {
   CambiosModulo,
   CampoInscripcion,
   ClaseCuadrante,
+  CodigoRecuperacion,
   DetallePrograma,
   EntradaAcceso,
   EntradaAuditoria,
@@ -165,8 +166,53 @@ export interface PuertaInvitacionesDocente {
   /** Busca por hash del token. `null` si no existe. */
   porTokenHash(tokenHash: string): Promise<InvitacionDocente | null>;
 
-  /** Marca la invitación como consumida (token de un solo uso). */
-  marcarUsada(id: string): Promise<void>;
+  /** Busca por id. `null` si no existe. */
+  porId(id: string): Promise<InvitacionDocente | null>;
+
+  /**
+   * Consume la invitación **de forma atómica**, y dice si lo consiguió.
+   *
+   * Es un `update ... where id = ? and is_used = false and revoked_at is null`
+   * que devuelve las filas afectadas. Si devuelve `false`, otro proceso la
+   * consumió primero: dos activaciones simultáneas del mismo token no pueden
+   * crear dos cuentas, porque sólo una gana la carrera en la base.
+   *
+   * **Se reclama ANTES de crear el usuario**, no después: al revés, dos
+   * peticiones concurrentes pasarían las dos la comprobación de estado y
+   * llegarían las dos a `createUser`. Si la creación falla después, el
+   * llamante libera la invitación con [liberar].
+   */
+  consumirSiValida(id: string): Promise<boolean>;
+
+  /**
+   * Devuelve una invitación reclamada a su estado usable.
+   *
+   * Sólo para el camino de fallo: se reclamó el token, la creación del usuario
+   * falló (correo ya registrado, por ejemplo) y hay que dejar la invitación como
+   * estaba para que el profesor pueda reintentar.
+   */
+  liberar(id: string): Promise<void>;
+
+  /**
+   * Revoca la invitación. Devuelve `false` si ya estaba revocada.
+   *
+   * **No borra la fila**: el panel debe seguir mostrando «revocada» y el sistema
+   * conservar la traza de que existió.
+   */
+  revocar(id: string, porUsuarioId: string | null): Promise<boolean>;
+
+  /**
+   * Lista las invitaciones más recientes primero, para el panel.
+   *
+   * **Sin paginación a propósito.** El estado de una invitación es *derivado*
+   * (revocada > usada > caducada > válida), no una columna, así que filtrar por
+   * él en SQL exigiría traducir esa regla a condiciones de PostgREST —una
+   * segunda copia de la regla que podría separarse de la del dominio—. Las
+   * invitaciones son decenas (una por docente del centro), no miles: se traen
+   * las últimas `limite` y el panel deriva y filtra el estado con la misma
+   * función pura que usa el backend.
+   */
+  listar(opciones: { limite: number }): Promise<InvitacionDocente[]>;
 
   /**
    * Crea el usuario de autenticación ya confirmado y devuelve su id.
@@ -187,6 +233,61 @@ export interface PuertaInvitacionesDocente {
     nombres: string,
     apellidos: string,
   ): Promise<string>;
+}
+
+/**
+ * Recuperación interna de contraseña, sin correo externo.
+ *
+ * El administrador autorizado verifica la identidad por el procedimiento
+ * institucional, emite un código temporal de un solo uso y lo entrega en mano o
+ * por canal interno. La persona lo canjea y **fija su propia contraseña**: el
+ * administrador nunca la ve ni la elige, y el proyecto no la guarda en ninguna
+ * tabla — la aplica el backend contra el proveedor de identidad.
+ */
+export interface PuertaRecuperacionPassword {
+  /**
+   * Emite un código nuevo para el usuario, **revocando antes los que siguieran
+   * vivos**. Así nunca hay dos códigos válidos para la misma cuenta: renovar es
+   * anular el anterior y crear otro.
+   */
+  emitir(entrada: {
+    userId: string;
+    codeHash: string;
+    expiresAt: string;
+    createdBy: string | null;
+  }): Promise<CodigoRecuperacion>;
+
+  /** Busca un código por su hash. `null` si no existe. */
+  porCodeHash(codeHash: string): Promise<CodigoRecuperacion | null>;
+
+  /**
+   * Canjea el código de forma atómica. `false` si ya lo canjeó otro proceso o
+   * estaba revocado: la carrera la resuelve la base, no el orden de las
+   * comprobaciones en Node.
+   */
+  consumirSiValido(id: string): Promise<boolean>;
+
+  /** Devuelve un código reclamado a su estado anterior (camino de fallo). */
+  liberar(id: string): Promise<void>;
+
+  /** Códigos de un usuario, más recientes primero (auditoría del panel). */
+  listarPorUsuario(userId: string, limite: number): Promise<CodigoRecuperacion[]>;
+
+  /**
+   * Fija la contraseña del usuario contra el proveedor de identidad.
+   *
+   * Exige el cliente con service_role: es una operación privilegiada que jamás
+   * puede viajar al navegador.
+   */
+  cambiarPassword(userId: string, password: string): Promise<void>;
+
+  /**
+   * Cierra todas las sesiones abiertas del usuario y devuelve cuántas cerró.
+   *
+   * Cambiar la contraseña **no** invalida por sí solo los refresh tokens ya
+   * emitidos; sin esto, quien tuviera una sesión robada seguiría dentro.
+   */
+  revocarSesiones(userId: string): Promise<number>;
 }
 
 export interface PuertaAuditoriaAcceso {
@@ -1156,6 +1257,8 @@ export interface Repositorios {
   parametros: PuertaParametros;
   auditoria: PuertaAuditoria;
   invitaciones: PuertaInvitacionesDocente;
+  /** Recuperación interna de contraseña (código temporal de un solo uso). */
+  recuperacion: PuertaRecuperacionPassword;
   acceso: PuertaAuditoriaAcceso;
   curriculo: PuertaCurriculo;
   cuadrante: PuertaCuadrante;

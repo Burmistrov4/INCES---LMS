@@ -81,8 +81,8 @@ function dibujarMarca(
 }
 
 /**
- * Obtiene el documento base cargando la plantilla preimpresa oficial si existe,
- * o inicializando una pÃ¡gina en blanco de 612 Ã— 792 pt como respaldo.
+ * Obtiene y valida la plantilla institucional; falla explícitamente si falta o está dañada.
+
  */
 async function obtenerDocumentoBase(): Promise<PDFDocument> {
   const rutaActual = dirname(fileURLToPath(import.meta.url));
@@ -97,17 +97,34 @@ async function obtenerDocumentoBase(): Promise<PDFDocument> {
     if (existsSync(ruta)) {
       try {
         const bytes = readFileSync(ruta);
-        return await PDFDocument.load(bytes);
-      } catch {
-        // Fallback si la plantilla tiene algÃºn problema
+        const doc = await PDFDocument.load(bytes);
+        const paginas = doc.getPages();
+        if (paginas.length !== 1) {
+          throw new Error(`se esperaba 1 página y se encontraron ${paginas.length}`);
+        }
+        const pagina = paginas[0];
+        if (
+          !pagina ||
+          Math.abs(pagina.getWidth() - ANCHO_OFICIAL) > 0.5 ||
+          Math.abs(pagina.getHeight() - ALTO_OFICIAL) > 0.5
+        ) {
+          const dimensiones = pagina ? `${pagina.getWidth()} × ${pagina.getHeight()}` : 'indisponibles';
+          throw new Error(`dimensiones esperadas 612 × 792 pt; recibidas ${dimensiones}`);
+        }
+        return doc;
+      } catch (error) {
+        const detalle = error instanceof Error ? error.message : String(error);
+        throw new Error(`PLANTILLA_PLANILLA_OFICIAL_INVALIDA: no se pudo cargar ${ruta}: ${detalle}`);
+
       }
     }
   }
 
-  // Fallback seguro: crear documento en blanco 612x792
-  const doc = await PDFDocument.create();
-  doc.addPage([ANCHO_OFICIAL, ALTO_OFICIAL]);
-  return doc;
+  // La plantilla es obligatoria; no devolver un documento vacío.
+  throw new Error('PLANTILLA_PLANILLA_OFICIAL_AUSENTE: no se encontró una plantilla PDF institucional válida.');
+
+
+
 }
 
 /**

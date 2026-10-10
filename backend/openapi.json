@@ -638,6 +638,155 @@
         ],
         "additionalProperties": false
       },
+      "EstadoInvitacion": {
+        "type": "string",
+        "enum": [
+          "valida",
+          "usada",
+          "expirada",
+          "revocada"
+        ]
+      },
+      "InvitacionListada": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "nombres": {
+            "type": "string"
+          },
+          "apellidos": {
+            "type": "string"
+          },
+          "isUsed": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Instante de anulación, o null si sigue vigente. Revocar no borra la fila."
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoInvitacion"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "nombres",
+          "apellidos",
+          "isUsed",
+          "createdAt",
+          "expiresAt",
+          "revokedAt",
+          "estado"
+        ]
+      },
+      "RespuestaListadoInvitaciones": {
+        "type": "object",
+        "properties": {
+          "invitaciones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvitacionListada"
+            }
+          }
+        },
+        "required": [
+          "invitaciones"
+        ]
+      },
+      "RespuestaRevocacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoInvitacion"
+          }
+        },
+        "required": [
+          "id",
+          "estado"
+        ]
+      },
+      "RespuestaRenovacion": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "expiraEn": {
+            "type": "string"
+          },
+          "enlaceActivacion": {
+            "type": "string"
+          },
+          "correoEnviado": {
+            "type": "boolean"
+          },
+          "reemplazaA": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id de la invitación que quedó revocada al renovar."
+          }
+        },
+        "required": [
+          "email",
+          "expiraEn",
+          "enlaceActivacion",
+          "correoEnviado",
+          "reemplazaA"
+        ]
+      },
+      "RespuestaCodigoRecuperacion": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Usuario al que pertenece el código, para confirmar a quién se entrega."
+          },
+          "codigo": {
+            "type": "string",
+            "description": "Código en claro. Se devuelve UNA SOLA VEZ y no se guarda: el administrador lo entrega por el canal institucional."
+          },
+          "expiraEn": {
+            "type": "string",
+            "description": "Caducidad (30 minutos)."
+          },
+          "entrega": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ],
+            "description": "La entrega es presencial o por canal interno. No se envía por correo."
+          }
+        },
+        "required": [
+          "email",
+          "codigo",
+          "expiraEn",
+          "entrega"
+        ]
+      },
       "RespuestaActivacion": {
         "type": "object",
         "properties": {
@@ -670,6 +819,43 @@
         },
         "required": [
           "token",
+          "password"
+        ],
+        "additionalProperties": false
+      },
+      "RespuestaCanje": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "email",
+            "description": "Correo del usuario cuyo restablecimiento se completó."
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "CuerpoCanjearCodigo": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 40,
+            "description": "Código temporal entregado por el administrador. Se acepta con guiones, espacios y minúsculas: se normaliza."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "description": "Contraseña NUEVA que elige el titular. El administrador nunca la ve."
+          }
+        },
+        "required": [
+          "codigo",
           "password"
         ],
         "additionalProperties": false
@@ -4227,6 +4413,360 @@
             }
           }
         }
+      },
+      "get": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Listado de invitaciones con su estado real",
+        "description": "El estado (revocada > usada > caducada > válida) lo resuelve el dominio, no el cliente: el panel lo recibe calculado y no puede pintar algo distinto de lo que decide el endpoint de activación. Sin paginación a propósito: las invitaciones son decenas (una por docente), no miles.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de invitaciones a devolver. Por defecto 50."
+            },
+            "required": false,
+            "name": "limite",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Las invitaciones más recientes primero.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaListadoInvitaciones"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios/invitaciones/{id}/revocar": {
+      "post": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Anula una invitación para que su enlace deje de activar",
+        "description": "No borra la fila: el panel sigue mostrándola como revocada y el sistema conserva la traza de que existió. Un token revocado responde 403 INVITACION_REVOCADA en la activación. Revocar dos veces devuelve 409.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la invitación. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "9f1d3c2a-6b7e-4a51-9d0c-8f2b1e4a7c33"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitación revocada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaRevocacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La invitación no existe (INVITACION_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "INVITACION_YA_REVOCADA.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios/invitaciones/{id}/renovar": {
+      "post": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Emite una invitación nueva y anula la anterior",
+        "description": "Revocar es parte de renovar: si sólo se emitiera un token nuevo, el viejo seguiría activando la misma cuenta y habría dos credenciales válidas circulando. Conserva el correo y el nombre de la invitación original.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID de la invitación. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "9f1d3c2a-6b7e-4a51-9d0c-8f2b1e4a7c33"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitación nueva emitida; la anterior quedó revocada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaRenovacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La invitación no existe (INVITACION_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/usuarios/{id}/restablecer": {
+      "post": {
+        "tags": [
+          "Administrador Maestro"
+        ],
+        "summary": "Emite un código temporal para restablecer la contraseña (sin correo)",
+        "description": "Recuperación interna: el administrador verifica la identidad por el procedimiento institucional, emite este código y lo entrega por el canal aprobado. El código se devuelve UNA SOLA VEZ, se guarda sólo su SHA-256, caduca en 30 minutos, es de un solo uso y emitir uno nuevo anula los anteriores. **El administrador nunca ve ni elige la contraseña.** No se envía por correo: la entrega es manual.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "UUID del perfil. Un valor que no sea UUID se rechaza con 400 antes de tocar la base.",
+              "example": "46342064-c05a-4341-8638-f35c2541718c"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Código emitido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaCodigoRecuperacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Falta la sesión o el token no es válido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La sesión es válida pero el rol no alcanza, o la cuenta está inactiva.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El usuario no existe (PERFIL_INEXISTENTE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "El servicio o la base de datos no están disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/auth/activar": {
@@ -4289,6 +4829,77 @@
           },
           "410": {
             "description": "La invitación caducó (48 h).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Fallo interno.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/restablecer-codigo": {
+      "post": {
+        "tags": [
+          "Sesión"
+        ],
+        "summary": "Canjea el código de recuperación y fija la contraseña nueva",
+        "description": "Ruta PÚBLICA: el titular aún no tiene sesión; la barrera es el código temporal, no un JWT. Al canjearlo se fija la contraseña contra el proveedor de identidad y se **cierran todas las sesiones** del usuario: cambiar la contraseña no invalida por sí solo los refresh tokens ya emitidos. Un código inexistente, caducado, revocado o ya usado responden lo mismo (404 CODIGO_INVALIDO) para no revelar si se acertó uno. Hay límite de intentos por IP: al superarlo, 429.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CuerpoCanjearCodigo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contraseña restablecida y sesiones cerradas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RespuestaCanje"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición inválida. El cuerpo o los parámetros no pasan la validación.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "CODIGO_INVALIDO: no existe, caducó, fue revocado o ya se usó.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuerpoError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "DEMASIADOS_INTENTOS: se superó el límite de intentos por IP.",
             "content": {
               "application/json": {
                 "schema": {

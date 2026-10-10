@@ -204,7 +204,7 @@ console.log('\n  5. Lectura de system_modules en la nube\n');
     'm4_inscripciones',
     'm5_archivos',
     'm6_aula_virtual',
-    'm6_asistencia',
+    'm7_asistencia',
     'm7_calificaciones',
     'm8_pasantias',
   ];

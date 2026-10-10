@@ -66,11 +66,12 @@ Antes de modificar código:
 7. lee docs/AI_AGENT_AUTONOMY_AND_ENVIRONMENT_RECOVERY.md;
 8. lee docs/PROJECT_PHASE_GATES.md;
 9. lee docs/AI_AGENT_TOKEN_EFFICIENT_AUTONOMY.md;
-10. lee sólo documentación adicional de la fase activa;
-11. inspecciona git status;
-12. inspecciona rama y commits recientes;
-13. inspecciona procesos y puertos necesarios;
-14. vuelve a medir las métricas que puedan haber envejecido.
+10. lee PROMPT_MAESTRO_CICLO_VIDA_COMPLETO_AGENTE_IA.md como especificación transversal del ciclo de vida y de la documentación;
+11. lee sólo documentación adicional de la fase activa;
+12. inspecciona git status;
+13. inspecciona rama y commits recientes;
+14. inspecciona procesos y puertos necesarios;
+15. vuelve a medir las métricas que puedan haber envejecido.
 
 No asumas que una cifra histórica sigue vigente.
 
@@ -720,3 +721,23 @@ menos:
 REPETICIÓN + ESPECULACIÓN + CONTEXTO DESPERDICIADO + CAMBIOS INNECESARIOS.
 
 Trabaja hasta el máximo cierre técnicamente posible dentro de las capacidades, permisos y cuotas legítimas del entorno.
+
+
+---
+
+# DECISIÓN DE PRODUCTO VIGENTE — 2026-10-09: IDENTIDAD SIN RESEND
+
+Esta sección prevalece sobre instrucciones históricas de este archivo que indiquen reparar Resend como requisito para recuperar contraseñas o invitar docentes.
+
+1. **Invitación/activación docente y recuperación de contraseña deben funcionar internamente** sin depender de Resend, SMTP, correo ni SMS. Resend sólo puede quedar como canal opcional para notificaciones no críticas.
+2. Antes de cambiar código, inspecciona proveedor de identidad, `teacher_invitations`, rutas/RPC, RLS, roles, auditoría, UI y pruebas. No crees un segundo sistema de contraseñas.
+3. Invitación: sólo administrador autorizado; token criptográficamente aleatorio, de un solo uso, almacenado como hash, con caducidad/revocación y consumo atómico. El docente define su contraseña. Muestra el token sólo una vez por una pantalla protegida y exige entrega mediante canal institucional aprobado; nunca finjas envío/entrega de email.
+4. Recuperación: verificar identidad mediante procedimiento institucional. Preferir flujo asistido por personal autorizado si no existe canal de autoservicio seguro. No usar preguntas débiles, contraseñas fijas ni datos personales fáciles de conocer como secreto suficiente.
+5. Ambos flujos deben tener rate limiting, anti-replay, protección contra enumeración/fuerza bruta, autorización backend, auditoría mínima, ausencia de secretos en logs y ninguna service-role key en el cliente. Revocar sesiones cuando el proveedor lo permita y verificarlo.
+6. Crear E2E reales en entorno/cuentas aislados: invitación→activación→contraseña→login; recuperación→nueva contraseña→login y rechazo de la antigua. Cubrir token inválido/reutilizado/expirado/revocado, concurrencia, permisos negativos, roles y auditoría.
+7. Estados de invitación honestos: creada, pendiente de entrega institucional, activada, caducada, revocada. No usar «enviada» o «entregada» sin evidencia.
+8. Mantén Resend HTTP 401 como incidencia opcional separada. No detengas el resto del proyecto por una credencial externa; documenta sólo el bloqueo que realmente requiere intervención humana.
+9. Actualiza `ESTADO_DEL_SISTEMA.md`, `TODO_CIERRE_INTEGRAL_INCES_LMS.md`, `docs/AI_AGENT_BLOCKERS.md` y los documentos de módulo afectados tras cada hito. No marques implementación ni cierre hasta tener evidencia reproducible.
+
+## Criterio de autonomía y seguridad
+Continúa non-stop por tareas deducibles. No pidas permiso para inspecciones, cambios locales reversibles, pruebas seguras o documentación. No hagas commit, push, despliegue, migraciones destructivas ni mutaciones de datos reales sin autorización. Si el canal institucional de entrega necesita una decisión humana, documenta esa decisión y continúa con todo lo independiente.

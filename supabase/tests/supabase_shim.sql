@@ -25,6 +25,29 @@ create table if not exists auth.users (
   created_at         timestamptz not null default now()
 );
 
+-- Sesiones y refresh tokens de GoTrue. Se emulan **con la forma real medida**
+-- contra la nube (2026-10-09: `auth.sessions(id uuid, user_id uuid)` y
+-- `auth.refresh_tokens(id bigint, user_id varchar, revoked boolean,
+-- session_id uuid)`), porque la migración `202610090002` trae una función
+-- `security definer` que los BORRA para cerrar las sesiones tras un
+-- restablecimiento de contraseña. Sin estas tablas el `to_regclass` de la
+-- función devolvía NULL y su camino real **no se ejercitaba** en local: el
+-- validador habría dado verde sin probar nada de la revocación.
+create table if not exists auth.sessions (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists auth.refresh_tokens (
+  id         bigserial primary key,
+  user_id    varchar(255) not null,
+  revoked    boolean not null default false,
+  session_id uuid references auth.sessions (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 -- Equivalente al `auth.uid()` de Supabase: lee el `sub` del JWT que Supabase
 -- inyecta en `request.jwt.claims`.
 create or replace function auth.uid()

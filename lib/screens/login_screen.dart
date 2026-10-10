@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:inces_lms_app/core/errors/app_exception.dart';
 import 'package:inces_lms_app/screens/aspirante_form_screen.dart';
+import 'package:inces_lms_app/screens/restablecer_con_codigo_screen.dart';
 import 'package:inces_lms_app/services/auth_service.dart';
 import 'package:inces_lms_app/theme/inces_theme.dart';
 
@@ -125,70 +126,49 @@ class _LoginScreenState extends State<LoginScreen> {
       );
   }
 
-  /// Envía el correo de recuperación.
+  /// Explica el procedimiento **interno** de recuperación y ofrece canjear un código.
   ///
-  /// Reutiliza el identificador ya escrito en el formulario: quien olvidó la
-  /// contraseña acaba de teclear su correo, y volver a pedírselo en un diálogo
-  /// es una fricción gratuita.
+  /// Antes esta acción pedía un correo y llamaba a `enviarCorreoRecuperacion`. Ya
+  /// no lo hace, y el motivo es medido: el envío depende de Resend y sin dominio
+  /// verificado devuelve HTTP 401, así que la pantalla **prometía un enlace que
+  /// nunca llegaba**. Ahora el restablecimiento es un trámite interno: el
+  /// personal del centro verifica la identidad en persona, emite un código
+  /// temporal y el titular lo canjea aquí para elegir su propia contraseña.
   ///
-  /// Si el campo parece una cédula (no tiene `@`), se avisa en lugar de enviar:
-  /// Supabase necesita un correo, y el mensaje genérico de «credenciales
-  /// inválidas» no serviría aquí.
+  /// El diálogo dice la verdad sobre lo que hay que hacer. Si el usuario ya trae
+  /// el código, salta directo a la pantalla de canje.
   Future<void> _handleRecuperacion() async {
-    if (_isLoading) return;
+    final irACanjear = await showDialog<bool>(
+      context: context,
+      builder: (contexto) => AlertDialog(
+        title: const Text('Recuperar tu contraseña'),
+        content: const Text(
+          'El restablecimiento lo hace el personal del centro, en persona:\n\n'
+          '1. Acércate a coordinación con tu cédula.\n'
+          '2. Verifican tu identidad y te entregan un código temporal.\n'
+          '3. Escribes ese código aquí y eliges tu contraseña nueva.\n\n'
+          'El código caduca a los 30 minutos y sólo sirve una vez. Nadie del '
+          'centro puede ver ni elegir la contraseña que pongas.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexto).pop(false),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(contexto).pop(true),
+            child: const Text('Ya tengo el código'),
+          ),
+        ],
+      ),
+    );
 
-    final identificador = _identifierController.text.trim();
+    if (irACanjear != true || !mounted) return;
 
-    if (!identificador.contains('@')) {
-      _showError(
-        'Escribe tu correo en el primer campo para enviarte el enlace.',
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    final resultado = await _authService.enviarCorreoRecuperacion(identificador);
-
-    // Mismo criterio que en `_handleLogin`: liberar el estado de carga antes
-    // del `return` por desmontaje, para no dejar los campos bloqueados.
-    if (mounted) setState(() => _isLoading = false);
-    if (!mounted) return;
-
-    resultado.when(
-      success: (_) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              backgroundColor: IncesTheme.exito,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(IncesTheme.radioControl),
-              ),
-              content: Row(
-                children: [
-                  const Icon(
-                    Icons.mark_email_read_outlined,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Si el correo está registrado, recibirás un enlace para '
-                      'restablecer tu contraseña.',
-                      style: GoogleFonts.inter(
-                        fontSize: 13.5,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-      },
-      failure: (excepcion) => _showError(excepcion.message),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const RestablecerConCodigoScreen(),
+      ),
     );
   }
 

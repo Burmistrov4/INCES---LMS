@@ -35,7 +35,7 @@ const Map<String, IconData> _iconosModulo = {
   'm3_cuadrante': Icons.calendar_month_outlined,
   'm4_inscripciones': Icons.how_to_reg_outlined,
   'm5_archivos': Icons.folder_open_outlined,
-  'm6_asistencia': Icons.fact_check_outlined,
+  'm7_asistencia': Icons.qr_code_scanner_outlined,
   'm7_calificaciones': Icons.grading_outlined,
   'm8_pasantias': Icons.work_outline,
 };

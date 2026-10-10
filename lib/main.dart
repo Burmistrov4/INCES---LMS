@@ -17,6 +17,7 @@ import 'screens/docente_dashboard.dart';
 import 'screens/landing_page.dart';
 import 'screens/login_screen.dart';
 import 'screens/restablecer_password_screen.dart';
+import 'screens/restablecer_con_codigo_screen.dart';
 import 'screens/activar_cuenta_screen.dart';
 import 'services/auth_service.dart';
 import 'theme/inces_theme.dart';
@@ -44,6 +45,10 @@ final Map<String, WidgetBuilder> _pantallas = {
   '/login': (_) => const LoginScreen(),
   '/inscripcion': (_) => const AspiranteFormScreen(),
   '/restablecer': (_) => const RestablecerPasswordScreen(),
+  // Canje del código temporal que el personal del centro entrega en mano. Se
+  // registra además de empujarse desde el login para que el enlace directo
+  // funcione: el administrador puede indicar la URL al titular junto al código.
+  '/restablecer-codigo': (_) => const RestablecerConCodigoScreen(),
 };
 
 /// Resuelve una ruta a partir de su nombre.

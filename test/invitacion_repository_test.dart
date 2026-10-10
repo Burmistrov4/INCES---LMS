@@ -32,6 +32,35 @@ class _GatewayFalso implements InvitacionGateway {
     passwordRecibido = password;
     return const ActivacionCuenta(email: 'd@x.com', rol: 'docente');
   }
+
+  /// Estado del doble para las pruebas del ciclo de vida.
+  List<InvitacionListada> listado = const [];
+  String? revocadoId;
+  String? renovadoId;
+
+  @override
+  Future<List<InvitacionListada>> listarInvitaciones() async {
+    if (lanzar) throw const AppException.validacion('error simulado');
+    return listado;
+  }
+
+  @override
+  Future<void> revocarInvitacion(String id) async {
+    if (lanzar) throw const AppException.validacion('error simulado');
+    revocadoId = id;
+  }
+
+  @override
+  Future<InvitacionDocente> renovarInvitacion(String id) async {
+    if (lanzar) throw const AppException.validacion('error simulado');
+    renovadoId = id;
+    return InvitacionDocente(
+      email: 'docente@inces.test',
+      expiraEn: '2026-01-01T00:00:00.000Z',
+      enlaceActivacion: 'https://app/#/auth/activate?token=nuevo',
+      correoEnviado: false,
+    );
+  }
 }
 
 void main() {

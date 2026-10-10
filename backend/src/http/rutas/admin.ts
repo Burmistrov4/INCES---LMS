@@ -2,20 +2,29 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ErrorApi } from '../../dominio/errores.js';
 import { revisarCambioDeRol } from '../../dominio/reglas-admin.js';
+import { estadoDeInvitacion } from '../../dominio/reglas-invitaciones.js';
 import type { DependenciasRutas } from '../dependencias.js';
 import {
   esquemaCambioRol,
   esquemaCambiosModulo,
   esquemaCorreoInvitacion,
+  esquemaIdInvitacion,
   esquemaIdPerfil,
   esquemaListadoAcceso,
   esquemaListadoAuditoria,
+  esquemaListadoInvitaciones,
   esquemaListadoUsuarios,
   esquemaValorParametro,
   validarValorSegunTipo,
 } from '../esquemas.js';
 import { exigirAdmin, reposDe } from '../plugins/autenticacion.js';
-import { generarToken, hashearToken } from '../../infra/tokens.js';
+import type { PuertaInvitacionesDocente } from '../../dominio/puertos.js';
+import {
+  generarCodigoRecuperacion,
+  generarToken,
+  hashearToken,
+  normalizarCodigo,
+} from '../../infra/tokens.js';
 
 /**
  * Cuerpo del correo de invitación.
@@ -44,6 +53,55 @@ function htmlInvitacion(enlace: string): string {
  * duplicar el `.uuid()` aquí dentro.
  */
 const esquemaRutaIdPerfil = z.object({ id: esquemaIdPerfil });
+
+/** Igual que el anterior, para las rutas que llevan el id de una invitación. */
+const esquemaRutaIdInvitacion = z.object({ id: esquemaIdInvitacion });
+
+/**
+ * Emite una invitación: token nuevo, huella en la base, enlace y correo.
+ *
+ * Existe porque invitar y **renovar** necesitan exactamente lo mismo, y
+ * duplicarlo haría que un cambio en la vigencia (hoy 48 h) se aplicara a una
+ * ruta y no a la otra sin que nada avisara. El puerto de invitaciones se pasa
+ * explícitamente —y no se usa `deps.reposAdmin`— para que la escritura siga
+ * pasando por el cliente **del administrador** y la RLS siga siendo la frontera
+ * de autorización (ADR-003), no un detalle que este helper se salte.
+ */
+async function crearInvitacionConEnlace(
+  invitaciones: PuertaInvitacionesDocente,
+  deps: DependenciasRutas,
+  datos: { email: string; nombres: string; apellidos: string },
+) {
+  // El token se genera en el servidor; el cliente sólo manda el correo. Se
+  // guarda SU HUELLA en la base, nunca el token en claro.
+  const token = generarToken();
+  const expiraEn = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+  const invitacion = await invitaciones.crear({
+    email: datos.email,
+    nombres: datos.nombres,
+    apellidos: datos.apellidos,
+    tokenHash: hashearToken(token),
+    expiresAt: expiraEn,
+  });
+
+  // Hash strategy (por defecto en Flutter web): el token viaja en el fragmento,
+  // nunca en el path, así el servidor siempre entrega el index.html y la app
+  // enruta en cliente. Por eso el enlace lleva `#`.
+  const enlace = `${deps.urlFrente}/#/auth/activate?token=${token}`;
+
+  // El correo es la vía de lujo. Sin dominio verificado en Resend el mensaje
+  // sólo llega a la cuenta dueña del proyecto, así que el enlace también se
+  // devuelve en la respuesta: el administrador puede usarlo o reenviarlo aunque
+  // el correo no llegue. **La activación nunca depende del correo.**
+  const correo = await deps.enviarCorreo.enviar({
+    para: datos.email,
+    asunto: 'Invitación al LMS del INCES — Active su cuenta de docente',
+    html: htmlInvitacion(enlace),
+  });
+
+  return { invitacion, enlace, correoEnviado: correo.entregado };
+}
 
 /**
  * Módulo del propio cPanel.
@@ -218,42 +276,178 @@ export function rutasAdmin(app: FastifyInstance, deps: DependenciasRutas): void 
       admin.post('/usuarios/invitaciones', async (request) => {
         const { email, nombres, apellidos } = esquemaCorreoInvitacion.parse(request.body);
 
-        // El token se genera en el servidor; el cliente sólo manda el correo. Se
-        // guarda SU HUELLA en la base, nunca el token en claro.
-        const token = generarToken();
-        const tokenHash = hashearToken(token);
-        const expiraEn = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-
-        const invitacion = await reposDe(request).invitaciones.crear({
-          email,
-          nombres,
-          apellidos,
-          tokenHash,
-          expiresAt: expiraEn,
-        });
-
-        // Hash strategy (por defecto en Flutter web): el token viaja en el
-        // fragmento, nunca en el path, así el servidor siempre entrega el
-        // index.html y la app enruta en cliente. Por eso el enlace lleva `#`.
-        const enlace = `${deps.urlFrente}/#/auth/activate?token=${token}`;
-
-        // El correo es la vía de lujo. Sin dominio verificado en Resend el
-        // mensaje sólo llega a la cuenta dueña del proyecto, así que el enlace
-        // también se devuelve en la respuesta: el administrador puede usarlo o
-        // reenviarlo aunque el correo no llegue. El flujo queda siempre probado.
-        const correo = await deps.enviarCorreo.enviar({
-          para: email,
-          asunto: 'Invitación al LMS del INCES — Active su cuenta de docente',
-          html: htmlInvitacion(enlace),
-        });
+        const { invitacion, enlace, correoEnviado } = await crearInvitacionConEnlace(
+          reposDe(request).invitaciones,
+          deps,
+          { email, nombres, apellidos },
+        );
 
         return {
           email: invitacion.email,
           expiraEn: invitacion.expiresAt,
           enlaceActivacion: enlace,
-          correoEnviado: correo.entregado,
+          correoEnviado,
         };
       });
+
+      // --- Ciclo de vida de las invitaciones ---------------------------------
+
+      /**
+       * Listado para el panel. Devuelve el estado **ya resuelto por el dominio**:
+       * el panel no reimplementa la regla «revocada > usada > caducada > válida»,
+       * la recibe calculada, así que no puede pintar algo distinto de lo que el
+       * endpoint de activación decide.
+       */
+      admin.get('/usuarios/invitaciones', async (request) => {
+        const { limite } = esquemaListadoInvitaciones.parse(request.query);
+        const invitaciones = await reposDe(request).invitaciones.listar({ limite });
+
+        return {
+          // Se enumeran los campos a propósito: `tokenHash` **no** sale de aquí.
+          // Es una huella SHA-256 de 256 bits de entropía —irreversible en la
+          // práctica—, pero el panel no la usa para nada y lo que no se envía no
+          // se filtra. La lista es explícita para que añadir una columna al
+          // modelo no la publique sin querer.
+          invitaciones: invitaciones.map((invitacion) => ({
+            id: invitacion.id,
+            email: invitacion.email,
+            nombres: invitacion.nombres,
+            apellidos: invitacion.apellidos,
+            isUsed: invitacion.isUsed,
+            createdAt: invitacion.createdAt,
+            expiresAt: invitacion.expiresAt,
+            revokedAt: invitacion.revokedAt,
+            estado: estadoDeInvitacion(invitacion),
+          })),
+        };
+      });
+
+      admin.post<{ Params: { id: string } }>(
+        '/usuarios/invitaciones/:id/revocar',
+        async (request) => {
+          const { id } = esquemaRutaIdInvitacion.parse(request.params);
+          const usuario = request.usuario;
+          if (!usuario) throw ErrorApi.noAutorizado();
+
+          const repos = reposDe(request);
+          const invitacion = await repos.invitaciones.porId(id);
+          if (!invitacion) {
+            throw ErrorApi.noEncontrado('INVITACION_INEXISTENTE', 'Esa invitación no existe.');
+          }
+
+          const revocada = await repos.invitaciones.revocar(id, usuario.id);
+          if (!revocada) {
+            throw ErrorApi.conflicto(
+              'INVITACION_YA_REVOCADA',
+              'Esa invitación ya estaba anulada.',
+            );
+          }
+
+          // No se borra: el panel sigue mostrándola como revocada.
+          return { id, estado: 'revocada' };
+        },
+      );
+
+      /**
+       * Renueva una invitación: revoca la anterior y emite otra.
+       *
+       * **Revocar es parte de renovar**, no un efecto secundario: si sólo se
+       * creara un token nuevo, el viejo seguiría activando la misma cuenta y
+       * habría dos credenciales válidas circulando. Renovar sobre una invitación
+       * ya revocada o caducada es legítimo y no da error.
+       */
+      admin.post<{ Params: { id: string } }>(
+        '/usuarios/invitaciones/:id/renovar',
+        async (request) => {
+          const { id } = esquemaRutaIdInvitacion.parse(request.params);
+          const usuario = request.usuario;
+          if (!usuario) throw ErrorApi.noAutorizado();
+
+          const repos = reposDe(request);
+          const previa = await repos.invitaciones.porId(id);
+          if (!previa) {
+            throw ErrorApi.noEncontrado('INVITACION_INEXISTENTE', 'Esa invitación no existe.');
+          }
+
+          await repos.invitaciones.revocar(id, usuario.id);
+
+          const { invitacion, enlace, correoEnviado } = await crearInvitacionConEnlace(
+            repos.invitaciones,
+            deps,
+            { email: previa.email, nombres: previa.nombres, apellidos: previa.apellidos },
+          );
+
+          return {
+            email: invitacion.email,
+            expiraEn: invitacion.expiresAt,
+            enlaceActivacion: enlace,
+            correoEnviado,
+            // La invitación anterior queda anulada: el panel debe refrescar.
+            reemplazaA: id,
+          };
+        },
+      );
+
+      // --- Recuperación interna de contraseña --------------------------------
+
+      /**
+       * Emite un código temporal de un solo uso para que el titular fije su
+       * contraseña. **El administrador nunca la ve ni la elige.**
+       *
+       * La verificación de identidad es un procedimiento institucional
+       * presencial (el administrador conoce a la persona o comprueba su cédula):
+       * el sistema no puede inventarse esa verificación, y por eso no se acepta
+       * ningún dato personal como sustituto. Lo que sí garantiza el sistema es
+       * que el código sea aleatorio, de un solo uso, de vida corta y revocable.
+       *
+       * El código se devuelve **una sola vez** en esta respuesta. No se guarda en
+       * claro en ninguna parte y no se envía por correo: se entrega por el canal
+       * interno que la institución apruebe.
+       */
+      admin.post<{ Params: { id: string } }>(
+        '/usuarios/:id/restablecer',
+        async (request) => {
+          const { id } = esquemaRutaIdPerfil.parse(request.params);
+          const usuario = request.usuario;
+          if (!usuario) throw ErrorApi.noAutorizado();
+
+          const repos = reposDe(request);
+          const objetivo = await repos.perfiles.porId(id);
+          if (!objetivo) {
+            throw ErrorApi.noEncontrado('PERFIL_INEXISTENTE', 'Ese usuario no existe.');
+          }
+
+          const codigo = generarCodigoRecuperacion();
+          // 30 minutos: el código se entrega en mano o por canal interno, así que
+          // no necesita la vida larga de la invitación (48 h), que se envía por
+          // correo y puede leerse días después.
+          const expiraEn = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+          // **La escritura va por `reposAdmin` (service_role), no por los repos de
+          // la petición.** `password_resets` sólo concede `SELECT` a
+          // `authenticated` y no tiene política de escritura: el único camino de
+          // entrada es el backend con service_role, por diseño (un admin no debe
+          // poder fabricar códigos desde el cliente saltándose el endpoint). La
+          // lectura del perfil sí va por RLS, para que la barrera de la base
+          // confirme que ese usuario es visible para quien emite. La autorización
+          // de la operación la impone `exigirAdmin` en la API.
+          const registro = await deps.reposAdmin.recuperacion.emitir({
+            userId: id,
+            codeHash: hashearToken(normalizarCodigo(codigo)),
+            expiresAt: expiraEn,
+            createdBy: usuario.id,
+          });
+
+          return {
+            email: objetivo.email,
+            codigo,
+            expiraEn: registro.expiresAt,
+            // El administrador debe entregarlo por el canal institucional. No se
+            // afirma que se haya enviado por correo: no se ha enviado.
+            entrega: 'manual',
+          };
+        },
+      );
     },
     { prefix: '/api/v1/admin' },
   );
