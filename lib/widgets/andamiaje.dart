@@ -141,6 +141,7 @@ class _AndamiajeAppState extends State<AndamiajeApp> {
   /// contenido, y extendido en las grandes.
   bool _replegado = false;
   bool _inicializado = false;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// Ancho a partir del cual el menú es fijo. Por debajo pasa a cajón: un `Row`
   /// con ancho fijo desborda en pantallas angostas.
@@ -165,6 +166,7 @@ class _AndamiajeAppState extends State<AndamiajeApp> {
     final esAngosto = ancho < _anchoEscritorio;
 
     return Scaffold(
+      key: _scaffoldKey,
       drawer: esAngosto
           ? Drawer(
               width: IncesTheme.anchoMenu,
@@ -210,8 +212,13 @@ class _AndamiajeAppState extends State<AndamiajeApp> {
                   correoUsuario: widget.correoUsuario,
                   periodoActivo: widget.periodoActivo,
                   acciones: widget.accionesEncabezado,
-                  onAbrirMenu:
-                      esAngosto ? () => Scaffold.of(context).openDrawer() : null,
+                  // Este `context` pertenece al estado que está por encima
+                  // del `Scaffold`; `Scaffold.of(context)` no puede encontrarlo
+                  // desde aquí y falla al pulsar el menú en móvil. La clave
+                  // apunta al Scaffold real, tanto en móvil como al redimensionar.
+                  onAbrirMenu: esAngosto
+                      ? () => _scaffoldKey.currentState?.openDrawer()
+                      : null,
                 ),
                 Expanded(child: widget.contenido),
               ],
