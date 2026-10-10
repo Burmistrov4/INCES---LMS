@@ -38,6 +38,14 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
   Timer? _debounce;
   int _paginaActual = 0;
   static const _limite = 25;
+
+  /// Una operación administrativa a la vez.
+  ///
+  /// `cambiarRol` y `restablecer` son mutaciones: dos pulsaciones seguidas
+  /// lanzarían dos peticiones y la segunda decidiría sobre un estado que ya
+  /// cambió. Bloquear el doble envío es lo barato y lo que el usuario espera.
+  bool _ocupado = false;
+
   @override
   void initState() {
     super.initState();
@@ -96,8 +104,12 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
   /// con la cédula— que el sistema no puede sustituir. Por eso el diálogo lo dice
   /// explícitamente en vez de dar a entender que basta con pulsar un botón.
   Future<void> _restablecer(UsuarioAdmin u) async {
+    if (_ocupado) return;
+    setState(() => _ocupado = true);
+
     final r = await _repoRecuperacion.emitirCodigo(u.id);
     if (!mounted) return;
+    setState(() => _ocupado = false);
 
     r.when(
       success: (codigo) => _mostrarCodigo(u, codigo),
@@ -156,6 +168,7 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
   }
 
   Future<void> _cambiarRol(UsuarioAdmin u) async {
+    if (_ocupado) return;
     final nuevo = await showDialog<String>(
       context: context,
       builder: (_) => _DialogoRol(actual: u.rol),
@@ -185,8 +198,10 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
           false;
       if (!ok) return;
     }
+    setState(() => _ocupado = true);
     final r = await _repo.cambiarRol(id: u.id, rol: nuevo);
     if (!mounted) return;
+    setState(() => _ocupado = false);
     r.when(
       success: (_) {
         mostrarAviso(
@@ -216,6 +231,33 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
         ),
         const SizedBox(height: 16),
         _ResumenUsuarios(total: p?.total ?? 0, usuarios: users),
+        const SizedBox(height: 16),
+        // La invitación va ARRIBA y **desplegada**. Era el otro fallo de
+        // descubribilidad que reportó el usuario: un acordeón cerrado al final de
+        // una lista larga no dice qué contiene, así que «Invitar docente» parecía
+        // un botón muerto. Mismo criterio que `_SeccionGrupo` en
+        // `cpanel_inscripcion_campos_panel.dart`, que arranca desplegado.
+        ExpansionTile(
+          initiallyExpanded: true,
+          title: const Text('Invitar docente'),
+          subtitle: const Text(
+            'Crea la cuenta por correo. Para incorporar un administrador, '
+            'invítalo aquí y después cámbiale el rol desde la tabla.',
+          ),
+          leading: const Icon(Icons.person_add_alt_1_outlined),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: CpanelInvitacionesPanel(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const AvisoEnLinea(
+          texto: 'Para incorporar a otro administrador: invítalo arriba (entra '
+              'como docente) y después usa «Cambiar rol» en su fila. El sistema '
+              'no permite quedarse sin administradores.',
+        ),
         const SizedBox(height: 16),
         Card(
           child: Padding(
@@ -395,7 +437,7 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
                       texto: _error!,
                     ),
                   ),
-                if (_cargando)
+                if (_cargando || _ocupado)
                   const Padding(
                     padding: EdgeInsets.only(top: 12),
                     child: LinearProgressIndicator(),
@@ -493,20 +535,6 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        ExpansionTile(
-          title: const Text('Invitar docente'),
-          subtitle: const Text(
-            'Crear una cuenta nueva y después gestionar su rol desde esta pantalla.',
-          ),
-          leading: const Icon(Icons.person_add_alt_1_outlined),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: CpanelInvitacionesPanel(),
-            ),
-          ],
         ),
       ],
     );

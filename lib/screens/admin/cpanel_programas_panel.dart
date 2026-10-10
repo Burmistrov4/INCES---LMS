@@ -273,6 +273,17 @@ class _CpanelProgramasPanelState extends State<CpanelProgramasPanel> {
           ],
         ),
         const SizedBox(height: 16),
+        // La ruta al pensum se dice explícitamente: el panel lo administra desde
+        // la tarjeta de cada programa, y un icono con `tooltip` sólo se explica
+        // al pasar el ratón. Sin esta línea, «dónde se agrega el pensum» queda a
+        // la vista pero no a la lectura.
+        const AvisoEnLinea(
+          texto: 'Cada programa tiene su pensum: las materias y el período en que '
+              'se dictan. Se administra desde la tarjeta del programa, con '
+              '«Editar pensum» (el lápiz). Un programa sin materias no se puede '
+              'publicar.',
+        ),
+        const SizedBox(height: 16),
         _filtros(),
         const SizedBox(height: 16),
         Expanded(
