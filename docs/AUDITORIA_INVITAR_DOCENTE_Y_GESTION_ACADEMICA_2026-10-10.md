@@ -1,23 +1,19 @@
-# Auditoría — «Invitar docente» y gestión académica (Usuarios/Roles, Pensum, Períodos)
+# Auditoría — «Invitar docente», Usuarios/Roles y gestión académica
 
-> Sesión del **2026-10-10**. Base: `main` en `18aef35` («docs: document production
-> deployment runbook»). Este informe es de **diagnóstico + una corrección local de
-> bajo riesgo**. No se aplicaron migraciones, no se publicó nada, no se hizo commit.
+> Sesión del **2026-10-10**. Base inicial: `main` en `18aef35`. Estado final:
+> `main` en **`ebc9661`**, **desplegado en producción**.
+> Sin migraciones aplicadas. Sin secretos nuevos.
 
 ---
 
 ## 0. Corrección de premisa (medida, no supuesta)
 
-El encargo describe el backend como **Python/FastAPI**. **Eso es falso.** El backend
-real es **Node/TypeScript con Fastify 5 + Zod** (ESM), en `backend/`:
-
-- `backend/package.json` → `"fastify": "^5.2.1"`, `"type": "module"`, `vitest`, `tsc`.
-- No existe `requirements.txt`, `pyproject.toml` ni ningún `.py`.
-
-El resto de la premisa **sí** coincide: repo `github.com/Burmistrov4/inces-lms`,
-rama `main`, Render para el backend y Cloudflare Pages para el frontend
-(`render.yaml` en la raíz). La nota de la memoria del proyecto que decía «cPanel»
-está **desactualizada**; el destino de producción hoy es Render.
+El encargo describe el backend como **Python/FastAPI**. **Es falso.** El backend real es
+**Node/TypeScript con Fastify 5 + Zod** (ESM), en `backend/` (`package.json` →
+`"fastify": "^5.2.1"`, `"type": "module"`, `vitest`, `tsc`; no hay `requirements.txt`
+ni ningún `.py`). El resto del encargo sí coincide: repo `github.com/Burmistrov4/inces-lms`,
+`main`, Render + Cloudflare Pages (`render.yaml`). La memoria del proyecto decía «cPanel»;
+**corregido**: el destino es Render.
 
 ---
 
@@ -25,232 +21,207 @@ está **desactualizada**; el destino de producción hoy es Render.
 
 | Comprobación | Resultado medido |
 |---|---|
-| Ruta | `C:\Users\Loro\Desktop\Cuarto Semestre\1. Servicio Comunitario\INCES-LMS-PROJECT` |
 | Rama | `main` |
-| HEAD | `18aef35` (coincide con `origin/main`) |
-| `git status --short` | **14 entradas, todas sin rastrear** — sin conflictos, sin modificaciones ajenas |
-| Sin rastrear | `.wrangler/`, `backend/server-e2.err`, y 11 `e2e/tests/_*.spec.ts` de diagnóstico |
+| HEAD inicial | `18aef35` (coincidía con `origin/main`) |
+| `git status --short` | 14 entradas **sin rastrear**, sin conflictos ni modificaciones ajenas |
+| Sin rastrear (intactos) | `.wrangler/`, `backend/server-e2.err`, 11 `e2e/tests/_*.spec.ts`, `e2e/_monitor_t4.ps1` |
 
-No se tocó ninguno de los archivos sin rastrear (son deliberados, según el propio repo).
-
-### Producción (medida hoy, no supuesta)
-
-| Endpoint | Resultado |
-|---|---|
-| `GET https://inces-lms-api.onrender.com/salud` | **HTTP 200** · `{"estado":"ok","version":"0.1.0"}` · 658 ms |
-| `GET https://inces-lms.pages.dev/` | **HTTP 200** · 435 ms |
-| `OPTIONS /api/v1/admin/usuarios/invitaciones` (preflight CORS desde `inces-lms.pages.dev`) | **HTTP 204** |
-
-El endpoint de invitaciones **existe y responde en producción**.
+Producción al empezar: Render `/salud` → **200**; Pages `/` → **200**; preflight CORS de
+`/api/v1/admin/usuarios/invitaciones` → **204**. El despliegue de Pages en curso era
+`75b77944`, construido desde `794e9f2` (5 h antes).
 
 ---
 
-## B. Incidencia A — «Invitar docente» no hace nada
+## B. Incidencia A — «Invitar docente» no hace nada · **CERRADO**
 
-### Cadena real (leída, no supuesta)
+### La cadena estaba bien cableada
 
 ```
-CpanelUsuariosRolesPanel.build
-  └─ ListView
-       └─ ExpansionTile(title: 'Invitar docente')      ← el «botón»
-            └─ Padding → CpanelInvitacionesPanel()
-                 └─ ListView   ← (antes) altura NO acotada aquí
+ExpansionTile('Invitar docente')            cpanel_usuarios_roles_panel.dart
+  └─ CpanelInvitacionesPanel                (formulario + validación + listado)
+       └─ InvitacionRepository              (valida correo/nombres)
+            └─ BackendInvitacionGateway     POST /api/v1/admin/usuarios/invitaciones
+                 └─ backend admin.ts:276    bajo exigirAdmin()
 ```
 
-- `lib/screens/admin/cpanel_usuarios_roles_panel.dart:498` — el «botón» es un
-  `ExpansionTile`, no un `FilledButton`. Al pulsarlo **despliega** el formulario.
-- `lib/screens/admin/cpanel_invitaciones_panel.dart` — formulario completo
-  (nombres, apellidos, correo, validación, «Enviar invitación», listado, renovar,
-  anular).
-- `InvitacionRepository` valida; `BackendInvitacionGateway` llama a
-  **`POST /api/v1/admin/usuarios/invitaciones`** con el JWT de sesión.
-- Backend `backend/src/http/rutas/admin.ts:276` — misma ruta, bajo
-  `exigirAdmin()`. **La URL del frontend coincide con la del backend.**
+La URL del frontend coincide con la del backend. **No era el endpoint, ni el token, ni la
+validación.**
 
-**Conclusión: el cableado es correcto de punta a punta.** El fallo no está en el
-endpoint, ni en el token, ni en la validación.
+### Causa raíz (confirmada por medición)
 
-### Causa raíz (alta confianza, alineada con el historial del propio proyecto)
+`CpanelInvitacionesPanel` enraizaba en un **`ListView` con `shrinkWrap: false`**, y se monta
+dentro de `ExpansionTile.children`, que Flutter compone como una `Column` de **altura no
+acotada**. Al desplegar el acordeón:
 
-`CpanelInvitacionesPanel.build` devolvía un **`ListView` con `shrinkWrap: false`**,
-y ese panel se monta **dentro de `ExpansionTile.children`**, que Flutter compone
-como una `Column` de **altura NO acotada**. Un `ListView` no acotado lanza
-**«Vertical viewport was given unbounded height»** al desplegar el acordeón. En
-`--release` esa excepción se pinta como un recuadro gris: **el usuario pulsa y «no
-pasa nada».**
+```
+❌ test/cpanel_invitaciones_en_su_sitio_test.dart … (failed)
+Vertical viewport was given unbounded height.
+989 tests passed, 1 failed.
+```
 
-Evidencia de que **éste es el patrón que este proyecto ya pagó**: el doc de
-`ContenidoSeccion` (`lib/widgets/andamiaje.dart:720`) dice literalmente que un
-`ListView` bajo altura infinita «revienta con "incoming height constraints are
-unbounded"», que **tres paneles del cPanel** lo hacían, y que *«abrirlos en la
-aplicación real lanzaba una excepción de layout; las pruebas no lo veían porque los
-montaban en el `body` acotado de un `Scaffold`»*.
+En `--release` esa excepción se pinta como un recuadro gris: el usuario pulsa y «no pasa nada».
 
-Y el hueco de cobertura es exactamente el mismo: `test/contenido_seccion_test.dart:190`
-monta `CpanelInvitacionesPanel` **directamente en `ContenidoSeccion`** (acotado),
-**no dentro del `ExpansionTile` donde vive**.
+### Corrección
 
-### Corrección aplicada (mínima, 3 líneas, sin reindentar)
+Raíz → `Column(crossAxisAlignment: stretch, mainAxisSize: min)`, el contrato que el proyecto ya
+usa para hijos de `ExpansionTile` (`_SeccionGrupo`, `cpanel_inscripcion_campos_panel.dart:369`).
 
-`lib/screens/admin/cpanel_invitaciones_panel.dart`: la raíz pasa de
-`ListView(padding: EdgeInsets.zero, children: […])` a
-`Column(crossAxisAlignment: stretch, mainAxisSize: min, children: […])`.
+### Prueba de regresión (escrita y **ejecutada**)
 
-Es el contrato que el proyecto ya usa para hijos de `ExpansionTile`: en
-`cpanel_inscripcion_campos_panel.dart:369`, los hijos del `ExpansionTile`
-(`_SeccionGrupo`) son widgets que crecen con el contenido, **nunca desplazables**.
-El scroll lo pone el `ListView` de `CpanelUsuariosRolesPanel`, que es el padre real.
+`test/cpanel_invitaciones_en_su_sitio_test.dart` monta `CpanelUsuariosRolesPanel` en su padre
+real, comprueba que el formulario está visible **sin pulsar nada**, que el acordeón sigue
+plegando/desplegando y que no hay excepción de layout.
 
-### Prueba de regresión añadida
+### Contra-prueba (el test no es un verde vacío)
 
-`test/cpanel_invitaciones_en_su_sitio_test.dart` — monta `CpanelUsuariosRolesPanel`
-en su padre real, **pulsa el acordeón** y exige `takeException() == null` y que
-aparezca «Enviar invitación». Falla con el código viejo, pasa con el nuevo.
+Se creó una rama con **solo la corrección revertida** (el test intacto) y se corrió CI:
+**«Análisis estático» pasó y «Suite de pruebas» falló** con el error exacto predicho.
+Con la corrección: **991/991 en verde**.
 
-**Estado: EN PROGRESO** — la corrección está aplicada y type-checkeada, pero la
-prueba **no se pudo ejecutar en local** (ver §F). Debe correr en CI para cerrar.
+| Corrida | Contenido | Resultado |
+|---|---|---|
+| `38052066421` | fix + test (rama) | **success** |
+| `38052467610` | **fix revertido** (contra-prueba) | **failure** — `Vertical viewport was given unbounded height` |
+| `38053792905` | fix + test + guardia de ancho | **success** — `991 tests passed` |
+| `38054401881` | `main` final | **success** |
 
 ---
 
-## C. Usuarios y Roles — qué existe ya
+## B.2 Regresión introducida y corregida (la cazó la CI)
 
-**Invitación de docentes: implementada** (formulario, validación, duplicados vía
-`listarInvitaciones`, renovar/anular, enlace de activación de 48 h). El aviso dice
-«Invitación creada. El enlace está listo para entregar» — **no** «enviada», porque
-Resend no tiene dominio verificado; el enlace se muestra para reenviarlo a mano.
+Al mover la invitación arriba y arrancarla **desplegada**, el panel pasó a renderizarse dentro
+de `CpanelUsuariosRolesPanel` a 375 px. Con los 16 px de padding a cada lado se quedaba en
+**311 px** y el formulario **desbordaba 5 px**:
 
-**Promoción de administradores: ya existe.** En la tabla de usuarios, el icono
-«Cambiar rol» abre `_DialogoRol`; si el rol destino es `admin`, pide confirmación
-explícita. Ruta: `PATCH /api/v1/admin/usuarios/:id/rol`.
+```
+❌ barrido_responsive_test.dart: Usuarios y Roles · auditoría multi-ancho
+Actual: FlutterError:<A RenderFlex overflowed by 5.0 pixels on the right.>
+```
 
-**Protección del último administrador: ya existe, y por diseño en dos capas:**
+Corregido quitando el padding horizontal del hijo del acordeón (el panel vuelve a los 343 px
+con los que está probado que cabe). Verificado: `capturados=0` y **991/991**.
 
-1. `backend/src/dominio/reglas-admin.ts` → `revisarCambioDeRol()` (función pura,
-   probada): rechaza la auto-degradación (`AUTO_DEGRADACION`) y el último admin
-   (`ULTIMO_ADMIN`).
-2. **Trigger `proteger_ultimo_admin` en PostgreSQL**
-   (`supabase/migrations/202609120003_proteger_ultimo_admin.sql`), que cubre lo que
-   la función no puede: la carrera entre dos degradaciones simultáneas y cualquier
-   cambio por fuera de la API.
-
-**Gap real de la Incidencia B:** es de **descubribilidad**, no de capacidad. El
-usuario «no encuentra cómo añadir un administrador» porque la acción está dentro de
-la columna «Acciones» de cada fila, sin un encabezado que lo anuncie. No hay
-pestañas «Invitaciones pendientes» / «Historial de cambios de rol» separadas.
-**Estado: NO VERIFICADO en UI real** (no se pudo abrir el navegador con sesión).
+**Lección:** mover un panel de sitio cambia el ancho que recibe. El barrido responsive lo
+detectó porque monta el panel en su padre real.
 
 ---
 
-## D. Programas y pensums — qué existe ya
+## C. Usuarios y Roles — mejoras aplicadas
 
-**Implementado y persistido** (más completo de lo que sugiere el encargo):
+Ya existían (no se duplicó nada): invitación de docentes, cambio de rol con confirmación para
+`admin`, y **protección del último administrador en dos capas** — `revisarCambioDeRol()` (función
+pura, `backend/src/dominio/reglas-admin.ts`) **y** el trigger `proteger_ultimo_admin` de
+PostgreSQL (`202609120003`), que cubre además la carrera entre degradaciones simultáneas.
 
-- **Modelo**: `programs` (código, nombre, tipo `CARRERA`/`CURSO_LIBRE`,
-  `requires_internship`, `is_active`), `subjects` (banco global, `academic_hours`),
-  `program_subjects` (**el pensum**: materia → programa → `period_order`).
-- **Regla 1**: un programa `CARRERA` activo no puede quedarse sin materias —
-  *constraint trigger diferido* `exigir_pensum_de_programa`.
-- **Regla 2**: no se puede reordenar/quitar materias del pensum si hay secciones
-  activas del período vigente usándolo (el panel lo muestra como «Pensum
-  bloqueado: hay N secciones activas»).
-- **UI**: `cpanel_programas_panel.dart` — «Nuevo programa», «Ver pensum», «Editar
-  pensum», «Publicar»/«Archivar», validación «Un programa sin materias no se puede
-  activar». Además hay un **asistente de 3 pasos** (`asistente_curriculo_screen.dart`)
-  que crea programa + pensum en una sola operación.
-- **API**: `backend/src/http/rutas/curriculo.ts` — `GET/POST/PATCH /programas`,
-  `GET/POST /materias`, con `exigirAdmin()` **y** `exigirModulo('m2_curriculo')`.
+Lo que se añadió:
 
-**Gap real de la Incidencia C:** también de **descubribilidad/navegación**. La
-pantalla se llama «Programas Académicos» (menú *Gestión académica*); el pensum se
-edita desde el botón de cada fila. No hay una sección «Pensum» propia.
-**Estado: NO VERIFICADO en UI real.**
+1. **La invitación sube al principio y arranca desplegada** (`initiallyExpanded: true`). Un
+   acordeón cerrado al final de una lista larga no dice qué contiene: era el otro fallo de
+   descubribilidad.
+2. **Nota explícita** de cómo incorporar un administrador (invitar → cambiar rol), y el subtítulo
+   del acordeón lo repite.
+3. **Guardia de una operación a la vez** (`_ocupado`) en cambio de rol y restablecimiento, con
+   barra de progreso: un doble toque ya no dispara dos mutaciones.
 
----
+Backend verificado (leído, no supuesto): `exigirAdmin()` en todas las rutas de `/api/v1/admin`,
+más RLS en Postgres (ADR-003).
 
-## E. Períodos académicos, duración y caducidad — **aquí sí falta trabajo**
-
-Esto es lo único del encargo que **no está implementado**:
-
-- `academic_periods` tiene `code`, `name`, `start_date` (anulable), `end_date`
-  (anulable), `is_active`. **No hay columna de duración.**
-- La coherencia de fechas es un `CHECK` de tabla:
-  `end_date is null or start_date is null or end_date > start_date`.
-- `programs` **no tiene** `duración` ni unidad (solo `subjects.academic_hours`).
-- **No existe** máquina de estados del lapso (borrador/programado/activo/cerrado/
-  vencido/cancelado), ni **cálculo de vencimiento**, ni **historial de
-  modificaciones de fechas / prórrogas**.
-- El «vigente» **no** es una fecha: es `system_settings.periodo_activo`, declarado
-  con `PUT /periodos/:id/vigente`. Las fechas son informativas hoy.
-
-**Implicación:** implementar «duración configurable por programa» + «caducidad con
-historial de prórrogas» **requiere una migración de esquema nueva**. Por la §10 del
-encargo y la §2 del procedimiento de despliegue, **eso necesita autorización
-explícita** antes de aplicarse a producción. La migración se puede *preparar* en el
-repo; no aplicarla.
-
-**Estado: NO INICIADO** (bloqueado por decisión, no por técnica).
+**Estado: CERRADO** en lo técnico. La **verificación funcional en navegador con cuenta real no se
+hizo** (no hay credenciales de prueba disponibles; no se inventan).
 
 ---
 
-## F. Pruebas — comandos ejecutados y resultado real
+## D. Programas y pensums — navegación aclarada
 
-| Comando | Resultado |
-|---|---|
-| `flutter --no-version-check test --no-pub test/cpanel_invitaciones_en_su_sitio_test.dart` (×3) | **BLOQUEADO** — `CreateFile failed 231` (`ERROR_PIPE_BUSY`) |
-| `node devops/analizar-dart.mjs` | **223 archivos · sin errores, avisos ni info** |
+El modelo ya existe y no se tocó: `programs` / `subjects` / `program_subjects` (el pensum), con
+el trigger diferido «una carrera activa no puede quedarse sin materias», la regla «pensum
+bloqueado si hay secciones activas» y el asistente de 3 pasos.
 
-El `231` **no es del proyecto**: es el sandbox de esta sesión agotando su
-presupuesto de creación de procesos. El volcado lo muestra nítido — muere al lanzar
-`git.exe` (`checkFlutterVersionFreshness`) y el `hooks_runner` de assets nativos
-(`objective_c`). Coincide exactamente con lo ya documentado en la memoria del
-proyecto («es del sandbox, intermitente por agotamiento»).
+Lo que se añadió: una **línea explícita** al principio del panel de Programas que dice dónde se
+administra el pensum («Editar pensum», el lápiz). Antes sólo lo decía un `tooltip`, que se
+explica al pasar el ratón.
 
-**Consecuencia honesta:** la corrección de §B **no está demostrada en ejecución
-local**. `flutter test` debe correr en CI para cerrarla. El type-check sí pasó.
+**Estado: CERRADO** (cambio de descubribilidad). Verificación funcional en navegador: **NO
+VERIFICADA** por falta de cuenta.
+
+---
+
+## E. Períodos, duración y caducidad — **NO implementado** (diseño entregado)
+
+`academic_periods` sólo tiene `code`, `name`, `start_date`, `end_date` (anulables) e `is_active`
++ un `CHECK` de orden. **No hay** duración, estados, vencimiento ni historial de prórrogas.
+`programs` no tiene duración.
+
+El diseño completo —con las decisiones provisionales del usuario incorporadas— está en
+**`docs/DISENO_PERIODOS_DURACION_Y_CADUCIDAD_2026-10-10.md`**: duración configurable por
+programa, fechas efectivas por período, estados derivados, vencimiento sin borrado, prórrogas
+con valor anterior/nuevo/actor/motivo, reapertura explícita, y reutilización de
+`config_audit_log` (append-only) para el historial.
+
+**Requiere una migración nueva → NO aplicada. Necesita autorización explícita.**
+
+---
+
+## F. Pruebas ejecutadas
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Análisis estático | `flutter analyze` (CI) | **No issues found** |
+| Suite Flutter | `flutter test` (CI) | **991/991 passed** |
+| Contra-prueba del fallo | CI con el fix revertido | **failure** con el error exacto |
+| E2E Playwright | `e2e.yml` sobre `main` (`38054401910`) | **success** |
+| Análisis local | `node devops/analizar-dart.mjs` | 223 archivos, sin errores/avisos/infos |
+
+**`flutter test` y `flutter build web` NO corren en el sandbox local de Windows.** Medido: seis
+intentos de build fallidos con `Target dart2js failed: ProcessException … CreateFile failed 231`
+(`ERROR_PIPE_BUSY`). Está documentado en el propio `flutter_ci.yml` y en `e2e.yml`. La respuesta
+correcta es CI, no insistir en local.
 
 ---
 
 ## G. Git
 
-- **Sin commits.** No se creó ninguno: el encargo pide trazabilidad y aún no hay
-  evidencia de ejecución que respalde un commit funcional.
-- **Modificados (sin commitear):** `lib/screens/admin/cpanel_invitaciones_panel.dart`.
-- **Nuevos (sin rastrear):** `test/cpanel_invitaciones_en_su_sitio_test.dart`,
-  `docs/AUDITORIA_INVITAR_DOCENTE_Y_GESTION_ACADEMICA_2026-10-10.md`.
-- Sin rastrear **preexistentes, intactos:** `.wrangler/`, `backend/server-e2.err`,
-  `e2e/tests/_*.spec.ts`.
+| Commit | Qué |
+|---|---|
+| `5f333fa` | `fix(admin): render teacher-invitation panel without bounded height` |
+| `5789900` | `feat(admin): make user/role and pensum administration discoverable` |
+| `baea835`, `6f84bdc`, `d23be18`, `635fe8b` | pruebas + corrección del desborde a 375 px |
+| `e135960` | `ci: build the production web bundle in CI and validate it` |
+| `ebc9661` | `docs: audit of the invitation fix and design for period duration/expiry` |
+
+`HEAD == origin/main == ebc9661`. Ramas de trabajo `fix/invitar-docente-acordeon` y
+`fix/cpanel-barrido-375` fusionadas y **eliminadas** (local y remoto). Los archivos sin rastrear
+preexistentes quedaron **intactos**.
 
 ---
 
 ## H. Producción
 
-| Componente | Estado medido |
+| Componente | Estado verificado |
 |---|---|
-| Render `/salud` | **200** · ok |
-| Cloudflare Pages `/` | **200** |
-| CORS preflight invitaciones | **204** |
-| Migraciones (según memoria, `apply-migrations.mjs --check`, 2026-10-09) | 46 aplicadas · 0 pendientes · 0 deriva — **NO re-verificado hoy** |
+| Render `/salud` | **HTTP 200** · `{"estado":"ok"}` |
+| Cloudflare Pages `/` | **HTTP 200** |
+| Bundle público | 3 817 590 bytes · contiene `https://inces-lms-api.onrender.com` · **0** `localhost:3001` |
+| Despliegue Pages | `af6b618b-b69a-49f5-a73c-977b6feeab7f` · **Production / main** |
+| Migraciones | **ninguna aplicada** |
+| Secretos | **ninguno creado** (se reutilizaron los de E2E) |
 
-**No se publicó nada.** No se aplicaron migraciones.
+El bundle se compiló en CI con el flujo nuevo `web_bundle.yml` (Flutter 3.47.0, mismas
+`--dart-define` de producción, validación §5.1 antes de publicar el artefacto) y se desplegó con
+`wrangler pages deploy … --project-name=inces-lms --branch=main`.
+
+**Verificación funcional en navegador de la versión publicada: NO REALIZADA** — requiere una
+cuenta de prueba autorizada. Lo verificado es que la app carga, que el bundle es el correcto y
+que el backend responde.
 
 ---
 
-## I. Pendientes y decisiones que requieren tu aprobación
+## I. Pendientes
 
-1. **Ejecutar la prueba en CI** (o cuando el sandbox libere procesos) para cerrar la
-   Incidencia A con evidencia de ejecución.
-2. **Incidencia D (períodos/duración/caducidad)** — es la única que exige cambio de
-   esquema. Decisiones que necesito de ti antes de escribir la migración:
-   - ¿La **duración** se define por **programa** (p. ej. soldadura = 3 meses) o por
-     **lapso**?
-   - ¿El vencimiento **bloquea** inscripciones/edición o solo **avisa**?
-   - ¿Una **prórroga** reabre el lapso, o se registra y el lapso sigue cerrado?
-   - ¿Los estados (borrador/activo/cerrado/vencido) son los del dominio real, o
-     basta con fechas + `is_active`?
-3. **Incidencia B/C (descubribilidad)** — ¿quieres que reorganice la navegación
-   (p. ej. «Invitaciones pendientes» e «Historial de roles» como apartados propios,
-   y una ruta «Pensum» diferenciada), o preferís mejorar los rótulos dentro de las
-   pantallas actuales?
-4. **Verificación en UI real** — necesito una cuenta de prueba autorizada (o tu
-   confirmación de que puedo usar una de las existentes) para reproducir en
-   navegador. No invento credenciales ni toco cuentas reales.
+1. **Bloque E (períodos/duración/caducidad)** — esperando autorización para la migración y las 5
+   decisiones institucionales listadas en el diseño (§7 de ese documento).
+2. **Verificación funcional en navegador** de «Invitar docente» y de la promoción de
+   administradores en la versión publicada. Falta una cuenta de prueba autorizada.
+3. **Deuda heredada** (no tocada esta sesión): SMTP real de Resend, validación de la cámara de
+   `mobile_scanner` en dispositivo físico, D17 (lista de campos de HACER), rotación de cinco
+   credenciales.
