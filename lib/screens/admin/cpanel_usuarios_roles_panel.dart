@@ -246,8 +246,12 @@ class _CpanelUsuariosRolesPanelState extends State<CpanelUsuariosRolesPanel> {
           ),
           leading: const Icon(Icons.person_add_alt_1_outlined),
           children: [
+            // Sin padding horizontal a propósito. El panel está dimensionado
+            // para el ancho que le da `ContenidoSeccion`; recortarlo 16 px por
+            // lado lo dejaba en 311 px a 375 de ventana y el formulario
+            // desbordaba 5 px. El propio barrido responsive lo cazó.
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.only(bottom: 16),
               child: CpanelInvitacionesPanel(),
             ),
           ],
